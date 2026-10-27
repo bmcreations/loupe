@@ -68,6 +68,18 @@ func owner(t *testing.T, addr string, cert tls.Certificate, rows string) *httpte
 	return ts
 }
 
+// addTrusting adds s, confirming the fingerprint the peer asks to have
+// confirmed, the way a person does in the Add server form.
+func addTrusting(ctx context.Context, reg *Registry, s Server) (Server, error) {
+	got, err := reg.Add(ctx, s)
+	var confirm *ConfirmFingerprintError
+	if errors.As(err, &confirm) {
+		s.Pin = confirm.Fingerprint
+		return reg.Add(ctx, s)
+	}
+	return got, err
+}
+
 func TestAddPinsASelfSignedCertAndPersistsItBesideTheToken(t *testing.T) {
 	cert := selfSigned(t)
 	ts := owner(t, "", cert, `[{"id":"a"}]`)
@@ -78,7 +90,7 @@ func TestAddPinsASelfSignedCertAndPersistsItBesideTheToken(t *testing.T) {
 	}
 	leaf, _ := x509.ParseCertificate(cert.Certificate[0])
 
-	got, err := reg.Add(context.Background(), Server{Name: "mini", URL: ts.URL, Token: "tok"})
+	got, err := addTrusting(context.Background(), reg, Server{Name: "mini", URL: ts.URL, Token: "tok"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +114,7 @@ func TestAChangedCertificateFailsAsCertChanged(t *testing.T) {
 	cert := selfSigned(t)
 	ts := owner(t, "", cert, `[]`)
 	reg, _ := NewRegistry(NewStore(""), nil)
-	added, err := reg.Add(context.Background(), Server{Name: "mini", URL: ts.URL, Token: "tok"})
+	added, err := addTrusting(context.Background(), reg, Server{Name: "mini", URL: ts.URL, Token: "tok"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,20 +122,20 @@ func TestAChangedCertificateFailsAsCertChanged(t *testing.T) {
 	ts.Close()
 	owner(t, addr, selfSigned(t), `[]`)
 
-	c := NewClient(added, nil)
+	c := NewClient(added)
 	defer c.Close()
 	if _, err := c.Targets(context.Background()); !errors.Is(err, ErrCertChanged) {
 		t.Fatalf("err = %v, want certChanged", err)
 	}
 	// A server added fresh at the same address takes the new certificate.
-	if _, err := reg.Add(context.Background(), Server{Name: "mini2", URL: ts.URL, Token: "tok"}); err != nil {
+	if _, err := addTrusting(context.Background(), reg, Server{Name: "mini2", URL: ts.URL, Token: "tok"}); err != nil {
 		t.Fatalf("re-adding: %v", err)
 	}
 }
 
 func TestAnUnpinnedUnverifiedCertIsRefusedOutsideAdd(t *testing.T) {
 	ts := owner(t, "", selfSigned(t), `[]`)
-	c := NewClient(Server{Name: "x", URL: ts.URL, Token: "tok"}, nil)
+	c := NewClient(Server{Name: "x", URL: ts.URL, Token: "tok"})
 	defer c.Close()
 	if _, err := c.Targets(context.Background()); !errors.Is(err, ErrServerDown) {
 		t.Fatalf("err = %v, want a failed dial", err)
@@ -141,25 +153,25 @@ func TestAddRefusesWhatWouldNotWork(t *testing.T) {
 		{Name: "mini", URL: "http://" + ts.Listener.Addr().String(), Token: "tok"},
 		{Name: "mini", URL: ts.URL},
 	} {
-		if _, err := reg.Add(ctx, s); !errors.As(err, &invalid) {
+		if _, err := addTrusting(ctx, reg, s); !errors.As(err, &invalid) {
 			t.Errorf("Add(%+v) = %v, want InvalidError", s, err)
 		}
 	}
 	var se *StatusError
-	if _, err := reg.Add(ctx, Server{Name: "mini", URL: ts.URL, Token: "wrong"}); !errors.As(err, &se) || se.Status != 401 {
+	if _, err := addTrusting(ctx, reg, Server{Name: "mini", URL: ts.URL, Token: "wrong"}); !errors.As(err, &se) || se.Status != 401 {
 		t.Errorf("wrong token: %v", err)
 	}
-	if _, err := reg.Add(ctx, Server{Name: "mini", URL: "https://127.0.0.1:1", Token: "tok"}); !errors.Is(err, ErrServerDown) {
+	if _, err := addTrusting(ctx, reg, Server{Name: "mini", URL: "https://127.0.0.1:1", Token: "tok"}); !errors.Is(err, ErrServerDown) {
 		t.Errorf("unreachable: %v", err)
 	}
 	if n := reg.Names(); len(n) != 0 {
 		t.Fatalf("failed adds left %v in the list", n)
 	}
-	if _, err := reg.Add(ctx, Server{Name: "mini", URL: ts.URL, Token: "tok"}); err != nil {
+	if _, err := addTrusting(ctx, reg, Server{Name: "mini", URL: ts.URL, Token: "tok"}); err != nil {
 		t.Fatal(err)
 	}
 	var taken *NameTakenError
-	if _, err := reg.Add(ctx, Server{Name: "mini", URL: ts.URL, Token: "tok"}); !errors.As(err, &taken) {
+	if _, err := addTrusting(ctx, reg, Server{Name: "mini", URL: ts.URL, Token: "tok"}); !errors.As(err, &taken) {
 		t.Errorf("duplicate name: %v", err)
 	}
 }
@@ -176,11 +188,11 @@ func TestADerivedNameIsUniqueAndValid(t *testing.T) {
 	}
 	ts := owner(t, "", selfSigned(t), `[]`)
 	reg, _ := NewRegistry(NewStore(""), nil)
-	a, err := reg.Add(context.Background(), Server{URL: ts.URL, Token: "tok"})
+	a, err := addTrusting(context.Background(), reg, Server{URL: ts.URL, Token: "tok"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.Add(context.Background(), Server{URL: ts.URL, Token: "tok"})
+	b, err := addTrusting(context.Background(), reg, Server{URL: ts.URL, Token: "tok"})
 	if err != nil || a.Name == b.Name {
 		t.Fatalf("names %q %q err %v", a.Name, b.Name, err)
 	}
@@ -194,7 +206,7 @@ func TestASilentPeerKeepsItsRowsThenGoesStaleThenIsDropped(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reg.Start(ctx)
-	if _, err := reg.Add(ctx, Server{Name: "mini", URL: ts.URL, Token: "tok"}); err != nil {
+	if _, err := addTrusting(ctx, reg, Server{Name: "mini", URL: ts.URL, Token: "tok"}); err != nil {
 		t.Fatal(err)
 	}
 	addr := ts.Listener.Addr().String()

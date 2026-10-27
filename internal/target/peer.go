@@ -19,6 +19,15 @@ type PeerStream interface {
 	OwnerViewer() uint64
 }
 
+// ControlRelayer is implemented by a peer stream that passes on the owner's
+// control messages a hub's viewers should see too: its agents' cursors
+// (session.MsgCursor) and its events (session.MsgEvent). Each message is
+// whole, type byte first. The hub's session decodes and publishes them as
+// its own. The channel closes with the stream.
+type ControlRelayer interface {
+	RelayedControl() <-chan []byte
+}
+
 // PeerTarget is a target another loupe server owns, listed by this one. Its
 // id is "<server>/<owner's id>" and its kind is the owner's, since the client
 // picks labels, frames and input rules by kind. It registers in the Manager

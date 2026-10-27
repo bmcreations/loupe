@@ -28,7 +28,7 @@ type EmulatorConfig struct {
 	EmulatorPath string
 	// GPU is the -gpu mode. "host" renders on the host GPU. On an M3 Max,
 	// "swiftshader_indirect" matched it under scrolling at the same three to
-	// four cores (docs/cloud-emulators.md); a cloud vCPU is unmeasured.
+	// four cores; a cloud vCPU is unmeasured.
 	GPU string
 	// Port fixes the console port. Zero picks a free one when the AVD boots,
 	// which is the only safe choice: a port assigned up front belongs to

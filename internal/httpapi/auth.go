@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -34,19 +35,44 @@ func (s *Server) SetToken(t string) { s.token = t }
 // query form is how a phone bookmark works at all, so it is not optional -- it
 // is also the leakiest, which is why a browser navigation is redirected to
 // strip it once the cookie is set.
+//
+// The cookie is the one credential a browser attaches on its own, so it is the
+// one that needs an Origin check. SameSite=Strict stops another site, but a
+// site is scheme and registrable domain: a page on another port of this host
+// is same-site and its requests carry the cookie. Bearer and ?token= need no
+// check, because a page that can present the token was not forged by someone
+// who lacks it.
 func (s *Server) authed(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Every response, because the token rides in the first URL a phone
+		// opens and in the /wt URL, and a Referer would carry it to whatever
+		// the page links to.
+		w.Header().Set("Referrer-Policy", "no-referrer")
+
 		if s.token == "" || r.URL.Path == "/healthz" || isHomeScreenAsset(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		if s.tokenMatches(bearer(r)) || s.tokenMatches(cookieToken(r)) {
+		if s.tokenMatches(bearer(r)) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		q := r.URL.Query().Get("token")
+		if s.tokenMatches(cookieToken(r)) && !s.tokenMatches(q) {
+			if !sameOrigin(r) {
+				writeJSON(w, http.StatusForbidden, ErrorResponse{
+					Error: "loupe: the cookie was sent from another origin (" +
+						r.Header.Get("Origin") + "). Open this server's own page, " +
+						"or send Authorization: Bearer <token>.",
+				})
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		if s.tokenMatches(q) {
 			http.SetCookie(w, &http.Cookie{
 				Name:  tokenCookie,
@@ -90,6 +116,41 @@ func (s *Server) authed(next http.Handler) http.Handler {
 			"printed at startup, or send Authorization: Bearer <token>.",
 			http.StatusUnauthorized)
 	})
+}
+
+// sameOrigin reports whether a request's Origin, if it sent one, is this
+// server as the request reached it: the scheme the connection used, and the
+// Host it asked for. A missing Origin passes, because the native Mac app's
+// URLSession sends none and a browser always does on the requests that
+// matter here -- a POST, a WebSocket upgrade, a WebTransport CONNECT.
+// "null", from a sandboxed frame or a file:// page, is an origin and fails.
+func sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return strings.EqualFold(u.Scheme, scheme) &&
+		strings.EqualFold(withPort(u.Host, scheme), withPort(r.Host, scheme))
+}
+
+// withPort spells out the scheme's default port, so https://host and
+// https://host:443 compare equal.
+func withPort(host, scheme string) string {
+	if u := (&url.URL{Host: host}); u.Port() != "" {
+		return host
+	}
+	if scheme == "https" {
+		return host + ":443"
+	}
+	return host + ":80"
 }
 
 // isHomeScreenAsset reports whether a path is one of the files iOS reads to
@@ -139,4 +200,40 @@ func cookieToken(r *http.Request) string {
 		return ""
 	}
 	return c.Value
+}
+
+// redactQuery returns a raw query string with every token value replaced by
+// REDACTED, for writing a URL anywhere that outlives the request: the trace
+// and the logs are files on disk, and the token in them would be as good as
+// the one in the token file. The rest of the query is kept byte for byte.
+func redactQuery(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	parts := strings.Split(raw, "&")
+	for i, p := range parts {
+		k, _, _ := strings.Cut(p, "=")
+		if uk, err := url.QueryUnescape(k); err == nil {
+			k = uk
+		}
+		if k == "token" {
+			parts[i] = "token=REDACTED"
+		}
+	}
+	return strings.Join(parts, "&")
+}
+
+// redactURL is redactQuery for a whole URL string, as a client sends one in a
+// record: only the query between ? and # is touched.
+func redactURL(u string) string {
+	base, rest, ok := strings.Cut(u, "?")
+	if !ok {
+		return u
+	}
+	q, frag, hasFrag := strings.Cut(rest, "#")
+	out := base + "?" + redactQuery(q)
+	if hasFrag {
+		out += "#" + frag
+	}
+	return out
 }

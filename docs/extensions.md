@@ -4,9 +4,6 @@
 
 An extension is a separate program that works with devices through loupe's
 HTTP API. It never imports loupe's code and never talks to a device directly.
-`extensions/hotswap`, `extensions/speccompare` and `extensions/appmap` are the
-three in this repo, and each one is a working example.
-
 An extension can do either or both of these:
 
 - **Call loupe** like any other client, using `/api/screenshot`, `/api/ui`,
@@ -115,16 +112,14 @@ That leads to three rules:
   `X-Loupe-Agent` and `X-Loupe-Session` headers, as above, so loupe's claim
   check still applies.
 
-Keep data an extension writes outside the repo. The extensions here use
-`~/Library/Caches/loupe/<name>/`, which can be changed with `-data-dir`.
+Keep data an extension writes outside the repo. `~/Library/Caches/loupe/<name>/`
+is a good default.
 
 ## Building one
 
-The extensions here are Go binaries with their own `main` package under
-`extensions/<name>/`, built with `make <name>` into `.build/<name>`. That
-layout is a convention, not part of the contract. Any program that speaks
+An extension can be a Go binary with its own `main` package, but nothing
+requires it. Any program that speaks
 HTTP on loopback works.
 
-[app-map.md](app-map.md) and [spec-compare.md](spec-compare.md) describe two
-extensions end to end. The registry is tested in
+The registry is tested in
 `internal/httpapi/extension_test.go`.

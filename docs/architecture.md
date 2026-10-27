@@ -1,8 +1,9 @@
 # Architecture
 
-Moved out of CLAUDE.md on 2026-10-24. Shape, layout, transports, running it,
-sleep, auth, configuration, adaptive bitrate, client telemetry, known gaps and
-environment notes.
+How loupe is put together: the package layout, transports, running it under
+launchd, sleep, auth, configuration, adaptive bitrate, client telemetry, known
+gaps and environment notes. Flags and the stats overlay are in
+`docs/running.md`.
 
 ## Shape
 
@@ -119,6 +120,9 @@ a canvas. Pointer and key events go back over the same connection.
 | `internal/session/arbiter.go`, `control.go` | Input arbitration: a person's input holds the target against agents' `/api/input` |
 | `web/control.js` | The "driving" / "waiting for you" banner, and the viewer's `X-Loupe-Viewer` header |
 | `internal/target/clipboard.go`, `simclipboard.go` | Clipboard on Android (scrcpy's control socket) and on a simulator (simcap's CoreDevice pasteboard) |
+| `internal/clipshare/` | The shared clipboard: one value, its subscribers, and the Mac pasteboard helper's runner (`hostpb.go`) |
+| `internal/httpapi/clipshare_targets.go` | Joins target sessions to the shared clipboard and writes each new value to the others |
+| simcap's `hostpasteboard.swift` | `simcap -hostpasteboard`: the Mac's own pasteboard, polled, for the shared clipboard |
 | `internal/target/adbkeyboard.go` | Android's hardware keyboard: a scrcpy UHID device per session, and typing over the control socket |
 | `web/livecheck.js` | Layout self-check run against a live page (see Verification) |
 | `web/` | Browser client (vanilla ES modules, no build step) |
@@ -194,8 +198,7 @@ That address is this deployment's, not a requirement. The server serves TLS
 on whatever it binds and needs no particular network; only
 `loupe-supervisor.sh` assumes Tailscale, because it issues the cert with
 `tailscale cert` and so covers only the `ts.net` name. A host reachable some
-other way needs its own cert and a path for TCP and UDP on the `-addr` port. See
-`docs/cloud-emulators.md`.
+other way needs its own cert and a path for TCP and UDP on the `-addr` port.
 
 `loupe-supervisor.sh` runs a **copy** of `./loupe` from `.run/`, never
 `./loupe` itself. macOS returns ETXTBSY on a write to a running executable, so
@@ -205,6 +208,16 @@ build, which is why building is the whole deploy step.
 
 TLS is served directly rather than through `tailscale serve`, because that only
 proxies TCP and so cannot carry HTTP/3. It also hid backpressure (see trap 4).
+
+**Plain HTTP is loopback only.** Without `-tls-cert` and `-tls-key`, the server
+refuses to start unless `-addr` names a loopback host (`127.0.0.1`, `::1` or
+`localhost`), and exits 2 saying so. `:8080`, the default, binds every
+interface and is refused. Over plain HTTP the cookie cannot be `Secure`, and
+the token, the `/ws` stream and clipboard text cross the network readable by
+anyone on the path. `-insecure-http` serves it anyway and prints a warning.
+Spare servers are unaffected as long as they are either loopback
+(`-addr 127.0.0.1:18472 ... -no-auth`) or TLS (`-addr :18470 ... -tls-cert`),
+which is how the ones in these docs are run (`cmd/loupe/listen.go`).
 
 Tests: `make test`, which is `go test ./...` and `node web/run-tests.mjs`.
 
@@ -239,11 +252,28 @@ The token is read from `-token`, then `LOUPE_TOKEN`, then
 `~/Library/Caches/loupe/token`, and generated into that file if absent.
 Persisting it is not incidental: the supervisor restarts on every build, and a
 per-start token would invalidate the phone's bookmark each time, which ends
-with the token being switched off. The startup banner prints the full link, and a QR code of
+with the token being switched off. On a terminal, the startup banner prints the full link, and a QR code of
 the one a phone can open: its host is the TLS certificate's first DNS name,
 since the other links are localhost and interface IPs, which fail the
 certificate check on a phone (`cmd/loupe/qr.go`). It is about 25 lines of
-half blocks, so it fits `make agent-log`'s tail.
+half blocks.
+
+When stdout is not a terminal, as under launchd where it is
+`loupe-run.log`, the banner prints the links without `?token=`, leaves out
+the phone link, its QR code and the `Bearer` line, and names where the token
+is instead: the token file, or `-token` or `LOUPE_TOKEN` when one of those
+set it. The QR code encodes the token, so it goes with the rest. An authed
+`GET /api/handoff` returns the phone link. `make agent-log` no longer shows
+the QR code for that reason.
+
+The run log and the trace are owner-only. `trace.Open` creates the trace
+0600 and tightens an existing one; the server chmods its stdout and stderr
+to 0600 when they are files; and `loupe-supervisor.sh` chmods `loupe-run.log` and old traces at startup, because
+launchd opens the log before either runs. The plist sets `Umask` 077 for
+everything else the job creates; launchd does not apply it to
+`StandardOutPath`. Request queries are traced with
+the token replaced by `REDACTED`. Traces and logs from before that change
+still hold the token in cleartext.
 
 Three ways to present it, because three callers cannot share one. An agent
 sends `Authorization: Bearer`. A browser that has been here sends the cookie.
@@ -279,6 +309,23 @@ that unconditionally locks a plain-http run out, because the redirect has
 already removed the token from the URL. It is deliberately not `HttpOnly` --
 the client has to read it to build the `/wt` URL, and it came from the address
 bar regardless.
+
+`SameSite=Strict` is not enough on its own. A site is scheme and registrable
+domain, so a page served on another port of the same host is same-site and the
+browser attaches the cookie to its POSTs and its WebSocket. A request that
+authenticates by the cookie alone must therefore send no `Origin`, or one
+whose scheme, host and port are this server's as the request reached it
+(`Host`, and `https` exactly when the connection is TLS); anything else is a
+403 with a JSON error. A missing `Origin` passes because the native Mac app's
+URLSession sends none, and a browser always sends one on a POST, a WebSocket
+upgrade and a WebTransport CONNECT. Bearer and `?token=` requests skip the
+check: whoever presents the token was not forged by a page that lacks it. It
+lives in `authed`, so `/ws` and `/wt` are covered too. Behind a proxy that
+terminates TLS or rewrites `Host`, a same-origin page would fail this check;
+TLS is served directly here for other reasons (trap 4).
+
+Every response carries `Referrer-Policy: no-referrer`, so the token in a
+first-load URL or a `/wt` URL never leaves as a `Referer`.
 
 
 ### Configuration
@@ -521,6 +568,12 @@ Server-side, `wt-attempt` fires on entry to the `/wt` handler, before `Acquire`
 and `Upgrade`. Its absence means the request never reached HTTP, which points
 below QUIC rather than anywhere in the application.
 
+The shared clipboard traces `kind:"clipboard"`. `from: "shared"` is a value
+written to a target (`target` is its id, or `mac`), and `from: "mac"` a copy
+on the server's Mac, a `confidential` one it kept, or the helper's `error`.
+A copy on a target is the existing `from: "device"` record. A record carries
+`textLen` or `error`, never the text.
+
 Each viewer that arrives over Tailscale gets a `kind:"path"` record: `path`
 is `direct`, `peerRelay` or `derp`, a direct path carries `pathAddr` and
 `pathScope` (`lan` or `internet`), and a relayed one names its `derp`
@@ -553,13 +606,13 @@ away from home. A viewer not on Tailscale records nothing.
   270 against 0. Suppressed frames, not clumping, were the bulk of that gap.
   Where the clumping itself is introduced is still not established.
 - **A derived frame is still hidden in landscape.** Only the skin route turns
-  (see Device frames). Turning a derived frame means remapping its cutout
+  (see Device frames in `docs/targets.md`). Turning a derived frame means remapping its cutout
   anchor, and the one device that produces one here must not be rotated for
   testing.
 
 - **iOS simulators have no rotation.**
   Touch, pinch, buttons, keys, text, screenshots, `/api/ui`, the bezel and
-  adaptive bitrate work (see iOS simulator targets and Simulator frames),
+  adaptive bitrate work (see `docs/ios.md`),
   though `occluded` misses nodes covered by blank space. The HID path is
   private and is the part most likely to break with an Xcode update.
 - **Arbitration is human against agent, and claims are agent against
@@ -572,6 +625,14 @@ away from home. A viewer not on Tailscale records nothing.
   checked by unit and handler tests, not yet with a person at a phone and
   an agent on the same target.
 - No audio. `launch.go` passes `audio=false`.
+- **H.265 streams end to end and still cannot decode.** The codec string is
+  derived from an H.264 SPS, so the client is configured with a provisional
+  `avc1` string and fails. Making it work is an HEVC parameter-set parser, not
+  a flag.
+- **iPhone Safari cannot fullscreen a canvas**, only a `<video>` element. Add
+  to Home Screen gets close.
+- **A session released after the 15s idle grace starts fresh.** Reconnecting
+  inside that window resumes; after it, the encoder is relaunched.
 - `Synthetic` ignores `MaxSize`: it is fixed at 720x1560 unless the target is
   constructed with a size. It does honour `MaxFPS` and `BitRate`, and adapts.
 

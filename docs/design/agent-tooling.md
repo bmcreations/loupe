@@ -1,14 +1,16 @@
 # Agent tooling gaps
 
 Written 2026-10-22 after comparing loupe's agent API with Quern (quern.dev), a
-local MCP server for driving iOS and Android devices from an agent. Nothing
-here is built. It records four gaps, what closing each would take on this Mac,
+local MCP server for driving iOS and Android devices from an agent. Since
+then the MCP server (`loupe mcp`) and simulator crash reports
+(`/api/crashes`) have been built; `docs/agent-api.md` describes both. It
+records four gaps, what closing each would take on this Mac,
 and an order to close them in, so the order can be argued with before any code
 is written.
 
 The agent this is for is a developer's own coding session working on their
 app: install the PR's build, open the screen, see what broke. That is the lane
-`docs/product-direction.md` gives loupe's agent API, beside a person testing
+loupe's agent API is for, beside a person testing
 from a phone. It is not Quern's lane. Quern lists 107 tools in 17 categories
 and depends on Homebrew, Python 3.11, Node 22, idb-companion, pymobiledevice3,
 mitmproxy and scrcpy. Matching it tool for tool is not the goal; each section

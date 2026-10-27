@@ -129,3 +129,48 @@ func read(t *testing.T, path string) []map[string]any {
 	}
 	return out
 }
+
+// A trace holds request paths, peer names and device state, and before
+// queries were redacted it held the token. Nobody but the owner reads it.
+func TestTraceIsOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+
+	fresh := filepath.Join(dir, "fresh.jsonl")
+	w, err := Open(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+
+	// One written by an older build, 0644.
+	old := filepath.Join(dir, "old.jsonl")
+	if err := os.WriteFile(old, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w, err = Open(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+
+	// And one big enough to be rolled aside at open.
+	rolled := filepath.Join(dir, "rolled.jsonl")
+	if err := os.WriteFile(rolled, make([]byte, maxTraceBytes+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w, err = Open(rolled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+
+	for _, p := range []string{fresh, old, rolled, rolled + ".1"} {
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := st.Mode().Perm(); m != 0o600 {
+			t.Errorf("%s: mode %o, want 600", filepath.Base(p), m)
+		}
+	}
+}

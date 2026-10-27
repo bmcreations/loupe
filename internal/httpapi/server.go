@@ -374,7 +374,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	s.trace.Record(map[string]any{
 		"kind":        "http",
 		"path":        r.URL.Path,
-		"query":       r.URL.RawQuery,
+		"query":       redactQuery(r.URL.RawQuery),
 		"status":      rec.status,
 		"bytes":       rec.bytes,
 		"contentType": rec.Header().Get("Content-Type"),
@@ -422,6 +422,13 @@ func (s *Server) handleClientLog(w http.ResponseWriter, r *http.Request) {
 	}
 	if rec == nil {
 		rec = map[string]any{}
+	}
+	// A client record carries location.href, which holds the token whenever
+	// the page was opened from a token link the strip redirect didn't see.
+	for k, v := range rec {
+		if str, ok := v.(string); ok && strings.Contains(str, "token=") {
+			rec[k] = redactURL(str)
+		}
 	}
 	rec["kind"] = "client"
 	rec["ua"] = r.UserAgent()

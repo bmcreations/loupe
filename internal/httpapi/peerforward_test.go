@@ -342,3 +342,14 @@ func TestPeerOwnerDownIs502ServerDown(t *testing.T) {
 		}
 	}
 }
+
+// A peer target's clipboard is the owner's: its refusal reaches the caller
+// as the owner sent it, not as the hub's own 502.
+func TestPeerClipboardOwnerRefusalComesBackUnchanged(t *testing.T) {
+	p := newPair(t, true)
+	direct := p.owner(http.MethodGet, "/api/clipboard?target=rec", "", HeaderAgent, "claude")
+	via := p.hub(http.MethodGet, "/api/clipboard?target=mini/rec", "", HeaderAgent, "claude")
+	if direct.Code != http.StatusNotImplemented || via.Code != direct.Code || via.Body.String() != direct.Body.String() {
+		t.Fatalf("via hub = %d %s, direct = %d %s", via.Code, via.Body, direct.Code, direct.Body)
+	}
+}

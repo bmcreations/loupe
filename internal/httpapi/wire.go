@@ -25,6 +25,9 @@ type ErrorResponse struct {
 	ID string `json:"id,omitempty"`
 	// Claim is the claim that caused an ErrCodeClaimed 409.
 	Claim *ClaimInfo `json:"claim,omitempty"`
+	// Fingerprint is the certificate an ErrCodeConfirmFingerprint 409 asks
+	// to have confirmed, as hex SHA-256 of its DER.
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 // ErrCodeHubHeld is POST /api/input's 409 when Device Hub holds an iOS
@@ -136,6 +139,12 @@ const ErrCodeServerDown = "serverDown"
 const ErrCodeUnsupportedProtocol = "unsupportedProtocol"
 
 // ErrCodeCertChanged is POST /api/servers' 502 when the peer's certificate
-// neither verifies nor matches its pin. Removing the server and adding it
+// does not match its pin. Removing the server and adding it
 // again takes the new certificate.
 const ErrCodeCertChanged = "certChanged"
+
+// ErrCodeConfirmFingerprint is POST /api/servers' 409 when the peer's
+// certificate does not verify against the system roots, or no longer matches
+// the fingerprint the request carried. No token has been sent to the peer.
+// Sending the request again with the answer's fingerprint pins it.
+const ErrCodeConfirmFingerprint = "confirmFingerprint"

@@ -190,11 +190,31 @@ func (e *NameTakenError) Error() string {
 	return fmt.Sprintf("a server named %q already exists", e.Name)
 }
 
+// ConfirmFingerprintError is Add's refusal of a peer whose certificate does
+// not verify against the system roots, until the person confirms
+// Fingerprint, the certificate it presents, by passing it back as the Pin.
+// No token has been sent when it is returned.
+type ConfirmFingerprintError struct {
+	Fingerprint string
+	// Changed is set when a fingerprint was passed and the peer presents a
+	// different one.
+	Changed bool
+}
+
+func (e *ConfirmFingerprintError) Error() string {
+	if e.Changed {
+		return "the server now presents a different certificate from the one confirmed: " + e.Fingerprint
+	}
+	return "the server's certificate is not signed by a trusted authority; confirm its fingerprint: " + e.Fingerprint
+}
+
 // Add reaches the server, reads its targets, and only then stores it, so a
 // typo never sits in the list looking healthy. An empty Name is derived from
-// the host. With no Pin the certificate is pinned if it does not verify
-// against the system roots. The returned Server carries the pin and the name
-// that was chosen.
+// the host. The certificate is checked first, on a handshake that sends no
+// token: one that verifies against the system roots is stored with no pin,
+// and any other is refused with a *ConfirmFingerprintError until s.Pin
+// carries its fingerprint, which is then pinned. The returned Server carries
+// the pin and the name that was chosen.
 func (r *Registry) Add(ctx context.Context, s Server) (Server, error) {
 	url, err := NormalizeURL(s.URL)
 	if err != nil {
@@ -218,8 +238,30 @@ func (r *Registry) Add(ctx context.Context, s Server) (Server, error) {
 		return s, &NameTakenError{s.Name}
 	}
 
-	s.Pin = ""
-	c := NewClient(s, func(fp string) { s.Pin = fp })
+	confirmed := ""
+	if s.Pin != "" {
+		if confirmed = normalFingerprint(s.Pin); confirmed == "" {
+			return s, &InvalidError{"a fingerprint is the certificate's SHA-256 in hex"}
+		}
+	}
+	presented, err := probeCert(ctx, s.URL)
+	if err != nil {
+		return s, err
+	}
+	switch {
+	case presented == "":
+		// The chain verifies for the host: no pin, so a renewal is fine.
+		s.Pin = ""
+	case confirmed == "":
+		return s, &ConfirmFingerprintError{Fingerprint: presented}
+	case confirmed != presented:
+		return s, &ConfirmFingerprintError{Fingerprint: presented, Changed: true}
+	default:
+		// The dial below requires exactly this certificate, so one swapped
+		// in after the probe fails the handshake before the token is sent.
+		s.Pin = confirmed
+	}
+	c := NewClient(s)
 	defer c.Close()
 	rows, err := c.Targets(ctx)
 	if err != nil {
@@ -329,7 +371,7 @@ type poller struct {
 }
 
 func newPoller(r *Registry, s Server) *poller {
-	return &poller{reg: r, srv: s, client: NewClient(s, nil)}
+	return &poller{reg: r, srv: s, client: NewClient(s)}
 }
 
 func (p *poller) start(ctx context.Context) {

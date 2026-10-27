@@ -498,7 +498,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 			// session exists to publish to -- the same gate publishAgentEvent
 			// applies below -- so a bare /api/input still costs exactly one
 			// adb call.
-			if req.Text != "" {
+			if req.Text != "" && !ownerPublishes(t, c, nil) {
 				if _, ok := s.mgr.Session(t.ID()); ok {
 					red := redactionForFocusedField(ctx, t, req.Text)
 					redaction = &red
@@ -646,7 +646,9 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	// above as a MsgCursor, which is not history either. A launch has no
 	// field in the event format to name its app, nor openURL its link, so
 	// each is traced only.
-	if req.Action != "hardwareKeyboard" && req.Action != "launch" && req.Action != "openURL" && req.Action != "move" {
+	// A peer's owner publishes its own, which the relay brings here.
+	if req.Action != "hardwareKeyboard" && req.Action != "launch" && req.Action != "openURL" && req.Action != "move" &&
+		!ownerPublishes(t, c, err) {
 		s.publishAgentEvent(ctx, t, req, c, err, redaction)
 	}
 	s.traceReclaim(r, t, began)
@@ -808,6 +810,20 @@ func redactionForFocusedField(ctx context.Context, t target.Target, text string)
 	}
 	red.redacted = false
 	return red
+}
+
+// ownerPublishes reports whether an agent's call on a peer target leaves its
+// event to the owner. The owner publishes one for every call it acts on, and
+// the relay brings it to this server's session (Session.watchRelayed), so
+// publishing here too would log the tap twice. A hub viewer's own call stays
+// here: the owner's copy carries the relay's viewer id, which the relay
+// drops. So does a call that never reached the owner, which published
+// nothing. err is the action's result, nil before it has run.
+func ownerPublishes(t target.Target, c inputCaller, err error) bool {
+	if _, ok := t.(*target.PeerTarget); !ok || c.viewer != 0 {
+		return false
+	}
+	return !errors.Is(err, target.ErrPeerDown)
 }
 
 // publishAgentEvent turns one /api/input call into an Event and publishes it

@@ -45,11 +45,10 @@ type Client struct {
 	long *http.Client
 }
 
-// NewClient returns a client for s. capture is TLSConfig's, for the one call
-// that adds the server.
-func NewClient(s Server, capture func(string)) *Client {
+// NewClient returns a client for s, verifying the peer as TLSConfig does.
+func NewClient(s Server) *Client {
 	tr := &http.Transport{
-		TLSClientConfig:     TLSConfig(s.Pin, capture),
+		TLSClientConfig:     TLSConfig(peerHost(s.URL), s.Pin, nil),
 		MaxIdleConnsPerHost: 2,
 		IdleConnTimeout:     30 * time.Second,
 	}

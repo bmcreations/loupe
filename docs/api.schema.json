@@ -171,6 +171,9 @@
     "POST /api/servers 201": {
       "$ref": "#/$defs/httpapi.ServerInfo"
     },
+    "POST /api/servers 409": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
     "POST /api/servers 502": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
@@ -218,6 +221,9 @@
         },
         "maxSize": {
           "type": "integer"
+        },
+        "sharedClipboard": {
+          "type": "boolean"
         },
         "simulatorSlim": {
           "type": "boolean"
@@ -657,6 +663,9 @@
           "type": "string"
         },
         "error": {
+          "type": "string"
+        },
+        "fingerprint": {
           "type": "string"
         },
         "id": {
@@ -2044,6 +2053,9 @@
     },
     "httpapi.ServerAddRequest": {
       "properties": {
+        "fingerprint": {
+          "type": "string"
+        },
         "name": {
           "type": "string"
         },

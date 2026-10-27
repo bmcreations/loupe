@@ -213,6 +213,9 @@ type Session struct {
 	// above, because watchClipboard starts inside Open, before the manager
 	// can install it.
 	onClipboard func(runes, viewers int)
+	// clipSink receives the text of each device clipboard change, for the
+	// shared clipboard. Under mu for the same reason as onClipboard.
+	clipSink func(text string)
 
 	// pointers is every finger a viewer has down, so one that leaves
 	// mid-gesture can be lifted (pointers.go). onLifted records each lift.
@@ -363,6 +366,7 @@ func Open(ctx context.Context, id string, t target.Target, opts target.Options) 
 
 	go s.pump()
 	s.watchClipboard(stream)
+	s.watchRelayed(stream)
 	return s, nil
 }
 
@@ -1132,6 +1136,52 @@ func (s *Session) watchClipboard(st target.Stream) {
 	go func() {
 		for text := range changes {
 			s.sendClipboard(text)
+			s.mu.RLock()
+			sink := s.clipSink
+			s.mu.RUnlock()
+			if sink != nil {
+				sink(text)
+			}
+		}
+	}()
+}
+
+// watchRelayed publishes a peer owner's cursors and events to this
+// session's viewers, as if they had happened here. An event whose viewer is
+// the relay's own on the owner is dropped: it is a gesture or input from a
+// viewer of this session, which this session already published. The rest
+// lose their viewer id, which names a viewer of the owner and means nothing
+// here, and take a seq from this session's ring.
+func (s *Session) watchRelayed(st target.Stream) {
+	cr, ok := st.(target.ControlRelayer)
+	if !ok {
+		return
+	}
+	msgs := cr.RelayedControl()
+	if msgs == nil {
+		return
+	}
+	ps, _ := st.(target.PeerStream)
+	go func() {
+		for b := range msgs {
+			if len(b) == 0 {
+				continue
+			}
+			var e Event
+			if json.Unmarshal(b[1:], &e) != nil {
+				continue
+			}
+			switch b[0] {
+			case MsgCursor:
+				e.Viewer = 0
+				s.PublishCursor(e)
+			case MsgEvent:
+				if ps != nil && e.Viewer != 0 && e.Viewer == ps.OwnerViewer() {
+					continue
+				}
+				e.Seq, e.Viewer = 0, 0
+				s.PublishEvent(e)
+			}
 		}
 	}()
 }
@@ -1226,6 +1276,14 @@ func (s *Session) traceLifted(viewer uint64, n int) {
 func (s *Session) SetClipboardObserver(fn func(runes, viewers int)) {
 	s.mu.Lock()
 	s.onClipboard = fn
+	s.mu.Unlock()
+}
+
+// SetClipboardSink installs the hook that hands each device clipboard change
+// to the shared clipboard.
+func (s *Session) SetClipboardSink(fn func(text string)) {
+	s.mu.Lock()
+	s.clipSink = fn
 	s.mu.Unlock()
 }
 

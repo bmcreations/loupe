@@ -5,24 +5,11 @@ LABEL := dev.bmcreations.loupe
 PLIST := $(HOME)/Library/LaunchAgents/$(LABEL).plist
 GUI   := gui/$(shell id -u)
 
-.PHONY: build hotswap speccompare appmap composeagent simcap xcrunner test vet fmt run synthetic clean dist \
+.PHONY: build composeagent simcap xcrunner test vet fmt run synthetic clean dist \
 	agent-install agent-uninstall agent-restart agent-status agent-log
 
 build:
 	go build $(GOFLAGS) -o $(BINARY) ./cmd/loupe
-
-# The hotswap extension (extensions/hotswap, docs/hotswap.md). A separate binary,
-# not part of build: it reaches loupe only over HTTP.
-hotswap:
-	go build $(GOFLAGS) -o .build/hotswap ./extensions/hotswap
-
-# The spec comparison extension (extensions/speccompare, docs/spec-compare.md).
-speccompare:
-	go build $(GOFLAGS) -o .build/speccompare ./extensions/speccompare
-
-# The app map extension (extensions/appmap, docs/app-map.md).
-appmap:
-	go build $(GOFLAGS) -o .build/appmap ./extensions/appmap
 
 # The Compose inspector agent (internal/composetree). Its output is committed
 # and pinned, so build needs neither the NDK nor d8; rerun this after changing

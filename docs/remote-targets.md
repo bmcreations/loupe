@@ -1,6 +1,7 @@
 # Remote targets
 
-Written 2026-10-26. A design, not built yet.
+Written 2026-10-26 as a design. Peer servers, the first backend, are built
+(`internal/target/peer.go`); the other backends are not.
 
 Every target loupe streams today is attached to the machine loupe runs on:
 adb's devices and emulators, CoreSimulator through simcap, iPhones through
@@ -39,7 +40,7 @@ Two shapes fit, and nothing else does:
    Apple ships nothing that streams a simulator off its Mac.
 2. **A remote adb serial.** Every cloud Android service worth using reduces
    to an adb serial on this machine, after `android device remote create`,
-   `gmsaas instances adbconnect` or Sauce's bridge. `docs/cloud-emulators.md`
+   `gmsaas instances adbconnect` or Sauce's bridge. the cloud emulator study (not published)
    Option A covers what is missing locally: nothing runs the connect, and the
    picker lists the result as a physical device. scrcpy's stream rides TCP
    inside adb, so the video crosses the internet before loupe's transport
@@ -49,7 +50,7 @@ Order: peer servers first, since the Mac mini is the host that exists. Then
 remote adb serials, with `android device remote` the first provider, since
 it is the only one with real devices at a per-minute price. A cloud VM is not
 a third backend: it is a peer that runs Linux, which is
-`docs/cloud-emulators.md` Option B.
+the cloud emulator study (not published) Option B.
 
 ## Peer servers
 
@@ -73,6 +74,10 @@ GET    /api/servers
   -> 200 [{"name":"mini","url":"https://mac-mini.local:18456","state":"up","targets":4,"rttMs":2}]
 POST   /api/servers {"name":"mini","url":"https://mac-mini.local:18456","token":"…"}
   -> 201, after the hub has reached the peer and read its /api/targets
+  -> 409 {"error":"…","code":"confirmFingerprint","fingerprint":"<sha256 hex>"}
+     when no trusted authority signed the peer's certificate; no token sent
+POST   /api/servers {…same…,"fingerprint":"<sha256 hex>"}
+  -> 201, with the certificate pinned to that fingerprint
 DELETE /api/servers?name=mini
   -> 204
 ```
@@ -83,9 +88,8 @@ DELETE /api/servers?name=mini
 - The list persists in `servers.json` beside `handsoff.json`, mode 0600,
   since it holds the peers' tokens. It is not a `config.Field`: `/api/config`
   never returns a token, and the trace records only the name and URL.
-- `POST` fails with the peer's own error when it cannot be reached, the
-  token is refused or the certificate does not verify, so a typo does not
-  sit in the list looking healthy.
+- `POST` fails with the peer's own error when it cannot be reached or the
+  token is refused, so a typo does not sit in the list looking healthy.
 - The web client gets an Add server form in the picker's menu and a server
   filter. The Mac app reads the same `/api/servers`, but its UI is not part
   of this change.
@@ -98,16 +102,28 @@ port (UDP for the raw-QUIC stream).
 
 Trust is the part Tailscale was quietly providing: `loupe-supervisor.sh`
 issues the certificate with `tailscale cert` when it has none. A mini on the
-LAN without Tailscale has a self-signed one. So `POST /api/servers` pins the
-SHA-256 of the peer's leaf certificate when it first connects, the way SSH
-trusts a host key, and every later dial checks it. A certificate that
-verifies against the system roots (`tailscale cert`, ACME on a cloud VM)
-is accepted without a pin. A pinned certificate that changes fails the dial
-with `certChanged` until the server is added again.
+LAN without Tailscale has a self-signed one.
 
-Peer URLs are `https` only: the token rides every request. The pin applies
-only when the system chain fails, so a `tailscale cert` or ACME certificate
-never needs one.
+`POST /api/servers` first completes a TLS handshake with the peer and sends
+nothing over it. A certificate that verifies against the system roots for
+the host in the URL (`tailscale cert`, ACME on a cloud VM) is accepted
+without a pin, and the add goes ahead. The host is checked for an IP URL
+too: the certificate must name that IP. Any other certificate gets a 409
+with code `confirmFingerprint` and the SHA-256 of its DER in `fingerprint`,
+and the token has not left the hub. Compare it with
+`openssl x509 -in <cert> -noout -fingerprint -sha256` run on the peer
+against the file its `-tls-cert` names (the Add server form prints it in
+that colon-separated form, and the API takes either). Sending the same
+request again with that `fingerprint` pins it, the way SSH trusts a host
+key. A fingerprint that does not match what the peer presents gets the 409
+again, carrying the one it does present.
+
+Every later dial, HTTP and QUIC, checks the pin first. A pinned peer must
+present exactly that certificate, even one a trusted authority signed, and
+one that changes fails the dial with `certChanged` until the server is
+added again. A peer with no pin must keep verifying for its host.
+
+Peer URLs are `https` only: the token rides every request.
 
 The hub authenticates with `Authorization: Bearer` on HTTP and with the token
 in the `QUICOpen` message on the stream, not in a `?token=` query, which
@@ -127,7 +143,9 @@ warning in the response: HTTP works, so listing and driving work and only
 streaming may not.
 
 Errors: an owner's own 4xx or 5xx passes through with its body. A dial
-failure or a timeout is 502 with reason `serverDown`.
+failure or a timeout is 502 with reason `serverDown`. An unconfirmed or
+mismatched certificate is 409 `confirmFingerprint`, and a certificate that
+no longer matches its pin is 502 `certChanged`.
 
 ### Merged targets
 
@@ -200,7 +218,22 @@ seconds at 60fps.
   and a person on the phone holds the target against agents on the owner too.
 - Init and Stats from the owner are read for `Meta` and the owner's viewer id
   (`PeerStream.OwnerViewer`), then dropped. The hub sends its own, which
-  describe the hub-to-phone link.
+  describe the hub-to-phone link. So is the owner's `MsgControl`.
+- Clipboard, cursor and events from the owner reach the hub's viewers, since
+  they watch the same device. `MsgClipboard` feeds the stream's
+  `ClipboardChanges` (four queued, the oldest dropped past that), which
+  `Session.watchClipboard` sends on as for any target. `MsgCursor` and
+  `MsgEvent` go out through `RelayedControl` to `Session.watchRelayed`, which
+  publishes them as the hub's own. The hub never forwards an agent's `move`,
+  so every relayed cursor is an agent on the owner.
+- A relayed event loses its `viewer`, which names a viewer of the owner, and
+  takes the hub's next `seq`. An event carrying the relay's own viewer id is
+  dropped: it is a hub viewer's gesture or input, which the hub published
+  already. An agent's `/api/input` on the hub for a peer target publishes
+  nothing on the hub, because the owner publishes it and the relay brings it
+  back; so the hub's event arrives a round trip after the call returns. The
+  hub publishes its own only when the owner was never reached
+  (`target.ErrPeerDown`).
 - `RequestKeyframe` has no client message to send: the protocol has none
   (`0x10`-`0x15`). The owner sends keyframes on its own interval, one second
   on Android, so after a shed the hub waits up to that long. A client message
@@ -262,6 +295,9 @@ Input is arbitrated on both servers, each for what it can see:
   using it through the hub. The owner's status and body come back verbatim,
   with the owner's target id in the body rewritten to the hub's. `GET
   /api/claims` lists this server's own claims only.
+- `/api/clipboard` for a peer id goes to the owner's `/api/clipboard`, and the
+  owner's refusal comes back as it sent it: 409 when the owner has no session
+  for the target. The hub's shared clipboard never writes a peer target.
 
 ### Hub code that assumes a target is local
 
@@ -292,9 +328,6 @@ the owner on the mini, once it exists.
   Handset.
 - **`/ws` to the owner** for a peer reachable over TCP only.
 - **A keyframe request message** in the protocol.
-- **Peer events.** The owner's `MsgEvent` and `MsgCursor` are not relayed,
-  so a phone on the hub does not see the agent cursor for an agent driving
-  through the owner.
 - **Remote adb serials**, backend 2 above.
 - **Scoped tokens.** A peer's token opens everything on the peer, the same
-  gap `docs/remote-dev.md` names for share links.
+  gap `docs/design/remote-dev.md` names for share links.

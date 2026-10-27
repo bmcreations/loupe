@@ -75,6 +75,7 @@ var endpoints = []endpoint{
 	{"GET /api/servers", dirResponse, []httpapi.ServerInfo{}},
 	{"POST /api/servers request", dirRequest, httpapi.ServerAddRequest{}},
 	{"POST /api/servers 201", dirResponse, httpapi.ServerInfo{}},
+	{"POST /api/servers 409", dirResponse, httpapi.ErrorResponse{}},
 	{"POST /api/servers 502", dirResponse, httpapi.ErrorResponse{}},
 	{"DELETE /api/servers 404", dirResponse, httpapi.ErrorResponse{}},
 	{"GET /api/ui", dirResponse, httpapi.UIResponse{}},

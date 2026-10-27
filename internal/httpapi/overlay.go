@@ -25,7 +25,7 @@ import (
 // labels (where it differs), or both. loupe neither makes nor reads them. It
 // keeps the latest set per target, sends it to every viewer as MsgOverlay,
 // and serves the images, so a client draws an extension's output while only
-// ever talking to loupe. docs/spec-compare.md is the first user.
+// ever talking to loupe.
 //
 // Coordinates come in as device pixels, the space /api/screenshot and
 // /api/ui use, and go out to viewers as fractions of the screen, the way

@@ -11,13 +11,18 @@
 // reads "The server refused the token", and nothing here treats it as a
 // reason to leave the page. Every other status shows the server's own
 // message.
+//
+// A 409 with code confirmFingerprint is the server declining to send the
+// token to a peer whose certificate no authority signed. The sheet shows the
+// fingerprint and the Add button becomes Trust and add, which sends the same
+// form again with that fingerprint; the peer is then pinned to it.
 
 // validateServerForm(form) -> {ok, value} | {ok: false, field, error}.
 // The URL is https only, since the token rides every request to the peer; the
 // server checks the same and the page says so before the round trip. name is
 // optional (the server derives one from the host) and becomes the prefix of
 // every id, so it cannot hold a '/'.
-export function validateServerForm({ url, token, name } = {}) {
+export function validateServerForm({ url, token, name, fingerprint } = {}) {
   const rawURL = String(url || '').trim();
   const rawToken = String(token || '').trim();
   const rawName = String(name || '').trim();
@@ -32,6 +37,7 @@ export function validateServerForm({ url, token, name } = {}) {
   if (rawName.includes('/')) return { ok: false, field: 'name', error: 'The name cannot contain a slash.' };
   const value = { url: u.origin, token: rawToken };
   if (rawName) value.name = rawName;
+  if (fingerprint) value.fingerprint = String(fingerprint);
   return { ok: true, value };
 }
 
@@ -47,9 +53,16 @@ async function readBody(res) {
   try { return await res.json(); } catch (_) { return null; }
 }
 
+// formatFingerprint renders a hex SHA-256 the way `openssl x509 -fingerprint
+// -sha256` prints one, so it can be compared with that output by eye.
+export function formatFingerprint(fp) {
+  return String(fp || '').toUpperCase().match(/.{1,2}/g)?.join(':') || '';
+}
+
 // postServer(fetchImpl, value) -> {ok: true, server, warning} or
-// {ok: false, status, message}. status is 0 when the request never got an
-// answer.
+// {ok: false, status, message, fingerprint?}. status is 0 when the request
+// never got an answer. fingerprint is set when the server asks for the
+// peer's certificate to be confirmed.
 export async function postServer(fetchImpl, value) {
   let res;
   try {
@@ -62,6 +75,9 @@ export async function postServer(fetchImpl, value) {
     return { ok: false, status: 0, message: 'Could not reach this server.' };
   }
   const body = await readBody(res);
+  if (res.status === 409 && body && body.code === 'confirmFingerprint' && body.fingerprint) {
+    return { ok: false, status: 409, message: serverError(res.status, body), fingerprint: String(body.fingerprint) };
+  }
   if (!res.ok) return { ok: false, status: res.status, message: serverError(res.status, body) };
   return { ok: true, server: body, warning: body && typeof body.warning === 'string' ? body.warning : '' };
 }
@@ -160,6 +176,10 @@ export function mount(root, { fetch: fetchImpl = globalThis.fetch && globalThis.
                placeholder="Name (optional)" aria-label="Name">
         <p class="switchError" id="serverError" role="alert" hidden></p>
         <p class="serverWarning" id="serverWarning" role="status" hidden></p>
+        <div class="serverConfirm" id="serverConfirm" role="alert" hidden>
+          <p>No trusted authority signed this server’s certificate. Add it only if this SHA-256 fingerprint matches its certificate there:</p>
+          <code class="serverFingerprint" id="serverFingerprint"></code>
+        </div>
         <button type="submit" class="ovButton ovButton--primary">Add</button>
       </form>
       <p class="pickerFootnote">Needs https. The token is the other server’s own, from its link or its token file. Its devices appear in the picker under its name.</p>
@@ -169,12 +189,25 @@ export function mount(root, { fetch: fetchImpl = globalThis.fetch && globalThis.
   const fields = { url: $('#serverUrl'), token: $('#serverToken'), name: $('#serverName') };
   const errorEl = $('#serverError');
   const warningEl = $('#serverWarning');
+  const confirmEl = $('#serverConfirm');
+  const fingerprintEl = $('#serverFingerprint');
   const submit = form.querySelector('button[type="submit"]');
   const group = $('#serverListGroup');
   const listEl = $('#serverList');
   const listError = $('#serverListError');
 
   let isOpen = false;
+  // pending is the fingerprint shown for confirming, sent with the next
+  // submit. Editing the address or token drops it: it was for that server.
+  let pending = '';
+  function setPending(fp) {
+    pending = fp;
+    confirmEl.hidden = !fp;
+    fingerprintEl.textContent = formatFingerprint(fp);
+    submit.textContent = fp ? 'Trust and add' : 'Add';
+  }
+  fields.url.addEventListener('input', () => setPending(''));
+  fields.token.addEventListener('input', () => setPending(''));
   function onKeydown(ev) {
     if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); close(); }
   }
@@ -194,6 +227,7 @@ export function mount(root, { fetch: fetchImpl = globalThis.fetch && globalThis.
     root.hidden = true;
     window.removeEventListener('keydown', onKeydown, true);
     fields.token.value = '';
+    setPending('');
     if (onClose) onClose();
   }
   $('.pickerDone').addEventListener('click', () => close());
@@ -234,7 +268,7 @@ export function mount(root, { fetch: fetchImpl = globalThis.fetch && globalThis.
     if (submit.disabled) return;
     errorEl.hidden = true;
     warningEl.hidden = true;
-    const v = validateServerForm({ url: fields.url.value, token: fields.token.value, name: fields.name.value });
+    const v = validateServerForm({ url: fields.url.value, token: fields.token.value, name: fields.name.value, fingerprint: pending });
     if (!v.ok) {
       errorEl.textContent = v.error;
       errorEl.hidden = false;
@@ -245,8 +279,17 @@ export function mount(root, { fetch: fetchImpl = globalThis.fetch && globalThis.
     submit.textContent = 'Adding…';
     const r = await postServer(fetchImpl, v.value);
     submit.disabled = false;
-    submit.textContent = 'Add';
+    setPending('');
     if (report) report({ event: 'server-add', outcome: r.ok ? (r.warning ? 'warning' : 'ok') : String(r.status) });
+    if (r.fingerprint) {
+      // Asked again after a confirm: the certificate changed in between.
+      if (v.value.fingerprint) {
+        errorEl.textContent = r.message;
+        errorEl.hidden = false;
+      }
+      setPending(r.fingerprint);
+      return;
+    }
     if (!r.ok) {
       errorEl.textContent = r.message;
       errorEl.hidden = false;

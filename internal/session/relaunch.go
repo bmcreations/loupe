@@ -89,6 +89,7 @@ func (s *Session) Relaunch(bitRate int) error {
 	_ = prev.Close()
 
 	s.watchClipboard(next)
+	s.watchRelayed(next)
 	s.resync()
 	return nil
 }

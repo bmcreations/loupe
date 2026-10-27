@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/clipshare"
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
 	"github.com/bmcreations/loupe/internal/trace"
@@ -72,6 +73,17 @@ type Manager struct {
 	// overlays is what extensions have put over each target; see overlay.go.
 	overlays *overlayStore
 	reapers  map[string]*time.Timer
+
+	// clipShare is the shared clipboard each local session feeds and is
+	// written from, or nil. See clipshare_targets.go.
+	clipShare *clipshare.Service
+	// clipSent is the Seq of the newest shared value written to each
+	// target's current session, so the fan-out and the on-open write never
+	// send one value twice or an older one after it. Guarded by clipSentMu,
+	// not m.mu: the writers run off m.mu.
+	clipSentMu sync.Mutex
+	clipSent   map[string]uint64
+
 	// presence is adb's word for each device it tracks, or "missing" once adb
 	// stops listing it. A target adb does not track -- synthetic, an AVD not
 	// yet booted -- has no entry and is always available.
@@ -912,6 +924,7 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 	clientBuf := m.clientBufferMs
 	humanHold := m.humanHold
 	adaptive := m.adaptiveBitRate
+	share := m.clipShare
 	// A relaunch would reconnect to the owner and wait for a keyframe, and
 	// the owner's own controller already adapts to the link it can see.
 	_, isPeer := t.(*target.PeerTarget)
@@ -1000,6 +1013,13 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 			"viewers": viewers,
 		})
 	})
+	// A peer's copies reach this server through its own shared clipboard,
+	// not through the relay.
+	if share != nil && !isPeer {
+		s.SetClipboardSink(func(text string) {
+			share.Publish(clipshare.Value{Text: text, Origin: clipOrigin(targetID)})
+		})
+	}
 
 	// PublishEvent's observer runs synchronously on whichever viewer's read
 	// loop published the event, and m.trace.Record fsyncs. Recording directly
@@ -1093,12 +1113,16 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 		_ = s.Close()
 		return existing, nil
 	}
+	m.forgetClipSend(targetID)
 	m.sessions[targetID] = s
 	m.mu.Unlock()
 
 	// After publishing, so a post that lands while this runs either finds
 	// the session itself or is already in the store this reads.
 	m.overlays.apply(targetID, s)
+	if share != nil && !isPeer {
+		m.applySharedClipboard(targetID, t, share)
+	}
 
 	// Started after publishing, so the controller cannot relaunch a session
 	// that is about to be discarded as a lost race.

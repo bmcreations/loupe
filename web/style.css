@@ -1930,6 +1930,10 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .switchError[hidden] { display: none; }
 .serverWarning { margin: 0; padding: 0 16px; color: var(--status-warning); font-size: var(--text-footnote); }
 .serverWarning[hidden] { display: none; }
+.serverConfirm { margin: 0; padding: 0 16px; font-size: var(--text-footnote); }
+.serverConfirm p { margin: 0 0 6px; }
+.serverConfirm[hidden] { display: none; }
+.serverFingerprint { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; user-select: all; }
 #serverListError { margin-bottom: 22px; }
 .serverRow { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 16px; }
 .serverRow + .serverRow { border-top: .5px solid var(--separator); }

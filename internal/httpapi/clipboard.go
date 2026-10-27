@@ -49,6 +49,10 @@ func (s *Server) handleClipboard(w http.ResponseWriter, r *http.Request) {
 
 	fail := func(action string, err error) {
 		s.traceAgent(r, t.ID(), action, err)
+		// A peer target's owner answered: pass its status and body on.
+		if writeOwnerError(w, err) {
+			return
+		}
 		status := http.StatusBadGateway
 		if errors.Is(err, target.ErrClipboardNoSession) {
 			status = http.StatusConflict

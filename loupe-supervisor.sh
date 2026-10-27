@@ -37,6 +37,13 @@ BACKOFF_MAX=60
 
 log() { printf '%s loupe-supervisor: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
+# The run log and the traces are the owner's alone. launchd opens
+# loupe-run.log before this script runs, with its own umask, so the plist
+# cannot set that file's mode; it is tightened here instead, along with traces
+# an older build left 0644, which can hold the token in cleartext. New traces
+# are 0600 from trace.Open, and rotate_trace's mv keeps that.
+chmod 600 "$ROOT/loupe-run.log" "$ROOT"/loupe-trace*.jsonl* 2>/dev/null
+
 # ---------------------------------------------------------------- child state
 CHILD=""
 
@@ -101,8 +108,8 @@ wait_for_port() {
 }
 
 # ------------------------------------------------------------------- trace
-# internal/trace opens with os.Create, which truncates. Without this rotation a
-# restart would erase the trace of the crash that caused it.
+# internal/trace appends and rolls one .1 aside past 64 MiB. This keeps a file
+# per run on top of that, so a crash loop's runs can be read one at a time.
 #
 # Rotate to a timestamped name rather than a single -prev slot: under KeepAlive
 # a crash loop restarts several times a minute, and one slot means the second

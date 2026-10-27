@@ -65,6 +65,7 @@ type Config struct {
 	EmulatorShutdownSec int    `json:"emulatorShutdownSec"`
 	EmulatorKeepState   bool   `json:"emulatorKeepState"`
 	SimulatorSlim       bool   `json:"simulatorSlim"`
+	SharedClipboard     bool   `json:"sharedClipboard"`
 	Addr                string `json:"addr"`
 	TLSCert             string `json:"tlsCert"`
 	TLSKey              string `json:"tlsKey"`
@@ -141,6 +142,7 @@ func Fields() []Field {
 		{"emulatorShutdownSec", AppliesNow, "Shut down a headless emulator that nothing has used for this many seconds, which frees its memory. The next open boots it from its snapshot, so whatever changed since it booted, an installed APK included, is gone unless emulatorKeepState is on. 0 never shuts one down. An emulator with its window open is never shut down.", "emulator-shutdown"},
 		{"emulatorKeepState", AppliesNow, "Save an emulator's state into its snapshot before shutting it down, idle or from the picker, so the next open resumes where it left off, installed apps included. Off, every boot returns to the snapshot taken after its first boot. A save takes a second or two and the snapshot is about 2 GB either way. Reset discards a kept state.", "emulator-keep-state"},
 		{"simulatorSlim", AppliesNow, "Boot simulators with 168 background daemons disabled, which cut one iPhone 17 Pro simulator from 8.9 GB to 2.8 GB and its first minutes of idle CPU from up to 160% of a core to 2%. Stream frame rate did not change. It takes effect on the next boot loupe performs; a simulator already booted, or booted from Xcode, keeps what it has. iOS 18.5 and newer only. Turning it off restores only the daemons loupe disabled.", "simulator-slim"},
+		{"sharedClipboard", AppliesNow, "Share one clipboard across every open target and this Mac's pasteboard. Off by default: the Mac's pasteboard can hold passwords.", "shared-clipboard"},
 		{"addr", AppliesRestart, "Listen address.", "addr"},
 		{"tlsCert", AppliesRestart, "TLS certificate. Serves HTTPS directly rather than behind a proxy.", "tls-cert"},
 		{"tlsKey", AppliesRestart, "TLS private key. Required with tlsCert.", "tls-key"},

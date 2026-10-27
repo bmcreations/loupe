@@ -29,11 +29,14 @@ type ServerInfo struct {
 }
 
 // ServerAddRequest is POST /api/servers' body. Name is optional and is
-// derived from the host when empty.
+// derived from the host when empty. Fingerprint repeats the one a 409
+// confirmFingerprint answer carried, once the person has checked it; the
+// peer's certificate is then pinned to it.
 type ServerAddRequest struct {
-	Name  string `json:"name,omitempty"`
-	URL   string `json:"url"`
-	Token string `json:"token"`
+	Name        string `json:"name,omitempty"`
+	URL         string `json:"url"`
+	Token       string `json:"token"`
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 // addServerTimeout bounds POST /api/servers. The peer is reached before the
@@ -128,14 +131,14 @@ func (s *Server) addServer(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	var req ServerAddRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "body must be {name?, url, token}: " + err.Error()})
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "body must be {name?, url, token, fingerprint?}: " + err.Error()})
 		return
 	}
 	// Not r.Context(): a phone that drops the connection must not leave the
 	// pin half taken, and the timeout bounds it anyway.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), addServerTimeout)
 	defer cancel()
-	added, err := s.peers.Add(ctx, peer.Server{Name: req.Name, URL: req.URL, Token: req.Token})
+	added, err := s.peers.Add(ctx, peer.Server{Name: req.Name, URL: req.URL, Token: req.Token, Pin: req.Fingerprint})
 	if err != nil {
 		writePeerError(w, err)
 		return
@@ -156,7 +159,10 @@ func writePeerError(w http.ResponseWriter, err error) {
 	var taken *peer.NameTakenError
 	var status *peer.StatusError
 	var unsupported *peer.UnsupportedProtocolError
+	var confirm *peer.ConfirmFingerprintError
 	switch {
+	case errors.As(err, &confirm):
+		writeJSON(w, http.StatusConflict, ErrorResponse{Error: err.Error(), Code: ErrCodeConfirmFingerprint, Fingerprint: confirm.Fingerprint})
 	case errors.As(err, &unsupported):
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error(), Code: ErrCodeUnsupportedProtocol})
 	case errors.As(err, &invalid):

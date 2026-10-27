@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/bmcreations/loupe/internal/awake"
+	"github.com/bmcreations/loupe/internal/clipshare"
 	"github.com/bmcreations/loupe/internal/config"
 	"github.com/bmcreations/loupe/internal/httpapi"
 	"github.com/bmcreations/loupe/internal/peer"
@@ -174,6 +175,8 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
 		os.Exit(runMCP(os.Args[2:]))
 	}
+	tightenOutput(os.Stdout)
+	tightenOutput(os.Stderr)
 	def := config.Default()
 	var (
 		configPath    = flag.String("config", "", "settings file to read and write (default: the per-user application support dir)")
@@ -204,10 +207,12 @@ func main() {
 		emuShutSec    = flag.Int("emulator-shutdown", def.EmulatorShutdownSec, "seconds a headless emulator goes unused before it is shut down; 0 never shuts one down")
 		emuKeepFlag   = flag.Bool("emulator-keep-state", def.EmulatorKeepState, "save an emulator's state into its snapshot before shutting it down, so the next boot resumes it")
 		simSlimFlag   = flag.Bool("simulator-slim", def.SimulatorSlim, "boot simulators with background daemons disabled, which frees most of their memory")
+		shareClipFlag = flag.Bool("shared-clipboard", def.SharedClipboard, "share one clipboard across every open target and this Mac's pasteboard")
 		emuWindowFlag = flag.Bool("emulator-window", def.EmulatorWindow, "open the emulator's window when booting an AVD; off runs it headless with no audio")
 		tracePath     = flag.String("trace", "", "write a JSON-lines trace of per-second stream metrics to this file")
 		tlsCert       = flag.String("tls-cert", "", "TLS certificate; serve HTTPS directly instead of behind a proxy")
 		tlsKey        = flag.String("tls-key", "", "TLS private key, required with -tls-cert")
+		insecureHTTP  = flag.Bool("insecure-http", false, "serve plain HTTP on an address other machines can reach; without it, plain HTTP is loopback only")
 		token         = flag.String("token", "", "shared token every request must present (default: read or create one in the cache dir)")
 		noAuth        = flag.Bool("no-auth", false, "serve with no token at all; anyone who can reach the port can drive any device")
 		avds          avdList
@@ -259,6 +264,9 @@ func main() {
 	if !pinned["simulatorSlim"] {
 		*simSlimFlag = cfg.SimulatorSlim
 	}
+	if !pinned["sharedClipboard"] {
+		*shareClipFlag = cfg.SharedClipboard
+	}
 	if !pinned["emulatorPauseSec"] {
 		*emuPauseSec = cfg.EmulatorPauseSec
 	}
@@ -279,6 +287,20 @@ func main() {
 	}
 	if !pinned["tracePath"] {
 		*tracePath = cfg.TracePath
+	}
+
+	useTLS := *tlsCert != "" && *tlsKey != ""
+	if (*tlsCert == "") != (*tlsKey == "") {
+		fmt.Fprintln(os.Stderr, "error: -tls-cert and -tls-key must be given together")
+		os.Exit(2)
+	}
+	if err := checkPlainHTTP(*addr, useTLS, *insecureHTTP); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	if !useTLS && !loopbackOnly(*addr) {
+		fmt.Fprintln(os.Stderr, "WARNING: -insecure-http: serving plain HTTP beyond loopback; "+
+			"the token and the stream cross the network in the clear")
 	}
 
 	// Tracing is opt-in: it joins the server's counters with the metrics only
@@ -310,6 +332,10 @@ func main() {
 	mgr.SetEmulatorShutdown(time.Duration(*emuShutSec) * time.Second)
 	mgr.SetAdaptiveBitRate(*adaptive)
 	mgr.SetSimulatorSlim(*simSlimFlag)
+	// Off until sharedClipboard is: the Mac's pasteboard can hold passwords.
+	share := clipshare.New()
+	share.SetEnabled(*shareClipFlag)
+	mgr.SetClipShare(share)
 	adb := target.ADB{Path: *adbPath}
 
 	needScrcpy := !*noDevices
@@ -471,6 +497,16 @@ func main() {
 		}
 	}
 
+	// The Mac's own pasteboard joins the shared clipboard whenever simcap is
+	// built, simulators or not. It runs only while sharedClipboard is on.
+	if runtime.GOOS == "darwin" {
+		if bin, err := filepath.Abs(*simcapPath); err == nil {
+			if _, err := os.Stat(bin); err == nil {
+				go clipshare.RunHostPasteboard(ctx, share, bin, tracer.Record)
+			}
+		}
+	}
+
 	// Physical iPhones and iPads, over a cable or Wi-Fi. They are not
 	// counted in registered: only one on a cable streams, so a server with
 	// only iPhones still needs the pattern to show anything.
@@ -523,6 +559,7 @@ func main() {
 		EmulatorShutdownSec: *emuShutSec,
 		EmulatorKeepState:   *emuKeepFlag,
 		SimulatorSlim:       *simSlimFlag,
+		SharedClipboard:     *shareClipFlag,
 		TLSCert:             *tlsCert,
 		TLSKey:              *tlsKey,
 		TracePath:           *tracePath,
@@ -606,6 +643,7 @@ func main() {
 		emuWindow.Store(c.EmulatorWindow)
 		emuKeep.Store(c.EmulatorKeepState)
 		mgr.SetSimulatorSlim(c.SimulatorSlim)
+		share.SetEnabled(c.SharedClipboard)
 		mgr.SetEmulatorPause(time.Duration(c.EmulatorPauseSec) * time.Second)
 		mgr.SetEmulatorShutdown(time.Duration(c.EmulatorShutdownSec) * time.Second)
 	}))
@@ -635,12 +673,6 @@ func main() {
 		// Long-lived WebSockets must not be cut off by a write timeout, so only
 		// the header read is bounded.
 		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	useTLS := *tlsCert != "" && *tlsKey != ""
-	if (*tlsCert == "") != (*tlsKey == "") {
-		fmt.Fprintln(os.Stderr, "error: -tls-cert and -tls-key must be given together")
-		os.Exit(2)
 	}
 
 	// WebTransport runs over HTTP/3, which is QUIC over UDP, so it needs its
@@ -688,36 +720,16 @@ func main() {
 	api.SetHandoffURL(handoff)
 
 	go func() {
-		fmt.Printf("\nloupe listening on %s (%s)\n", *addr, scheme)
-		if u := handoff; u != "" {
-			if code, err := bannerQR(u); err == nil {
-				fmt.Printf("  phone: %s\n%s", u, code)
-			}
-		}
-		for _, u := range advertised {
-			if authToken != "" {
-				u += "?token=" + authToken
-			}
-			fmt.Printf("  %s\n", u)
-		}
-		if authToken != "" {
-			fmt.Printf("  agent: Authorization: Bearer %s\n", authToken)
-		}
-		if wtSrv != nil {
-			fmt.Printf("  webtransport: https://<host>%s/wt (HTTP/3 over UDP)\n", *addr)
-			fmt.Printf("  native: QUIC ALPN %q on the same port\n", httpapi.QUICALPN)
-		}
-		if useTLS {
-			// Terminating TLS here rather than behind `tailscale serve` is not
-			// cosmetic. A reverse proxy accepts writes over loopback at
-			// effectively infinite speed and then buffers them for the slow
-			// hop, so this process sees a healthy socket while seconds of video
-			// queue up somewhere it cannot observe or cancel. One hop means the
-			// send buffer this server controls is the link that is actually
-			// slow.
-			fmt.Println("  (direct TLS: no proxy between this server and the link)")
-		}
-		fmt.Println()
+		banner{
+			addr:         *addr,
+			scheme:       scheme,
+			handoff:      handoff,
+			advertised:   advertised,
+			token:        authToken,
+			tokenWhere:   tokenWhere(*token),
+			webTransport: wtSrv != nil,
+			tls:          useTLS,
+		}.write(os.Stdout, isTerminal(os.Stdout))
 
 		var err error
 		if useTLS {

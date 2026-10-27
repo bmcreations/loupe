@@ -379,7 +379,7 @@ Fixture: `testdata/protocol/event.hex`.
 | `seq` | monotonically increasing per session, restarts at 1 on every `Open` |
 | `t` | unix milliseconds |
 | `source` | `"viewer"` or `"agent"` |
-| `viewer` | which viewer produced it; omitted for an agent-sourced event |
+| `viewer` | which viewer produced it; omitted for an agent-sourced event, and for a person on the owner of a peer target, whose id names a viewer of the owner (see Streams in [remote-targets.md](remote-targets.md)) |
 | `kind` | `tap`, `longPress`, `swipe`, `pinch`, `multiTouch`, `scroll`, `key`, `text`, `button` or `rotate` |
 | `from`, `to` | `[x, y]`, fraction of the screen `[0,1]` on each axis, rounded to 3 decimals -- a fraction rather than pixels because a viewer's touch is in stream coordinates and an agent's is in device pixels, and a fraction is the one space both map into |
 | `ms` | gesture duration, where applicable |

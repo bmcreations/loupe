@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -106,10 +107,20 @@ func (h *hub) do(method, path, body string) *httptest.ResponseRecorder {
 	return w
 }
 
+// add posts the server and, when the hub asks to have the certificate
+// confirmed, confirms it, as a person does in the Add server form.
 func (h *hub) add(t *testing.T, name, url, token string) *httptest.ResponseRecorder {
 	t.Helper()
-	b, _ := json.Marshal(ServerAddRequest{Name: name, URL: url, Token: token})
-	return h.do(http.MethodPost, "/api/servers", string(b))
+	req := ServerAddRequest{Name: name, URL: url, Token: token}
+	b, _ := json.Marshal(req)
+	w := h.do(http.MethodPost, "/api/servers", string(b))
+	var er ErrorResponse
+	if w.Code == http.StatusConflict && json.Unmarshal(w.Body.Bytes(), &er) == nil && er.Code == ErrCodeConfirmFingerprint {
+		req.Fingerprint = er.Fingerprint
+		b, _ = json.Marshal(req)
+		w = h.do(http.MethodPost, "/api/servers", string(b))
+	}
+	return w
 }
 
 func (h *hub) targets(t *testing.T, query string) []TargetInfo {
@@ -201,6 +212,45 @@ func TestAddingAServerMergesItsTargetsUnderItsName(t *testing.T) {
 	}
 	if w := h.do(http.MethodDelete, "/api/servers?name=mini", ""); w.Code != http.StatusNotFound {
 		t.Fatalf("second delete = %d", w.Code)
+	}
+}
+
+func TestAnUnverifiedServerIsAddedOnlyOnceItsFingerprintIsConfirmed(t *testing.T) {
+	cert := testCert(t)
+	leaf, _ := x509.ParseCertificate(cert.Certificate[0])
+	var authorized atomic.Int32
+	owner := ownerServer().Handler()
+	ts := startTLS(t, "", cert, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			authorized.Add(1)
+		}
+		owner.ServeHTTP(w, r)
+	}))
+	h := newHub(t)
+	post := func(fp string) (int, ErrorResponse) {
+		b, _ := json.Marshal(ServerAddRequest{Name: "mini", URL: ts.URL, Token: "tok", Fingerprint: fp})
+		w := h.do(http.MethodPost, "/api/servers", string(b))
+		var er ErrorResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &er)
+		return w.Code, er
+	}
+
+	code, er := post("")
+	if code != http.StatusConflict || er.Code != ErrCodeConfirmFingerprint || er.Fingerprint != peer.Fingerprint(leaf) {
+		t.Fatalf("unconfirmed add = %d %+v, want 409 confirmFingerprint %s", code, er, peer.Fingerprint(leaf))
+	}
+	code, er = post(strings.Repeat("0", 64))
+	if code != http.StatusConflict || er.Code != ErrCodeConfirmFingerprint || er.Fingerprint != peer.Fingerprint(leaf) {
+		t.Fatalf("add with the wrong fingerprint = %d %+v", code, er)
+	}
+	if n := authorized.Load(); n != 0 {
+		t.Fatalf("the token reached the peer %d times before its certificate was confirmed", n)
+	}
+	if code, er = post(er.Fingerprint); code != http.StatusCreated {
+		t.Fatalf("confirmed add = %d %+v", code, er)
+	}
+	if authorized.Load() == 0 {
+		t.Fatal("the confirmed add never reached the peer")
 	}
 }
 

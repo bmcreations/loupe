@@ -196,11 +196,20 @@ func TestApplyClassesAreWhatTheServerCanActuallyDo(t *testing.T) {
 		"tlsKey":              AppliesRestart,
 		"tracePath":           AppliesRestart,
 		"simulatorSlim":       AppliesNow,
+		"sharedClipboard":     AppliesNow,
 	}
 	for _, f := range Fields() {
 		if w, ok := want[f.Name]; ok && f.Applies != w {
 			t.Errorf("field %q applies %q, want %q", f.Name, f.Applies, w)
 		}
+	}
+}
+
+// The Mac's pasteboard can hold passwords, so nothing shares it until a
+// person turns it on.
+func TestSharedClipboardIsOffByDefault(t *testing.T) {
+	if Default().SharedClipboard {
+		t.Fatal("sharedClipboard is on by default")
 	}
 }
 

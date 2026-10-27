@@ -26,6 +26,13 @@
   <key>ThrottleInterval</key>
   <integer>10</integer>
 
+  <!-- Files the supervisor and the server create are the owner's alone:
+       rotated traces, the .run copy, sessions and peers. launchd opens
+       StandardOutPath itself and ignores this for it, so the supervisor
+       chmods loupe-run.log at start. A string, so it reads as octal. -->
+  <key>Umask</key>
+  <string>077</string>
+
   <key>StandardOutPath</key>
   <string>__ROOT__/loupe-run.log</string>
   <key>StandardErrorPath</key>

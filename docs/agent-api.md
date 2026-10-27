@@ -1,8 +1,8 @@
 # Agent API
 
-Moved out of CLAUDE.md on 2026-10-24. The `/api/*` endpoints agents drive, the
-MCP server, and recording. `docs/agent-tooling.md` is the gap analysis against
-other tools; `docs/protocol.md` is the session wire protocol.
+The `/api/*` endpoints agents drive, claims and the human hold, the MCP
+server, and recording. `docs/api.schema.json` is the request and response
+schema; `docs/protocol.md` is the session wire protocol the viewers speak.
 
 ### Agent API
 
@@ -358,6 +358,35 @@ and `outcome`.
   `kind:"agent"`, `action:"crashes"` with `count` and `tookMs`, or
   `"crash"`; no report content.
 
+- `GET /api/clipboard?target=<id>` reads the device's clipboard and answers
+  `{"target","text"}`. `POST` with `{"text": ..., "paste": true}` sets it,
+  and `paste` also puts the text into whatever has focus. `paste` is
+  optional. A simulator's paste is typed rather than sent as Cmd+V, because
+  iOS asks before an app reads what another process set
+  (`docs/targets.md`, Clipboard). The text must be UTF-8 and at most
+  64 KiB. Text just over that answers 413. A body more than 1 KiB past the
+  cap fails the read instead and answers 400.
+  - **Android needs a session open.** scrcpy-server is the only thing on
+    the device that reads or sets the clipboard, so with no viewer,
+    recording or other holder of the session the call answers 409. A read
+    the device doesn't answer within 2s fails with 502.
+  - **A simulator needs only to be booted.** The call goes through simcap's
+    input process, which starts on demand, so no session is needed. A
+    shut-down simulator answers 502.
+  - Physical iPhones and synthetic targets answer 501.
+  - **A peer target's call goes to its owner**, and the owner's refusal
+    comes back unchanged.
+  - **A set changes that target only**, even with `sharedClipboard` on:
+    the target drops its own write as an echo, so it is not shared
+    (`docs/targets.md`, Clipboard).
+  - **Neither claims nor the human hold gate it.** `handleClipboard` goes
+    straight to the target, so an agent can set or paste while a person is
+    driving.
+  - It is traced as `kind:"agent"` with `action` `clipboard-read`,
+    `clipboard-set` or `clipboard-paste`. The text is never traced.
+  - The phone's own clipboard UI is in `web/clipboard.js` and uses this
+    route.
+
 - `GET /api/handoff?target=<id>&target=<id>` returns `{"url"}`, the web
   client's link for up to four targets, the first one focused: the startup
   banner's phone link, on the certificate's host, with the token. The Mac
@@ -378,7 +407,7 @@ and `outcome`.
   an id again replaces it in place. At most 8 per target, 200 boxes each,
   12 MiB a post. `DELETE ?id=` or `?source=` removes some; neither removes
   all. The web client and the Mac app compare by fade, swipe or
-  difference. docs/spec-compare.md is the first user
+  difference.
   (`internal/httpapi/overlay_test.go`).
 
 - `POST /api/extensions` registers an extension that has something for
@@ -390,8 +419,7 @@ and `outcome`.
   the extension with the prefix, loupe's `Authorization` header and the
   `token` query parameter removed, so a client reads it with loupe's token
   alone. An extension that doesn't answer gets 502 and drops out of the
-  list. loupe never reads what passes through; docs/app-map.md is the first
-  user, and docs/extensions.md is the contract for writing one
+  list. loupe never reads what passes through; docs/extensions.md is the contract for writing one
   (`internal/httpapi/extension_test.go`).
 
   **A report lands well after the crash.** The row's `time` is the body's

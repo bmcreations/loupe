@@ -24,8 +24,9 @@ Read the doc before touching its area. None of these load automatically.
   it, sleep, auth, configuration, adaptive bitrate, client telemetry, known
   gaps, environment notes.
 - `docs/targets.md`: AVDs (boot, `loupe-warm`, pause, idle shutdown, reset,
-  New device), iOS simulators (simcap, HID, CoreDevice), physical iPhones,
-  Android keyboard, clipboard, device frames.
+  New device), Android keyboard, clipboard, device frames.
+- `docs/ios.md`: iOS simulators (simcap, HID, CoreDevice) and physical iPhones.
+- `docs/running.md`: every flag, the stats overlay, tests.
 - `docs/agent-api.md`: every `/api/*` route, claims and the human hold,
   `loupe mcp`, recording.
 - `docs/traps.md`: the traps list, symptom first. Grep it for the symptom you see,
@@ -33,6 +34,7 @@ Read the doc before touching its area. None of these load automatically.
 - `docs/protocol.md`: session wire protocol.
 - `docs/extensions.md`: the v0 contract for extensions: registering, the
   `/api/ext` proxy, and the security model.
+- `docs/README.md`: the index of every doc, design notes included.
 - Skill `loupe-probes`: wtprobe, simprobe, overlaptest and the other probes,
   and the layout self-check.
 

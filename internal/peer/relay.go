@@ -53,6 +53,13 @@ const (
 	probeTarget = "_loupe-protocol-probe"
 	// opSendTimeout bounds one control write.
 	opSendTimeout = 2 * time.Second
+	// clipSlots is how many of the owner's clipboard changes wait for the
+	// hub's session. Past it the oldest goes: only the newest copy matters.
+	clipSlots = 4
+	// relayedSlots is how many of the owner's cursors and events wait for
+	// the hub's session. Past it the newest is dropped, as a full viewer
+	// queue drops one, rather than stall the read of the owner's Init.
+	relayedSlots = 64
 )
 
 // UnsupportedProtocolError is the owner ending a connection with
@@ -77,11 +84,8 @@ func quicDial(ctx context.Context, srv Server) (*quic.Conn, error) {
 	if port == "" {
 		port = "443"
 	}
-	cfg := TLSConfig(srv.Pin, nil)
+	cfg := TLSConfig(host, srv.Pin, nil)
 	cfg.NextProtos = []string{session.QUICALPN}
-	if net.ParseIP(host) == nil {
-		cfg.ServerName = host
-	}
 	dctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 	qc, err := quic.DialAddr(dctx, net.JoinHostPort(host, port), cfg, &quic.Config{
@@ -191,9 +195,11 @@ type relayStream struct {
 	qc     *quic.Conn
 	ctl    *quic.Stream
 
-	frames chan target.Frame
-	got    chan rawFrame
-	ready  chan struct{} // closed when the first Init has been read
+	frames  chan target.Frame
+	got     chan rawFrame
+	ready   chan struct{} // closed when the first Init has been read
+	clip    chan string   // the owner's MsgClipboard bodies
+	relayed chan []byte   // the owner's MsgCursor and MsgEvent messages
 
 	wmu sync.Mutex // control writes
 
@@ -220,9 +226,11 @@ func DialStream(ctx context.Context, srv Server, ownerID string, _ target.Option
 	}
 	s := &relayStream{
 		server: srv.Name, qc: qc, ctl: ctl,
-		frames: make(chan target.Frame, 16),
-		got:    make(chan rawFrame, relaySlots),
-		ready:  make(chan struct{}),
+		frames:  make(chan target.Frame, 16),
+		got:     make(chan rawFrame, relaySlots),
+		ready:   make(chan struct{}),
+		clip:    make(chan string, clipSlots),
+		relayed: make(chan []byte, relayedSlots),
 	}
 	go s.readControl()
 	for range relaySlots {
@@ -248,17 +256,35 @@ func DialStream(ctx context.Context, srv Server, ownerID string, _ target.Option
 	}
 }
 
-// readControl reads the owner's control messages. Init sets Meta; everything
-// else (stats, events, pongs, control state) is the owner's account of its own
-// link and viewers, and is dropped.
+// readControl reads the owner's control messages. Init sets Meta. The
+// device's clipboard goes to ClipboardChanges, and cursors and events to
+// RelayedControl, since a phone on the hub watches the same device. The rest
+// (stats, pongs, control state) is the owner's account of its own link and
+// viewers, and is dropped.
 func (s *relayStream) readControl() {
+	defer close(s.clip)
+	defer close(s.relayed)
 	var readyOnce sync.Once
 	for {
 		b, err := readControl(s.ctl)
 		if err != nil {
 			return // the connection's end is reported by order
 		}
-		if len(b) == 0 || b[0] != session.MsgInit {
+		if len(b) == 0 {
+			continue
+		}
+		switch b[0] {
+		case session.MsgClipboard:
+			pushNewest(s.clip, string(b[1:]))
+			continue
+		case session.MsgCursor, session.MsgEvent:
+			select {
+			case s.relayed <- b:
+			default:
+			}
+			continue
+		case session.MsgInit:
+		default:
 			continue
 		}
 		var init session.InitPayload
@@ -273,6 +299,22 @@ func (s *relayStream) readControl() {
 		s.control = init.Control
 		s.mu.Unlock()
 		readyOnce.Do(func() { close(s.ready) })
+	}
+}
+
+// pushNewest queues v, dropping the oldest queued value when ch is full.
+// Only readControl sends, so the loop ends once a slot is free.
+func pushNewest(ch chan string, v string) {
+	for {
+		select {
+		case ch <- v:
+			return
+		default:
+		}
+		select {
+		case <-ch:
+		default:
+		}
 	}
 }
 
@@ -417,6 +459,13 @@ func (s *relayStream) Meta() target.Meta {
 
 func (s *relayStream) Frames() <-chan target.Frame { return s.frames }
 
+// ClipboardChanges implements target.ClipboardWatcher with the owner's
+// MsgClipboard, the owner device's clipboard each time it changes.
+func (s *relayStream) ClipboardChanges() <-chan string { return s.clip }
+
+// RelayedControl implements target.ControlRelayer.
+func (s *relayStream) RelayedControl() <-chan []byte { return s.relayed }
+
 // OwnerViewer is the viewer id the owner gave this relay in its Init.
 func (s *relayStream) OwnerViewer() uint64 {
 	s.mu.Lock()
@@ -507,3 +556,5 @@ func (s *relayStream) Close() error {
 
 var _ target.PeerStream = (*relayStream)(nil)
 var _ target.TextTyper = (*relayStream)(nil)
+var _ target.ClipboardWatcher = (*relayStream)(nil)
+var _ target.ControlRelayer = (*relayStream)(nil)

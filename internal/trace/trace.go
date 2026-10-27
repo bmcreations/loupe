@@ -35,15 +35,23 @@ const maxTraceBytes = 64 << 20
 // trap 21's 56-minute gap is only visible because the rows on both sides of it
 // are in one file -- and a trace that cannot outlive a rebuild cannot show
 // that. The run marker below is what delimits one server's rows from the next.
+//
+// The file is the owner's alone. A trace written before queries were redacted
+// holds the token, and an older build created it 0644, so an existing file is
+// tightened too rather than only a new one.
 func Open(path string) (*Writer, error) {
 	if st, err := os.Stat(path); err == nil && st.Size() > maxTraceBytes {
 		// Best effort: a failed roll is not a reason to start without a trace.
-		_ = os.Rename(path, path+".1")
+		if os.Rename(path, path+".1") == nil {
+			_ = os.Chmod(path+".1", 0o600)
+		}
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open trace file: %w", err)
 	}
+	// O_CREATE's mode applies only to a file it creates.
+	_ = f.Chmod(0o600)
 	w := &Writer{f: f, enc: json.NewEncoder(f)}
 	w.Record(map[string]any{"kind": "trace-open", "pid": os.Getpid()})
 	return w, nil

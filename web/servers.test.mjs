@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const { validateServerForm, serverError, postServer, fetchServers, deleteServer, serverRowModel, serverRowHTML } = await import('./servers.js');
+const { validateServerForm, serverError, formatFingerprint, postServer, fetchServers, deleteServer, serverRowModel, serverRowHTML } = await import('./servers.js');
 
 let failures = 0;
 const pending = [];
@@ -64,6 +64,24 @@ test('postServer shows the server’s error on other failures, including a non-J
   assert.equal(a.message, 'certificate changed');
   const b = await postServer(async () => res(500), {});
   assert.equal(b.message, 'Could not add that server (500)');
+});
+test('postServer hands back the fingerprint a 409 confirmFingerprint asks to confirm', async () => {
+  const fp = 'ab'.repeat(32);
+  const r = await postServer(async () => res(409, { error: 'confirm its fingerprint', code: 'confirmFingerprint', fingerprint: fp }), {});
+  assert.deepEqual(r, { ok: false, status: 409, message: 'confirm its fingerprint', fingerprint: fp });
+  const taken = await postServer(async () => res(409, { error: 'a server named "mini" already exists' }), {});
+  assert.equal(taken.fingerprint, undefined);
+});
+test('a confirmed fingerprint goes out with the form', async () => {
+  const v = validateServerForm({ url: 'https://mini.local:18456', token: 't', fingerprint: 'ab'.repeat(32) });
+  let body;
+  await postServer(async (_, init) => { body = JSON.parse(init.body); return res(201, {}); }, v.value);
+  assert.deepEqual(body, { url: 'https://mini.local:18456', token: 't', fingerprint: 'ab'.repeat(32) });
+  assert.equal(validateServerForm({ url: 'https://x', token: 't' }).value.fingerprint, undefined);
+});
+test('formatFingerprint prints the hex as openssl does', () => {
+  assert.equal(formatFingerprint('0a1bff'), '0A:1B:FF');
+  assert.equal(formatFingerprint(''), '');
 });
 test('postServer reports a network failure as status 0', async () => {
   const r = await postServer(async () => { throw new Error('offline'); }, {});

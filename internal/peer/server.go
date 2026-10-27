@@ -20,8 +20,8 @@ type Server struct {
 	Name  string `json:"name"`
 	URL   string `json:"url"`
 	Token string `json:"token"`
-	// Pin is the hex SHA-256 of the peer's leaf certificate, captured when the
-	// server was added. It is empty when the certificate verified against the
+	// Pin is the hex SHA-256 of the peer's leaf certificate, the fingerprint
+	// the person confirmed when the server was added. It is empty when the certificate verified against the
 	// system roots, which needs no pin and survives a renewal.
 	Pin string `json:"pin,omitempty"`
 	// Warning is set by Registry.Add when the add-time QUIC probe could not

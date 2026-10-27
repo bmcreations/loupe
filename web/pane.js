@@ -2,8 +2,7 @@
 // pointer input, and the modules that draw over it or hold its session.
 //
 // This is what app.js held in its one global `state` for the device on
-// screen, moved here so a page can hold more than one (the multi-pane design,
-// docs/superpowers/specs/2026-10-24-multi-pane-design.md). It imports nothing
+// screen, moved here so a page can hold more than one. It imports nothing
 // from web/ (trap 45): the transport, the jitter buffers, the rotator and the
 // overlay come in through deps.lib, the per-pane modules through deps.modules,
 // and every page reaction leaves through an on* callback.

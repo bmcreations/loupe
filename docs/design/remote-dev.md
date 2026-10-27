@@ -1,6 +1,8 @@
 # Remote dev: an agent gets a clean device and proves its change on it
 
-Status: design, not started.
+Status: design. Parts have since been built: `openURL` deep links and
+claims, which cover much of the device lease. `docs/agent-api.md` describes
+both.
 
 Shopify's Remote Dev (shopify.engineering/remote-dev) gives every agent
 session a ready Mac with the app built and a simulator or emulator on it, and
@@ -213,7 +215,7 @@ needs a response entry in `internal/apischema`, or
 
 - **More hosts.** A pool of Macs, each running loupe, with something above
   them that hands out a host per agent. It is where Shopify's cost went and
-  it is not needed while one Mac carries the agents. `docs/cloud-emulators.md`
+  it is not needed while one Mac carries the agents. the cloud emulator study (not published)
   covers moving Android off the Mac, which is the same question as their
   Linux emulator VMs.
 - **Builds on the device host.** Per-agent build machines with warm caches.

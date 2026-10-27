@@ -3,8 +3,7 @@
 //
 // The device side is a JVMTI agent (tools/composeagent) that hosts Google's
 // Compose inspector, the one Android Studio's Layout Inspector uses, from the
-// app's own ui-android version. Design and spike results:
-// docs/superpowers/specs/2026-10-24-compose-tree-design.md.
+// app's own ui-android version.
 package composetree
 
 import (

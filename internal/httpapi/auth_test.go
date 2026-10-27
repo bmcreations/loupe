@@ -180,3 +180,128 @@ func TestNewTokenIsUnpredictable(t *testing.T) {
 		seen[tok] = true
 	}
 }
+
+// cookieRequest is a request a browser would send from a page that already
+// holds the cookie. httptest's Host is example.com, so "https://example.com"
+// is its own origin once TLS is set.
+func cookieRequest(method, path, origin string) *http.Request {
+	r := httptest.NewRequest(method, path, nil)
+	r.TLS = &tls.ConnectionState{}
+	r.AddCookie(&http.Cookie{Name: tokenCookie, Value: "secret"})
+	if origin != "" {
+		r.Header.Set("Origin", origin)
+	}
+	return r
+}
+
+// TestAuthRefusesTheCookieFromAnotherOrigin covers what SameSite cannot: a
+// site is scheme and registrable domain, so a page on another port of the same
+// host is same-site and the browser attaches the cookie to its requests.
+func TestAuthRefusesTheCookieFromAnotherOrigin(t *testing.T) {
+	for _, c := range []struct{ method, path string }{
+		{http.MethodPost, "/api/input?target=x"},
+		{http.MethodGet, "/ws?target=x"},
+		{http.MethodConnect, "/wt?target=x"},
+	} {
+		for _, origin := range []string{
+			"https://example.com:8443",
+			"http://example.com",
+			"https://evil.example",
+			"null",
+		} {
+			_, h, reached := authTestServer("secret")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, cookieRequest(c.method, c.path, origin))
+
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("%s %s from %s: status = %d, want 403", c.method, c.path, origin, rec.Code)
+			}
+			if *reached {
+				t.Errorf("%s %s from %s reached the handler", c.method, c.path, origin)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Errorf("%s %s from %s: Content-Type = %q, want application/json", c.method, c.path, origin, ct)
+			}
+		}
+	}
+}
+
+func TestAuthAcceptsTheCookieFromItsOwnOrigin(t *testing.T) {
+	for _, origin := range []string{
+		"https://example.com",
+		"https://EXAMPLE.com:443",
+		// The native Mac app's URLSession sends no Origin at all.
+		"",
+	} {
+		_, h, reached := authTestServer("secret")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, cookieRequest(http.MethodPost, "/api/input?target=x", origin))
+		if !*reached {
+			t.Errorf("Origin %q: same-origin cookie request was refused (status %d)", origin, rec.Code)
+		}
+	}
+
+	// Over plain http the page's origin is http://, with its port.
+	_, h, reached := authTestServer("secret")
+	r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18472/api/input?target=x", nil)
+	r.AddCookie(&http.Cookie{Name: tokenCookie, Value: "secret"})
+	r.Header.Set("Origin", "http://127.0.0.1:18472")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	if !*reached {
+		t.Error("a plain-http same-origin cookie request was refused")
+	}
+}
+
+// TestAuthIgnoresOriginForAnExplicitToken: a page on another origin cannot
+// know the token, so a request that presents it was not forged by one.
+func TestAuthIgnoresOriginForAnExplicitToken(t *testing.T) {
+	cases := []struct {
+		name string
+		mut  func(*http.Request)
+	}{
+		{"bearer", func(r *http.Request) { r.Header.Set("Authorization", "Bearer secret") }},
+		{"query", func(r *http.Request) { r.URL.RawQuery = "target=x&token=secret" }},
+		{"cookie and bearer", func(r *http.Request) {
+			r.AddCookie(&http.Cookie{Name: tokenCookie, Value: "secret"})
+			r.Header.Set("Authorization", "Bearer secret")
+		}},
+	}
+	for _, c := range cases {
+		_, h, reached := authTestServer("secret")
+		r := httptest.NewRequest(http.MethodPost, "/api/input?target=x", nil)
+		r.TLS = &tls.ConnectionState{}
+		r.Header.Set("Origin", "https://example.com:8443")
+		c.mut(r)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		if !*reached {
+			t.Errorf("%s with a foreign Origin was refused (status %d)", c.name, rec.Code)
+		}
+	}
+}
+
+// TestAuthSetsNoReferrer: the token rides in the first URL a phone opens, and
+// in the /wt URL, so no response may let a link carry it out as a Referer.
+func TestAuthSetsNoReferrer(t *testing.T) {
+	cases := map[string]*http.Request{
+		"401":      httptest.NewRequest(http.MethodGet, "/", nil),
+		"healthz":  httptest.NewRequest(http.MethodGet, "/healthz", nil),
+		"redirect": httptest.NewRequest(http.MethodGet, "/?token=secret", nil),
+		"authed":   httptest.NewRequest(http.MethodGet, "/api/targets?token=secret", nil),
+		"403":      cookieRequest(http.MethodPost, "/api/input", "https://example.com:8443"),
+	}
+	for name, r := range cases {
+		_, h, _ := authTestServer("secret")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		if got := rec.Header().Get("Referrer-Policy"); got != "no-referrer" {
+			t.Errorf("%s: Referrer-Policy = %q, want no-referrer", name, got)
+		}
+	}
+	_, h, _ := authTestServer("")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if got := rec.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("-no-auth: Referrer-Policy = %q, want no-referrer", got)
+	}
+}

@@ -264,6 +264,28 @@ func (p *PeerTarget) Screenshot(ctx context.Context) ([]byte, error) {
 	return resp.Body, nil
 }
 
+// ReadClipboard implements Clipboarder. An owner with no session for the
+// target answers 409, which comes back as its PeerError.
+func (p *PeerTarget) ReadClipboard(ctx context.Context) (string, error) {
+	resp, err := p.do(ctx, http.MethodGet, "/api/clipboard", nil, nil)
+	if err != nil {
+		return "", err
+	}
+	var in struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(resp.Body, &in); err != nil {
+		return "", fmt.Errorf("%s answered /api/clipboard with something else: %w", p.server, err)
+	}
+	return in.Text, nil
+}
+
+// WriteClipboard implements Clipboarder.
+func (p *PeerTarget) WriteClipboard(ctx context.Context, text string, paste bool) error {
+	_, err := p.do(ctx, http.MethodPost, "/api/clipboard", nil, map[string]any{"text": text, "paste": paste})
+	return err
+}
+
 // DeviceFrame implements Framer.
 func (p *PeerTarget) DeviceFrame(ctx context.Context) (*DeviceFrame, error) {
 	resp, err := p.do(ctx, http.MethodGet, "/api/frame", nil, nil)

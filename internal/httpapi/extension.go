@@ -15,12 +15,12 @@ import (
 	"time"
 )
 
-// Extensions are separate programs that talk to loupe over HTTP (hotswap,
-// speccompare, appmap). One that has something for viewers to read registers
-// here, and loupe passes /api/ext/{name}/... through to it, so a client reads
-// an extension's data while only ever talking to loupe, with loupe's token,
-// the way overlays work for what goes over the video. loupe never reads what
-// passes through: a client that knows the extension knows its shape.
+// Extensions are separate programs that talk to loupe over HTTP. One that has
+// something for viewers to read registers here, and loupe passes
+// /api/ext/{name}/... through to it, so a client reads an extension's data
+// while only ever talking to loupe, with loupe's token, the way overlays work
+// for what goes over the video. loupe never reads what passes through: a
+// client that knows the extension knows its shape.
 //
 // Only loopback URLs register. Anyone with the token can register, and a
 // pass-through to any other host would let them use loupe to reach it.
