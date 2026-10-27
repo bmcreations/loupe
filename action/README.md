@@ -182,7 +182,7 @@ jobs:
       - id: pr
         run: echo "number=$(tr -dc 0-9 < '${{ runner.temp }}/preview/pr-number' | head -c 10)" >> "$GITHUB_OUTPUT"
 
-      - uses: bmcreations/loupe-action@v1
+      - uses: bmcreations/loupe/action@v1
         with:
           server: https://my-mac.example.ts.net:18456
           connect-to: 127.0.0.1:18456
