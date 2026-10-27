@@ -1,0 +1,15 @@
+{"app_name": "daemond", "timestamp": "x", "app_version": "", "build_version": "", "bug_type": "309", "incident_id": "1BAF15F1-FAB5-468C-B53C-A931279A4433", "name": "daemond"}
+{
+  "captureTime": "2026-10-22 10:00:00.0000 -0400",
+  "procName": "daemond",
+  "pid": 4242,
+  "coalitionName": "com.apple.CoreSimulator.SimDevice.AAAAAAAA-1111-2222-3333-444444444444",
+  "exception": {
+    "type": "EXC_BREAKPOINT",
+    "signal": "SIGTRAP"
+  },
+  "termination": {
+    "indicator": "Trace/BPT trap: 5"
+  },
+  "threads": []
+}

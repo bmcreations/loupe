@@ -1,0 +1,12 @@
+# wtFrameControl([]byte{MsgHello}) -- a hello message on the WebTransport
+# control stream, which carries every control message in both directions:
+# init, stats, pong and event from the server; touch, key, scroll, ping and
+# hello from the client. Every one of them is length-prefixed this way, a
+# u32 big-endian byte count of the message that follows, capped at 1 MiB
+# (wtControlLimit) -- see wtFrameControl / wtReadControlFrame and
+# docs/protocol.md.
+#
+# bytes 0-3  length    00000001    1, big endian -- the message is one byte
+# byte 4     message   15          MsgHello
+00000001
+15

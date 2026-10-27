@@ -1,0 +1,23 @@
+# EncodeEvent(Event{Seq:4, T:1727177401500, Source:"agent", Kind:"swipe",
+#   To:&Point{X:0.9,Y:0.8}, Ms:250, Pointers:2, Scale:1.5,
+#   Scroll:&Point{X:-1.5,Y:0.25}, Rotation:&0,
+#   Err:"context deadline exceeded"})
+#
+# This is a synthetic union, not one real gesture: to/ms belong to a swipe,
+# pointers to a multiTouch, scale to a pinch, scroll to a scroll event, and no live code path
+# sets Rotation and Err on the same event. It exists only to pin every
+# optional field's wire name and shape at once, alongside
+# TestEventJSONTagsAreExplicit's explicit tag list, so a renamed or added
+# field is caught both in the marshaled JSON and in the tag list itself.
+#
+# Rotation is 0, not omitted: rotation:0 (back to portrait) is a real,
+# distinct value from "this event carries no rotation" (Event.Rotation is a
+# *int for exactly that reason -- see internal/session/events.go).
+#
+# byte 0    type   06   MsgEvent
+# bytes 1+  the event, as JSON:
+#   {"seq":4,"t":1727177401500,"source":"agent","kind":"swipe","to":[0.9,0.8],
+#    "ms":250,"pointers":2,"scale":1.5,"rotation":0,"scroll":[-1.5,0.25],
+#    "err":"context deadline exceeded"}
+06
+7b22736571223a342c2274223a313732373137373430313530302c22736f75726365223a226167656e74222c226b696e64223a227377697065222c22746f223a5b302e392c302e385d2c226d73223a3235302c22706f696e74657273223a322c227363616c65223a312e352c22726f746174696f6e223a302c227363726f6c6c223a5b2d312e352c302e32355d2c22657272223a22636f6e7465787420646561646c696e65206578636565646564227d

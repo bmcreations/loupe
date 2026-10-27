@@ -1,0 +1,12 @@
+# wtEncodeFrameHeader(id=1, ptsMicros=0, key=false, config=true)
+#
+# pts is 0 -- see trap 31 and docs/protocol.md. Pinned against
+# wtConn.nextFrameHeader, the exact call SendFrame makes, by
+# TestFrameGoldenWTConfig in internal/httpapi/golden_test.go.
+#
+# bytes 0-3  frameID    00000001            1, big endian
+# bytes 4-11 ptsMicros  0000000000000000    0, big endian
+# byte 12    flags      02                  flagKey clear, flagConfig set
+00000001
+0000000000000000
+02

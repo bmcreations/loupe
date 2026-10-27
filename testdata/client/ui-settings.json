@@ -1,0 +1,107 @@
+{
+  "_note": "Hand-built fixture, NOT captured from a real device. emulator-5554 was in use by another app and the Acme One was off-limits for this task (client Task 9). It models what GET /api/ui?interactive=1 returns for a Settings home screen -- shaped from UIResponse/target.Node in internal/httpapi/agent.go and internal/target/ui.go -- but a real capture from emulator-5554 is still owed.",
+  "target": "emulator-5554",
+  "width": 1080,
+  "height": 2424,
+  "rotation": 0,
+  "nodes": [
+    {
+      "class": "ScrollView",
+      "id": "com.android.settings:id/list_container",
+      "bounds": [0, 220, 1080, 2424],
+      "center": [540, 1322],
+      "scrollable": true,
+      "children": [
+        {
+          "class": "LinearLayout",
+          "id": "com.android.settings:id/network_and_internet_row",
+          "clickable": true,
+          "bounds": [0, 260, 1080, 460],
+          "center": [540, 360],
+          "children": [
+            {
+              "class": "TextView",
+              "text": "Network & internet",
+              "bounds": [168, 290, 760, 360],
+              "center": [464, 325]
+            },
+            {
+              "class": "TextView",
+              "text": "Mobile, Wi-Fi, hotspot",
+              "bounds": [168, 366, 760, 420],
+              "center": [464, 393]
+            },
+            {
+              "class": "ImageView",
+              "id": "com.android.settings:id/network_and_internet_chevron",
+              "desc": "Expand",
+              "bounds": [1000, 290, 1040, 430],
+              "center": [1020, 360]
+            }
+          ]
+        },
+        {
+          "class": "LinearLayout",
+          "id": "com.android.settings:id/connected_devices_row",
+          "clickable": true,
+          "bounds": [0, 540, 1080, 740],
+          "center": [540, 640],
+          "children": [
+            {
+              "class": "TextView",
+              "text": "Connected devices",
+              "bounds": [168, 570, 760, 640],
+              "center": [464, 605]
+            },
+            {
+              "class": "TextView",
+              "text": "Bluetooth, pairing",
+              "bounds": [168, 646, 760, 700],
+              "center": [464, 673]
+            }
+          ]
+        },
+        {
+          "class": "LinearLayout",
+          "id": "com.android.settings:id/wifi_password_row",
+          "bounds": [0, 820, 1080, 1020],
+          "center": [540, 920],
+          "children": [
+            {
+              "class": "TextView",
+              "text": "Wi-Fi password",
+              "bounds": [168, 850, 760, 910],
+              "center": [464, 880]
+            },
+            {
+              "class": "EditText",
+              "id": "com.android.settings:id/password_field",
+              "text": "hunter2",
+              "password": true,
+              "focused": true,
+              "bounds": [168, 916, 912, 996],
+              "center": [540, 956]
+            }
+          ]
+        },
+        {
+          "class": "LinearLayout",
+          "id": "com.android.settings:id/forget_network_row",
+          "clickable": true,
+          "disabled": true,
+          "desc": "Forget network",
+          "bounds": [0, 1100, 1080, 1300],
+          "center": [540, 1200],
+          "children": [
+            {
+              "class": "TextView",
+              "text": "Forget network",
+              "bounds": [168, 1140, 760, 1210],
+              "center": [464, 1175]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# EncodeFrame(nil, pts=0, key=false, config=true,
+#             sentAtMicros=1727177400000000, data)
+# where data = 00 00 00 01 67 42 c0 29 (an Annex B start code and a NAL type
+# 7 -- an SPS -- the fixture does not carry a real parameter set beyond its
+# first bytes).
+#
+# pts is 0 -- see trap 31 and docs/protocol.md.
+#
+# byte 0      type      02            MsgFrame
+# byte 1      flags     02            flagKey clear, flagConfig set
+# bytes 2-9   pts       0000000000000000   0, big endian
+# bytes 10-17 sentAt    000622dbd3641e00   1727177400000000, big endian
+# bytes 18+   data      0000000167 42 c0 29
+02
+02
+0000000000000000
+000622dbd3641e00
+000000016742c029

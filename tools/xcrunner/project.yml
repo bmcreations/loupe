@@ -1,0 +1,46 @@
+# The XCUITest runner loupe drives a physical iPhone's touch through below
+# iOS 27. `make xcrunner TEAM=<team id>` generates and builds it.
+name: LoupeRunner
+options:
+  bundleIdPrefix: dev.bmcreations.loupe
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    # make xcrunner BUNDLE_PREFIX=... overrides it: another team cannot
+    # register App IDs under this prefix.
+    LOUPE_BUNDLE_PREFIX: dev.bmcreations.loupe
+targets:
+  LoupeRunnerHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    info:
+      path: Host/Info.plist
+      properties:
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(LOUPE_BUNDLE_PREFIX).runnerhost
+        GENERATE_INFOPLIST_FILE: YES
+  LoupeRunner:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Runner]
+    dependencies:
+      - target: LoupeRunnerHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(LOUPE_BUNDLE_PREFIX).runner
+        TEST_TARGET_NAME: LoupeRunnerHost
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  LoupeRunner:
+    build:
+      targets:
+        LoupeRunnerHost: all
+        LoupeRunner: [test]
+    test:
+      targets: [LoupeRunner]

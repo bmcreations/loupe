@@ -1,0 +1,6 @@
+# MsgPing, clientMicros=1234567890
+#
+# byte 0     type          13                MsgPing
+# bytes 1-8  clientMicros  00000000499602d2  1234567890, big endian
+13
+00000000499602d2

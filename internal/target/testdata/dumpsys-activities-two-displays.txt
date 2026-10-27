@@ -1,0 +1,10 @@
+ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
+Display #1 (activities from top to bottom):
+  * Task{other1 #50 type=standard A=1000:com.example.other.root U=0 visible=true}
+    topResumedActivity=ActivityRecord{ccccccc u0 com.example.other/.OtherActivity t50}
+    * Hist  #0: ActivityRecord{ccccccc u0 com.example.other/.OtherActivity t50}
+Display #0 (activities from top to bottom):
+  * Task{main1 #60 type=standard A=1000:com.example.main.root U=0 visible=true}
+    topResumedActivity=ActivityRecord{ddddddd u0 com.example.main/.MainActivity t60}
+    * Hist  #0: ActivityRecord{ddddddd u0 com.example.main/.MainActivity t60}
+  ResumedActivity: ActivityRecord{ddddddd u0 com.example.main/.MainActivity t60}

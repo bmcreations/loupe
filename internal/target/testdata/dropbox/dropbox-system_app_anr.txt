@@ -1,0 +1,70 @@
+Drop box contents: 9 entries
+Max entries: 1000
+Low priority rate limit period: 2000 ms
+Low priority tags: {data_app_wtf, keymaster, system_server_wtf, system_app_strictmode, system_app_wtf, system_server_strictmode, data_app_strictmode, netstats}
+Searching for: system_app_anr
+
+========================================
+2026-10-22 16:17:43 system_app_anr (compressed text, 28169 bytes)
+/data/system/dropbox/system_app_anr@1792700263858.txt.gz
+SystemUptimeMs: 6181615
+Process: com.android.systemui
+PID: 23525
+UID: 10195
+Frozen: false
+Timestamp: 2026-10-22 16:17:19.657-0400
+Flags: 0x20c8be0d
+Package: com.android.systemui v37 (17)
+Foreground: No
+Process-Runtime: 50677
+ErrorId: 32ce556c-fde4-477c-8438-035eb16a39e7
+Build: google/sdk_gphone16k_arm64/emu64a16k:17/CP21.260330.005/15181570:user/dev-keys
+PageSize: 16384
+DefaultScreen-State: ON
+Keyguard-Locked: false
+Loading-Progress: 1.0
+Dropped-Count: 0
+
+----- Output from /proc/pressure/memory -----
+some avg10=5.03 avg60=3.14 avg300=2.12 total=42302278
+full avg10=1.56 avg60=0.72 avg300=0.53 total=19946164
+----- End output from /proc/pressure/memory -----
+----- Output from /proc/pressure/cpu -----
+some avg10=79.42 avg60=41.91 avg300=23.11 total=440892021
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+----- End output from /proc/pressure/cpu -----
+----- Output from /proc/pressure/io -----
+some avg10=54.95 avg60=36.56 avg300=29.52 total=2647593023
+full avg10=2.64 avg60=7.01 avg300=10.93 total=2239358954
+----- End output from /proc/pressure/io -----
+
+CPU usage from 1ms to 23414ms later (2026-10-22 16:17:19.405 to 2026-10-22 16:17:42.817):
+  132% 553/media.swcodec: 40% user + 91% kernel / faults: 9072 minor 1159 major
+  36% 22962/system_server: 20% user + 16% kernel / faults: 52844 minor 2845 major
+  25% 491/surfaceflinger: 0% user + 25% kernel / faults: 2802 minor 151 major
+  20% 23648/com.google.android.apps.nexuslauncher: 9% user + 10% kernel / faults: 30511 minor 885 major
+  14% 23899/com.google.android.gms: 8.8% user + 5.4% kernel / faults: 32684 minor 1451 major
+  11% 64/kswapd0: 0% user + 11% kernel
+  8.3% 23525/com.android.systemui: 5.4% user + 2.9% kernel / faults: 30775 minor 1163 major
+  8.2% 24216/com.google.android.as: 5.3% user + 2.9% kernel / faults: 25620 minor 931 major
+  4.8% 448/android.hardware.graphics.composer3-service.ranchu: 0.4% user + 4.4% kernel / faults: 357 minor 6 major
+  4.4% 24312/com.google.android.googlequicksearchbox:interactor: 2.7% user + 1.7% kernel / faults: 17127 minor 874 major
+99% TOTAL: 29% user + 52% kernel + 0.3% iowait + 15% irq + 1.3% softirq
+Data File: /data/anr/anr_2026-10-22-16-17-20-660
+Subject: executing service com.android.systemui/.keyguard.KeyguardService, waited 20367ms
+Timeout: 20004
+TimeoutStart: 6136886
+RssHwmKb: 223104
+RssKb: 220064
+RssAnonKb: 74288
+RssShmemKb: 3952
+VmSwapKb: 19984
+BaseFsVerity: false
+
+
+--- CriticalEventLog ---
+capacity: 20
+events <
+  timestamp_ms: 5888892
+  watchdog <
+    subject: "Blocked in monitor com.android.server.am.ActivityManagerService on monitor thread (watchdog.monitor) for 69s"

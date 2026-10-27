@@ -1,0 +1,19 @@
+Packages:
+  Package [com.example.app] (abc123):
+    appId=10123
+    pkg=Package{deadbeef com.example.app}
+    codePath=/data/app/com.example.app
+    versionCode=5 minSdk=21 targetSdk=34
+    minExtensionVersions=[]
+    versionName=1.2.3
+    flags=[ HAS_CODE ]
+
+Hidden system packages:
+  Package [com.example.app] (def456):
+    appId=10123
+    pkg=Package{cafef00d com.example.app}
+    codePath=/system/app/ExampleApp
+    versionCode=1 minSdk=21 targetSdk=21
+    minExtensionVersions=[]
+    versionName=1.0.0-factory
+    flags=[ SYSTEM HAS_CODE ]

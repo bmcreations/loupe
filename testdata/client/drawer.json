@@ -1,0 +1,867 @@
+{
+  "rowModel": [
+    {
+      "name": "the current target is live, with the decoder's fps",
+      "args": [
+        {
+          "id": "synthetic",
+          "kind": "synthetic",
+          "label": "Synthetic 60fps test pattern",
+          "active": true,
+          "form": "pattern",
+          "os": "synthetic"
+        },
+        "synthetic",
+        59.6
+      ],
+      "expect": {
+        "id": "synthetic",
+        "label": "Synthetic 60fps test pattern",
+        "icon": "pattern",
+        "tile": "other",
+        "detail": "Test pattern · 60 fps",
+        "tone": "live",
+        "current": true,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "the current target before its first frame shows no fps",
+      "args": [
+        {
+          "id": "synthetic",
+          "kind": "synthetic",
+          "label": "Synthetic 60fps test pattern",
+          "active": true,
+          "form": "pattern",
+          "os": "synthetic"
+        },
+        "synthetic",
+        0
+      ],
+      "expect": {
+        "id": "synthetic",
+        "label": "Synthetic 60fps test pattern",
+        "icon": "pattern",
+        "tile": "other",
+        "detail": "Test pattern",
+        "tone": "live",
+        "current": true,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a USB device reads transport, then Android N · API L",
+      "args": [
+        {
+          "id": "R58N30ABCDE",
+          "kind": "device",
+          "label": "Pixel 8",
+          "active": false,
+          "form": "phone",
+          "os": "android",
+          "osVersion": "16",
+          "apiLevel": 36,
+          "transport": "usb"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "R58N30ABCDE",
+        "label": "Pixel 8",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "USB · Android 16 · API 36",
+        "tone": "",
+        "current": false,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "osVersion with no apiLevel leaves no dangling separator",
+      "args": [
+        {
+          "id": "R58N30ABCDE",
+          "kind": "device",
+          "label": "Pixel 8",
+          "active": false,
+          "form": "phone",
+          "os": "android",
+          "osVersion": "16",
+          "transport": "wifi"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "R58N30ABCDE",
+        "label": "Pixel 8",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "Wi-Fi · Android 16",
+        "tone": "",
+        "current": false,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a foldable AVD gets the foldable icon",
+      "args": [
+        {
+          "id": "avd:Hinge_Pixel_Fold",
+          "kind": "emulator",
+          "label": "Hinge_Pixel_Fold",
+          "active": false,
+          "form": "foldable",
+          "os": "android",
+          "osVersion": "15",
+          "apiLevel": 35,
+          "transport": "emulator"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "avd:Hinge_Pixel_Fold",
+        "label": "Hinge_Pixel_Fold",
+        "icon": "foldable",
+        "tile": "android",
+        "detail": "Emulator · Android 15 · API 35",
+        "tone": "",
+        "current": false,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "shutdown",
+          "delete",
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a shut-down AVD says it boots when opened, with no boot time",
+      "args": [
+        {
+          "id": "avd:Pixel_10",
+          "kind": "emulator",
+          "label": "Pixel_10",
+          "active": false,
+          "form": "phone",
+          "os": "android",
+          "apiLevel": 36,
+          "transport": "emulator",
+          "bootsOnOpen": true
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "avd:Pixel_10",
+        "label": "Pixel_10",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "Emulator · Shut down · boots when opened",
+        "tone": "",
+        "current": false,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "delete",
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a simulator without transport still reads Simulator, and iOS is capitalised",
+      "args": [
+        {
+          "id": "sim:ABC",
+          "kind": "simulator",
+          "label": "iPhone 17",
+          "active": false,
+          "form": "phone",
+          "os": "ios",
+          "osVersion": "27.0"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "sim:ABC",
+        "label": "iPhone 17",
+        "icon": "phone",
+        "tile": "ios",
+        "detail": "Simulator · iOS 27.0",
+        "tone": "",
+        "current": false,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "shutdown",
+          "delete",
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a tablet's form maps to the tablet icon",
+      "args": [
+        {
+          "id": "tab",
+          "kind": "device",
+          "label": "Pixel Tablet",
+          "active": false,
+          "form": "tablet",
+          "os": "android",
+          "osVersion": "15",
+          "transport": "usb"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "tab",
+        "label": "Pixel Tablet",
+        "icon": "tablet",
+        "tile": "android",
+        "detail": "USB · Android 15",
+        "tone": "",
+        "current": false,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "an unknown form falls back to the phone icon",
+      "args": [
+        {
+          "id": "x",
+          "kind": "device",
+          "label": "Watch",
+          "active": false,
+          "form": "watch",
+          "os": "android"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "x",
+        "label": "Watch",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "",
+        "tone": "",
+        "current": false,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a missing device is disabled and reads Not connected",
+      "args": [
+        {
+          "id": "ACME00000000001",
+          "kind": "device",
+          "label": "Acme One",
+          "active": false,
+          "available": false,
+          "state": "missing"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "ACME00000000001",
+        "label": "Acme One",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "Not connected",
+        "tone": "warn",
+        "current": false,
+        "disabled": true,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "an unauthorized device says what to do",
+      "args": [
+        {
+          "id": "R5",
+          "kind": "device",
+          "label": "Galaxy S23",
+          "active": false,
+          "available": false,
+          "state": "unauthorized"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "R5",
+        "label": "Galaxy S23",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "Not authorized · accept on the phone",
+        "tone": "warn",
+        "current": false,
+        "disabled": true,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "an unknown state falls back to the server's reason, then the state word",
+      "args": [
+        {
+          "id": "ios:1",
+          "kind": "iosDevice",
+          "label": "bmc-iphone",
+          "active": false,
+          "available": false,
+          "state": "weird",
+          "reason": "streams over a cable only",
+          "os": "ios",
+          "transport": "wifi"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "ios:1",
+        "label": "bmc-iphone",
+        "icon": "phone",
+        "tile": "ios",
+        "detail": "Wi-Fi · streams over a cable only",
+        "tone": "warn",
+        "current": false,
+        "disabled": true,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "the current target that cannot open is disabled, not live",
+      "args": [
+        {
+          "id": "ACME00000000001",
+          "kind": "device",
+          "label": "Acme One",
+          "active": false,
+          "available": false,
+          "state": "offline"
+        },
+        "ACME00000000001",
+        60
+      ],
+      "expect": {
+        "id": "ACME00000000001",
+        "label": "Acme One",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "Offline",
+        "tone": "warn",
+        "current": true,
+        "disabled": true,
+        "progress": false,
+        "actions": [
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a creating AVD shows the server's phase and a progress bar",
+      "args": [
+        {
+          "id": "avd:medium_phone",
+          "kind": "emulator",
+          "label": "Medium Phone",
+          "active": false,
+          "available": false,
+          "state": "creating",
+          "reason": "Getting the system image · 1m 04s",
+          "os": "android",
+          "transport": "emulator"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "avd:medium_phone",
+        "label": "Medium Phone",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "Emulator · Getting the system image · 1m 04s",
+        "tone": "busy",
+        "current": false,
+        "disabled": true,
+        "progress": true,
+        "actions": [],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a failed creation shows the CLI's error as a warning",
+      "args": [
+        {
+          "id": "avd:medium_phone",
+          "kind": "emulator",
+          "label": "Medium Phone",
+          "active": false,
+          "available": false,
+          "state": "createFailed",
+          "reason": "Couldn't create: Error: no space left",
+          "os": "android",
+          "transport": "emulator"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "avd:medium_phone",
+        "label": "Medium Phone",
+        "icon": "phone",
+        "tile": "android",
+        "detail": "Emulator · Couldn't create: Error: no space left",
+        "tone": "warn",
+        "current": false,
+        "disabled": true,
+        "progress": false,
+        "actions": [],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a simulator being created shows as an iOS row with the server's phase",
+      "args": [
+        {
+          "id": "sim-new:iPhone 17 iOS 27.0 2",
+          "kind": "simulator",
+          "label": "iPhone 17 iOS 27.0 2",
+          "active": false,
+          "available": false,
+          "state": "creating",
+          "reason": "Creating the simulator · 3s",
+          "os": "ios"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "sim-new:iPhone 17 iOS 27.0 2",
+        "label": "iPhone 17 iOS 27.0 2",
+        "icon": "phone",
+        "tile": "ios",
+        "detail": "Simulator · Creating the simulator · 3s",
+        "tone": "busy",
+        "current": false,
+        "disabled": true,
+        "progress": true,
+        "actions": [],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a pending simulator row is iOS even with no os or kind on it",
+      "args": [
+        {
+          "id": "sim-new:Phone A",
+          "label": "Phone A",
+          "active": false,
+          "available": false,
+          "state": "creating",
+          "reason": "Creating"
+        },
+        "synthetic"
+      ],
+      "expect": {
+        "id": "sim-new:Phone A",
+        "label": "Phone A",
+        "icon": "phone",
+        "tile": "ios",
+        "detail": "Simulator · Creating",
+        "tone": "busy",
+        "current": false,
+        "disabled": true,
+        "progress": true,
+        "actions": [],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    },
+    {
+      "name": "a headless emulator says so, since it has no window on the Mac",
+      "args": [
+        {
+          "id": "avd:fold",
+          "kind": "emulator",
+          "label": "Hinge_Pixel_Fold",
+          "os": "android",
+          "osVersion": "16",
+          "apiLevel": 36,
+          "form": "foldable",
+          "transport": "emulator",
+          "headless": true
+        },
+        "none"
+      ],
+      "expect": {
+        "id": "avd:fold",
+        "label": "Hinge_Pixel_Fold",
+        "icon": "foldable",
+        "tile": "android",
+        "detail": "Emulator · Headless · Android 16 · API 36",
+        "tone": "",
+        "current": false,
+        "disabled": false,
+        "progress": false,
+        "actions": [
+          "shutdown",
+          "delete",
+          "handsoff"
+        ],
+        "agent": "",
+        "agentTone": "",
+        "agentLink": ""
+      }
+    }
+  ],
+  "groupTargets": [
+    {
+      "name": "Running first, current target at its head, then platforms in order, each in the server's order",
+      "args": [
+        [
+          {
+            "id": "sim:A",
+            "kind": "simulator",
+            "label": "iPhone 17",
+            "os": "ios",
+            "osVersion": "27.0",
+            "transport": "simulator"
+          },
+          {
+            "id": "synthetic",
+            "kind": "synthetic",
+            "label": "Synthetic",
+            "form": "pattern",
+            "os": "synthetic"
+          },
+          {
+            "id": "R5",
+            "kind": "device",
+            "label": "Pixel 8",
+            "os": "android",
+            "osVersion": "16",
+            "transport": "usb"
+          },
+          {
+            "id": "avd:Pixel_10",
+            "kind": "emulator",
+            "label": "Pixel_10",
+            "os": "android",
+            "transport": "emulator",
+            "bootsOnOpen": true
+          }
+        ],
+        "R5",
+        "",
+        60
+      ],
+      "expect": [
+        {
+          "title": "Running",
+          "rows": [
+            {
+              "id": "R5",
+              "label": "Pixel 8",
+              "icon": "phone",
+              "tile": "android",
+              "detail": "USB · Android 16 · 60 fps",
+              "tone": "live",
+              "current": true,
+              "disabled": false,
+              "progress": false,
+              "actions": [
+                "handsoff"
+              ],
+              "agent": "",
+              "agentTone": "",
+              "agentLink": ""
+            },
+            {
+              "id": "sim:A",
+              "label": "iPhone 17",
+              "icon": "phone",
+              "tile": "ios",
+              "detail": "Simulator · iOS 27.0",
+              "tone": "",
+              "current": false,
+              "disabled": false,
+              "progress": false,
+              "actions": [
+                "shutdown",
+                "delete",
+                "handsoff"
+              ],
+              "agent": "",
+              "agentTone": "",
+              "agentLink": ""
+            }
+          ]
+        },
+        {
+          "title": "Android",
+          "rows": [
+            {
+              "id": "avd:Pixel_10",
+              "label": "Pixel_10",
+              "icon": "phone",
+              "tile": "android",
+              "detail": "Emulator · Shut down · boots when opened",
+              "tone": "",
+              "current": false,
+              "disabled": false,
+              "progress": false,
+              "actions": [
+                "delete",
+                "handsoff"
+              ],
+              "agent": "",
+              "agentTone": "",
+              "agentLink": ""
+            }
+          ]
+        },
+        {
+          "title": "Other",
+          "rows": [
+            {
+              "id": "synthetic",
+              "label": "Synthetic",
+              "icon": "pattern",
+              "tile": "other",
+              "detail": "Test pattern",
+              "tone": "",
+              "current": false,
+              "disabled": false,
+              "progress": false,
+              "actions": [
+                "handsoff"
+              ],
+              "agent": "",
+              "agentTone": "",
+              "agentLink": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an unavailable current target stays in its platform group, and empty groups are omitted",
+      "args": [
+        [
+          {
+            "id": "ACME00000000001",
+            "kind": "device",
+            "label": "Acme One",
+            "available": false,
+            "state": "missing"
+          },
+          {
+            "id": "R5",
+            "kind": "device",
+            "label": "Pixel 8",
+            "os": "android",
+            "osVersion": "16",
+            "transport": "usb"
+          }
+        ],
+        "ACME00000000001",
+        ""
+      ],
+      "expect": [
+        {
+          "title": "Running",
+          "rows": [
+            {
+              "id": "R5",
+              "label": "Pixel 8",
+              "icon": "phone",
+              "tile": "android",
+              "detail": "USB · Android 16",
+              "tone": "",
+              "current": false,
+              "disabled": false,
+              "progress": false,
+              "actions": [
+                "handsoff"
+              ],
+              "agent": "",
+              "agentTone": "",
+              "agentLink": ""
+            }
+          ]
+        },
+        {
+          "title": "Android",
+          "rows": [
+            {
+              "id": "ACME00000000001",
+              "label": "Acme One",
+              "icon": "phone",
+              "tile": "android",
+              "detail": "Not connected",
+              "tone": "warn",
+              "current": true,
+              "disabled": true,
+              "progress": false,
+              "actions": [
+                "handsoff"
+              ],
+              "agent": "",
+              "agentTone": "",
+              "agentLink": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "search matches label, os, version and transport words, case-insensitively",
+      "args": [
+        [
+          {
+            "id": "sim:A",
+            "kind": "simulator",
+            "label": "iPhone 17",
+            "os": "ios",
+            "osVersion": "27.0",
+            "transport": "simulator"
+          },
+          {
+            "id": "R5",
+            "kind": "device",
+            "label": "Pixel 8",
+            "os": "android",
+            "osVersion": "16",
+            "transport": "wifi"
+          }
+        ],
+        "none",
+        "  WI-FI "
+      ],
+      "expect": [
+        {
+          "title": "Running",
+          "rows": [
+            {
+              "id": "R5",
+              "label": "Pixel 8",
+              "icon": "phone",
+              "tile": "android",
+              "detail": "Wi-Fi · Android 16",
+              "tone": "",
+              "current": false,
+              "disabled": false,
+              "progress": false,
+              "actions": [
+                "handsoff"
+              ],
+              "agent": "",
+              "agentTone": "",
+              "agentLink": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a search that matches nothing returns no groups",
+      "args": [
+        [
+          {
+            "id": "R5",
+            "kind": "device",
+            "label": "Pixel 8",
+            "os": "android"
+          }
+        ],
+        "none",
+        "zzz"
+      ],
+      "expect": []
+    },
+    {
+      "name": "an empty or missing list returns no groups",
+      "args": [
+        null,
+        "none",
+        ""
+      ],
+      "expect": []
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+# EncodeEvent(Event{Seq: 2, T: 1727177400500, Source: "agent", Kind: "text",
+#             Text: passwordMarker /* "•••" */, Redacted: true, TextLen: 8})
+#
+# A password field was typed into (internal/httpapi/agent.go's
+# publishAgentEvent, the "text" action, redaction.redacted true): the
+# characters typed are never put on the wire. Text carries the fixed
+# passwordMarker instead, Redacted is true, and TextLen is the rune count of
+# what was actually typed (8 here), so a viewer can see how much was entered
+# without seeing what it was.
+#
+# byte 0  type   06   MsgEvent
+# bytes 1+ the event, as JSON:
+#   {"seq":2,"t":1727177400500,"source":"agent","kind":"text","text":"•••","redacted":true,"textLen":8}
+06
+7b22736571223a322c2274223a313732373137373430303530302c22736f75726365223a226167656e74222c226b696e64223a2274657874222c2274657874223a22e280a2e280a2e280a2222c227265646163746564223a747275652c22746578744c656e223a387d

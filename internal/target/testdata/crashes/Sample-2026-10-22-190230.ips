@@ -1,0 +1,15 @@
+{"app_name": "Sample", "timestamp": "x", "app_version": "1.2", "build_version": "34", "bug_type": "309", "incident_id": "DC1854F2-979F-4AC8-915C-9E6DA11A4AAC", "name": "Sample", "bundleID": "com.example.sample"}
+{
+  "captureTime": "2026-10-22 19:02:07.9900 -0400",
+  "procName": "Sample",
+  "pid": 4242,
+  "coalitionName": "com.apple.CoreSimulator.SimDevice.AAAAAAAA-1111-2222-3333-444444444444",
+  "exception": {
+    "type": "EXC_CRASH",
+    "signal": "SIGABRT"
+  },
+  "termination": {
+    "indicator": "Abort trap: 6"
+  },
+  "threads": []
+}

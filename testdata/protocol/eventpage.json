@@ -1,0 +1,1 @@
+{"session":"a1b2c3d4e5f6a7b8","oldest":1,"latest":3,"events":[{"seq":1,"t":1727177400000,"source":"viewer","viewer":2,"kind":"tap","from":[0.512,0.734]},{"seq":2,"t":1727177400500,"source":"agent","kind":"text","text":"•••","redacted":true,"textLen":8},{"seq":3,"t":1727177401000,"source":"viewer","viewer":2,"kind":"button","button":"home"}]}

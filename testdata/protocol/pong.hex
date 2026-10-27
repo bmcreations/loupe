@@ -1,0 +1,8 @@
+# EncodePong(clientMicros=1234567890, serverMicros=1234567999)
+#
+# byte 0      type          04          MsgPong
+# bytes 1-8   clientMicros  00000000499602d2   1234567890, echoed back verbatim
+# bytes 9-16  serverMicros  000000004996033f   1234567999, the server's own clock
+04
+00000000499602d2
+000000004996033f

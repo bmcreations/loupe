@@ -1,0 +1,15 @@
+{"app_name": "adb", "timestamp": "x", "app_version": "", "build_version": "", "bug_type": "309", "incident_id": "5A5A5A5A-AAAA-BBBB-CCCC-DDDDDDDDDDDD", "name": "adb"}
+{
+  "captureTime": "2026-10-22 17:00:00.0000 -0400",
+  "procName": "adb",
+  "pid": 4242,
+  "coalitionName": "com.apple.Terminal",
+  "exception": {
+    "type": "EXC_CRASH",
+    "signal": "SIGABRT"
+  },
+  "termination": {
+    "indicator": "Abort trap: 6"
+  },
+  "threads": []
+}

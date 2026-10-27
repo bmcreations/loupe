@@ -1,0 +1,156 @@
+{
+  "formatRow": [
+    {
+      "name": "tap",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 2, "kind": "tap", "from": [0.512, 0.734] },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Tap 0.512, 0.734", "source": "viewer 2", "failed": false }
+    },
+    {
+      "name": "tzOffsetMin shifts the rendered time, not the underlying t",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 2, "kind": "tap", "from": [0.512, 0.734] },
+        240
+      ],
+      "expect": { "time": "07:30:00", "what": "Tap 0.512, 0.734", "source": "viewer 2", "failed": false }
+    },
+    {
+      "name": "swipe up shows direction and duration",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 1, "kind": "swipe", "from": [0.5, 0.8], "to": [0.5, 0.62], "ms": 180 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Swipe up · 180ms", "source": "viewer 1", "failed": false }
+    },
+    {
+      "name": "agent pinch out shows the scale and duration",
+      "args": [
+        { "t": 1727177400000, "source": "agent", "kind": "pinch", "from": [0.5, 0.5], "scale": 2, "ms": 300 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Pinch out ×2 · 300ms", "source": "agent", "failed": false }
+    },
+    {
+      "name": "pinch in",
+      "args": [
+        { "t": 1727177400000, "source": "agent", "kind": "pinch", "from": [0.5, 0.5], "scale": 0.5, "ms": 300 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Pinch in ×0.5 · 300ms", "source": "agent", "failed": false }
+    },
+    {
+      "name": "swipe right",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 1, "kind": "swipe", "from": [0.2, 0.5], "to": [0.7, 0.52], "ms": 120 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Swipe right · 120ms", "source": "viewer 1", "failed": false }
+    },
+    {
+      "name": "key shows the named keycode",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 3, "kind": "key", "keycode": 66 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Key Enter", "source": "viewer 3", "failed": false }
+    },
+    {
+      "name": "key falls back to the raw code when unnamed",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 3, "kind": "key", "keycode": 999 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Key keycode 999", "source": "viewer 3", "failed": false }
+    },
+    {
+      "name": "button shows the named button",
+      "args": [
+        { "t": 1727177401000, "source": "viewer", "viewer": 2, "kind": "button", "button": "home" },
+        0
+      ],
+      "expect": { "time": "11:30:01", "what": "Button Home", "source": "viewer 2", "failed": false }
+    },
+    {
+      "name": "text shows the text quoted",
+      "args": [
+        { "t": 1727177400000, "source": "agent", "kind": "text", "text": "hello" },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Typed \"hello\"", "source": "agent", "failed": false }
+    },
+    {
+      "name": "redacted text never shows the marker as quoted text",
+      "args": [
+        { "t": 1727177400500, "source": "agent", "kind": "text", "text": "•••", "redacted": true, "textLen": 11 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "typed 11 characters (hidden)", "source": "agent", "failed": false }
+    },
+    {
+      "name": "a failed agent tap is marked failed, not hidden",
+      "args": [
+        { "t": 1727177400000, "source": "agent", "kind": "tap", "from": [0.5, 0.5], "err": "outside the screen (1080x2400)" },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Tap 0.5, 0.5", "source": "agent", "failed": true }
+    },
+    {
+      "name": "rotation 0 is a real value, not omitted",
+      "args": [
+        { "t": 1727177400000, "source": "agent", "kind": "rotate", "rotation": 0 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Rotate 0°", "source": "agent", "failed": false }
+    },
+    {
+      "name": "rotate 1 is a quarter turn clockwise",
+      "args": [
+        { "t": 1727177400000, "source": "agent", "kind": "rotate", "rotation": 1 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Rotate 90°", "source": "agent", "failed": false }
+    },
+    {
+      "name": "scroll shows the signed delta, not a [0,1] fraction",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 4, "kind": "scroll", "scroll": [-1.5, 0.25] },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Scroll -1.5, 0.25", "source": "viewer 4", "failed": false }
+    },
+    {
+      "name": "multiTouch shows the pointer count",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 1, "kind": "multiTouch", "pointers": 2 },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Multi-touch · 2 pointers", "source": "viewer 1", "failed": false }
+    },
+    {
+      "name": "source is never 'you' -- there is no viewer-id field on the wire",
+      "args": [
+        { "t": 1727177400000, "source": "viewer", "viewer": 7, "kind": "tap", "from": [0.1, 0.2] },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Tap 0.1, 0.2", "source": "viewer 7", "failed": false }
+    },
+    {
+      "name": "an agent tap with no from (unknown screen size, agent.go omitempty) does not throw",
+      "args": [
+        { "t": 1727177400000, "source": "agent", "kind": "tap", "err": "target: screen size unknown" },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Tap (position unknown)", "source": "agent", "failed": true }
+    },
+    {
+      "name": "an agent swipe with no from/to does not throw",
+      "args": [
+        { "t": 1727177400000, "source": "agent", "kind": "swipe", "ms": 200, "err": "target: screen size unknown" },
+        0
+      ],
+      "expect": { "time": "11:30:00", "what": "Swipe (position unknown) · 200ms", "source": "agent", "failed": true }
+    }
+  ]
+}

@@ -1,0 +1,2999 @@
+/* Loupe client. Mobile-first: the whole point is that this is usable on the
+   phone in your hand, so the phone layout is the default and the desktop
+   layout is the special case. */
+
+/* The hidden attribute always hides. The browser's own [hidden] rule loses
+   to any author rule that sets display, so a class with display: flex shows
+   an element its code has hidden: .moreMenuItem did, and the "Keyboard"
+   item stayed in the menu with the phone keyboard off. The per-class
+   [hidden] rules below predate this one. */
+[hidden] { display: none !important; }
+/* Tokens. Names follow the Figma variables (board node 2:42) with "/" as
+   "-": background/primary is --background-primary. The values are
+   agent-team's style (its web UI redesign spec, "Visual style"): warm paper
+   and raised cards, 1px warm hairlines, 12px card radius. Blue (--tint)
+   means working or active, orange (--status-warning, --status-human-held)
+   means waiting on you, green done or healthy, red failed. Where the Figma
+   board's colours differ, these win; Figma still decides layout.
+
+   style.test.mjs checks the shape:
+   - shared: layout, the type ramp, and the colours that do not theme (the
+     device is black in both themes, and the immersive handle sits on video);
+   - light: also the default, so System on a light phone needs no rule;
+   - dark, twice: under prefers-color-scheme for System, and under
+     [data-theme="dark"] for a forced Dark. They must stay identical. */
+:root {
+  --pane-header-h: 36px;
+  --radius: 12px;
+  --sheet-radius: 14px;
+  --bar-h: 46px;
+  /* The top banners (control, clipboard and record) share one height, and
+     sit this far below the top bar, over the top of the device. */
+  --banner-h: 30px;
+  --banner-gap: 7px;
+  /* Agent cursors sit on video, so they do not theme. */
+  --cursor-edge: #fff;
+  --cursor-shadow: rgba(0, 0, 0, .45);
+
+  /* The nav is one row, Back, Home and Recents, mirrored for the right hand.
+     It was an L (Figma node 5:3), Back above Home, and the L's height cost
+     the device its size: on a 402x874 iPhone the band under the device was
+     122px and the device drew at 76% of the width. A row keeps the band to
+     one button.
+     Its footprint is two numbers: --corner-w is what it costs sitting
+     BESIDE the device (the gutter fitStage's clearWidth reserves),
+     --corner-h is what it costs sitting BELOW the device (the band
+     fitStage's availH reserves, only used when a gutter this narrow cannot
+     hold the fit -- see fitStage's own comment on why the two candidates are
+     genuinely independent). --corner-h covers the taller of the two
+     clusters, and --corner-w the wider (the three-button nav row; the
+     overflow corner is two buttons at most). app.js's cornerReservation()
+     reads all three with getComputedStyle + parseFloat, which only takes the
+     leading number of the resolved value -- so these MUST stay in px. A
+     unit-less value like `8rem` would silently parse as 8, and a calc()
+     would parse as NaN (caught, but only by accident). See that function's
+     comment in app.js for the full trap. --corner-w is three 46px buttons
+     and two --corner-btn-gap, --corner-h one button, worked out by hand
+     because calc() would not parse; change them with either of those. */
+  --corner-w: 154px;
+  --corner-h: 46px;
+  --corner-gap: 8px;
+  --corner-btn-gap: 8px;
+
+  /* Type ramp: iOS Dynamic Type at its default size. */
+  --text-caption2: 11px;
+  --text-caption1: 12px;
+  --text-footnote: 13px;
+  --text-subhead: 15px;
+  --text-callout: 16px;
+  --text-body: 17px;
+
+  --device-screen: #000;
+  --device-bezel: #0a0a0c;
+  --device-bezel-hi: #3c3c41;
+  --device-bezel-lo: #232326;
+  --device-bezel-rim: rgba(255, 255, 255, .18);
+  --device-bezel-edge: rgba(255, 255, 255, .06);
+  --overlay-handle: rgba(255, 255, 255, .45);
+  --overlay-handle-edge: rgba(0, 0, 0, .35);
+
+  color-scheme: light dark;
+}
+:root[data-theme="light"],
+:root {
+  --background-primary: #f6f5f2;
+  --background-secondary: #fffefb;
+  --background-tertiary: #f3f1eb;
+  --separator: #e9e6de;
+  --label-primary: #1d1d1f;
+  --label-secondary: #6f6b63;
+  --label-on-tint: #ffffff;
+  --tint: #0a84ff;
+  --status-success: #1e7b34;
+  --status-danger: #c2402a;
+  --status-warning: #b35c00;
+  --status-human-held: #b35c00;
+  --material-chrome: rgba(246, 245, 242, .80);
+  --material-sheet: rgba(255, 254, 251, .92);
+  --fill-pressed: rgba(40, 35, 25, .06);
+  --fill-selected: rgba(10, 132, 255, .14);
+  --menu-gap: rgba(40, 35, 25, .08);
+  --menu-shadow: rgba(40, 35, 25, .18);
+  --scrim: rgba(27, 26, 24, .30);
+  /* The picker's device tiles. The same in both themes, as an app icon is. */
+  --platform-android: #2e9d57;
+  --platform-ios: #3a7bf0;
+  --platform-other: #6e7781;
+  --label-on-platform: #ffffff;
+}
+:root[data-theme="light"] { color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background-primary: #1b1a18;
+    --background-secondary: #24231f;
+    --background-tertiary: #2c2b26;
+    --separator: #33312b;
+    --label-primary: #f2f0eb;
+    --label-secondary: #9a968c;
+    --label-on-tint: #ffffff;
+    --tint: #0a84ff;
+    --status-success: #30d158;
+    --status-danger: #ff453a;
+    --status-warning: #ff9f0a;
+    --status-human-held: #ff9f0a;
+    --material-chrome: rgba(27, 26, 24, .80);
+    --material-sheet: rgba(36, 35, 31, .92);
+    --fill-pressed: rgba(255, 255, 255, .08);
+    --fill-selected: rgba(10, 132, 255, .14);
+    --menu-gap: rgba(0, 0, 0, .35);
+    --menu-shadow: rgba(0, 0, 0, .45);
+    --scrim: rgba(0, 0, 0, .50);
+    --platform-android: #2e9d57;
+    --platform-ios: #3a7bf0;
+    --platform-other: #6e7781;
+    --label-on-platform: #ffffff;
+  }
+}
+:root[data-theme="dark"] {
+  --background-primary: #1b1a18;
+  --background-secondary: #24231f;
+  --background-tertiary: #2c2b26;
+  --separator: #33312b;
+  --label-primary: #f2f0eb;
+  --label-secondary: #9a968c;
+  --label-on-tint: #ffffff;
+  --tint: #0a84ff;
+  --status-success: #30d158;
+  --status-danger: #ff453a;
+  --status-warning: #ff9f0a;
+  --status-human-held: #ff9f0a;
+  --material-chrome: rgba(27, 26, 24, .80);
+  --material-sheet: rgba(36, 35, 31, .92);
+  --fill-pressed: rgba(255, 255, 255, .08);
+  --fill-selected: rgba(10, 132, 255, .14);
+  --menu-gap: rgba(0, 0, 0, .35);
+  --menu-shadow: rgba(0, 0, 0, .45);
+  --scrim: rgba(0, 0, 0, .50);
+  --platform-android: #2e9d57;
+  --platform-ios: #3a7bf0;
+  --platform-other: #6e7781;
+  --label-on-platform: #ffffff;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+/* Fallback for engines without dvh; the rule below wins where it is supported. */
+html, body { height: 100%; }
+
+html, body {
+  margin: 0;
+  /* 100dvh, not 100%: on iOS a percentage height resolves against the initial
+     containing block, which stays as tall as the viewport with Safari's
+     toolbars hidden. With them shown the page is taller than what you can see,
+     so the bottom of a tall device screen sits under the toolbar and the only
+     way to reach it is to scroll the page. dvh tracks the visible viewport. */
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--background-primary);
+  color: var(--label-primary);
+  font: 13px/1.4 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  /* Stop Safari's rubber-band scroll from fighting drag gestures on the canvas. */
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+/* A Home Screen launch in portrait is sized to the screen itself, which
+   app.js writes into --app-h. iOS sometimes lays that launch out with a
+   viewport short by the status bar's height -- 812 on an 874 screen, with
+   safe-area-inset-top 62 -- and the page ended 62px above the bottom edge.
+   Adding the inset instead overshot on a launch where iOS got it right:
+   the page ended at 936. Unset everywhere else, where 100dvh is right. */
+html, body { height: var(--app-h, 100dvh); }
+
+body {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  /* Top/bottom were already here for the notch and the home indicator.
+     Left/right are for landscape, where the notch and the rounded corner sit
+     on a side edge instead -- a quality pass found the corner clusters could
+     otherwise land partly under it. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* The pill centred and the Tools button at the trailing edge, floating over
+   the stage with no bar behind them. The empty first column is the Tools
+   button's width, so the pill centres on the screen rather than on what is
+   left of the bar. */
+#topbar {
+  height: var(--bar-h);
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+}
+#topbar > #pill { grid-column: 2; justify-self: center; }
+#topbar > #toolsBtn { grid-column: 3; }
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--material-chrome);
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  padding: 8px 12px 8px 12px;
+  color: var(--label-primary);
+  font-weight: 600;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--label-secondary);
+  flex: none;
+}
+/* The pill's dot opens the Connection page, and 8px is no target for a
+   finger: the pseudo-element widens what a tap can land on to 32px. */
+#pillDot { position: relative; }
+#pillDot::after { content: ''; position: absolute; inset: -12px; }
+/* record.js: a red dot and the elapsed time while this page records. It
+   sits inside the pill's button; a tap on it stops the recording. Tabular
+   digits so the pill does not twitch as the seconds tick. */
+.pillRec {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--status-danger);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-caption1);
+}
+.pillRec::after { content: ''; position: absolute; inset: -10px -6px; }
+.recDot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--status-danger);
+  flex: none;
+  animation: recPulse 1s ease-in-out infinite alternate;
+}
+@keyframes recPulse { from { opacity: 1; } to { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .recDot { animation: none; }
+}
+/* health.js's five verdicts (dotFor's `state`). 'idle' paints as the plain
+   .dot above -- there is nothing to show yet, not a colour for "nothing". */
+.dot.good { background: var(--status-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-success) 15%, transparent); }
+.dot.degraded { background: var(--status-warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-warning) 15%, transparent); }
+.dot.bad { background: var(--status-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-danger) 15%, transparent); }
+/* Stale means stats stopped arriving mid-session, which is a stream that has
+   stopped, so it reads as red rather than as the grey of "nothing yet". */
+.dot.stale { background: var(--status-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-danger) 15%, transparent); }
+
+#pillName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pillTag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: var(--text-caption2);
+  font-weight: 600;
+  color: var(--label-secondary);
+  background: color-mix(in srgb, var(--label-secondary) 14%, transparent);
+}
+.pillTag[hidden] { display: none; }
+
+.pill .chevron {
+  width: 14px; height: 14px;
+  flex: none;
+  fill: none;
+  stroke: var(--label-secondary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+button {
+  font: inherit;
+  color: var(--label-primary);
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.ghost {
+  background: transparent;
+  border: 1px solid var(--separator);
+  padding: 6px 10px;
+  color: var(--label-secondary);
+}
+.ghost[aria-pressed="true"] { color: var(--tint); border-color: color-mix(in srgb, var(--tint) 40%, transparent); }
+
+.primary {
+  background: var(--tint);
+  border: none;
+  color: var(--label-on-tint);
+  font-weight: 600;
+  padding: 9px 16px;
+  margin-top: 14px;
+}
+
+.ghost.icon {
+  /* A 44px square touch target around a small icon. */
+  width: 44px; height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  line-height: 0;
+}
+.ghost.icon svg {
+  width: 20px; height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  /* Both mins are load-bearing: a grid item's default min size is its content,
+     so without these the stage refuses to shrink below the canvas and pushes
+     the corner clusters off screen instead of scaling the video down. */
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  /* No slot for the banners (see .controlBanner): they float over the top
+     of the device, as they do in immersive. Keeping 44px free for a banner
+     that is usually absent cost the device 5% of its width. */
+  padding: 10px;
+}
+
+/* A file dragged over the page: see drop.js. Inset so the outline is not
+   clipped by the stage's overflow. */
+#stage.dropping {
+  outline: 3px dashed var(--tint);
+  outline-offset: -8px;
+}
+
+/* One device, cloned from #paneTemplate. Alone it covers the stage, so the
+   offsets layoutScreen() writes on its .screenWrap are the stage's own.
+   Side by side (html.multi) layoutScreen() gives it its grid cell. */
+.pane {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+}
+html.multi .pane {
+  inset: auto;
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px var(--separator, color-mix(in srgb, currentColor 12%, transparent));
+}
+/* The focused pane: a 2px tint ring, and its header tinted (Figma 59:178). */
+html.multi .pane.focused {
+  box-shadow: 0 0 0 2px var(--tint);
+}
+
+/* Side by side only (paneheader.js, Figma 59:177). */
+.paneHeader {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--pane-header-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 10px;
+  border-radius: 12px 12px 0 0;
+  font-size: var(--text-footnote);
+  line-height: 1;
+  white-space: nowrap;
+}
+.paneHeader.focused { background: color-mix(in srgb, var(--tint) 14%, transparent); }
+.paneBadge {
+  font-size: var(--text-caption2);
+  font-variant-numeric: tabular-nums;
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  opacity: .8;
+}
+.paneHeader.focused .paneBadge { background: var(--tint); color: var(--label-on-tint); opacity: 1; }
+.paneDot { flex: none; }
+.paneName { font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.paneDetail { opacity: .6; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.paneClose {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: var(--text-body);
+  cursor: pointer;
+  opacity: .7;
+}
+.paneClose:hover { opacity: 1; background: color-mix(in srgb, currentColor 10%, transparent); }
+
+/* Under the header, not over it, while several are open. */
+html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
+
+/* Sized in pixels by fitScreen(). It used to carry max-width/max-height: 100%,
+   which silently did nothing: a percentage max-height resolves against the
+   parent's height, and #stage is a grid area whose height the canvas was
+   itself trying to determine. A 20:9 device overflowed the viewport every
+   time. Pixels from a ResizeObserver have no such circularity. */
+.screenWrap {
+  position: relative;
+  line-height: 0;
+}
+
+.screen {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--device-screen);
+  border-radius: var(--radius);
+  /* Without this, Safari claims the gesture for scroll and zoom before the
+     pointer handlers ever see a move. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.inspectLayer {
+  position: absolute;
+  inset: 0;
+  /* Inert until inspect.js turns it on (it sets/clears [hidden] itself, via
+     setOn) -- pointer-events stays none while hidden so a hit-testing layer
+     nobody asked for never sits over the canvas by accident, and switches to
+     auto only while visible, which is when it exists to take the tap instead
+     of the device underneath it. */
+  pointer-events: none;
+}
+.inspectLayer:not([hidden]) { pointer-events: auto; cursor: crosshair; }
+.inspectLayer[hidden] { display: none; }
+
+/* Extension overlays (extoverlay.js): a reference image and labelled boxes
+   an extension posted. The layer never takes a tap, so the device stays
+   usable under a reference; only the divider and the bar do. */
+.extLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.extLayer[hidden] { display: none; }
+.extScreen { position: absolute; overflow: hidden; }
+.extImage {
+  position: absolute;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+}
+.extDivider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  margin-left: -12px;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+.extDivider::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--tint);
+}
+.extBox {
+  position: absolute;
+  border: 1.5px solid var(--status-warning);
+  border-radius: 3px;
+}
+.extBox.kind-ok { border-color: var(--tint); }
+.extBox.kind-diff { border-color: var(--status-danger); background: color-mix(in srgb, var(--status-danger) 12%, transparent); }
+.extBoxLabel {
+  position: absolute;
+  left: -1.5px;
+  bottom: 100%;
+  max-width: 240px;
+  padding: 1px 5px;
+  border-radius: 4px 4px 0 0;
+  background: var(--status-warning);
+  color: var(--label-on-tint);
+  font-size: var(--text-caption2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.extBox.kind-ok .extBoxLabel { background: var(--tint); }
+.extBox.kind-diff .extBoxLabel { background: var(--status-danger); }
+.extBar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  background: var(--material-chrome);
+  color: var(--label-primary);
+  font-size: var(--text-footnote);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  pointer-events: auto;
+}
+.extTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.extBar input[type=range] { width: 84px; }
+.extBar button { font: inherit; }
+/* Fade / Swipe / Difference, one segmented control as in the Inspect tabs. */
+.extSeg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--background-tertiary);
+}
+.extSegBtn {
+  border: none;
+  border-radius: 7px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--label-primary);
+  font-weight: 500;
+}
+.extSegBtn[aria-checked="true"] { background: var(--background-secondary); font-weight: 600; }
+
+/* Touch markers (touches.js). Never takes a tap, whatever it holds: the
+   canvas underneath is what the finger is for. Each dot is placed by a
+   translate from the layer's corner, so a swipe's travel is one transition. */
+.touchLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.touchLayer[hidden] { display: none; }
+.touchDot {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  pointer-events: none;
+  /* A ghost of a fingertip rather than a marker: no edge, brightest at the
+     centre and gone before the rim, so it reads as where a finger pressed
+     without covering what it pressed. */
+  --touch: 255, 255, 255;
+  background: radial-gradient(circle,
+    rgba(var(--touch), 0.55) 0%,
+    rgba(var(--touch), 0.28) 45%,
+    rgba(var(--touch), 0) 72%);
+  filter: blur(1.5px);
+  will-change: transform, opacity;
+}
+/* Someone else's gesture, replayed: an agent in amber, another viewer in
+   teal, so a recording shows who did what. */
+.touchDot.agent { --touch: 255, 176, 32; }
+.touchDot.viewer { --touch: 40, 200, 190; }
+/* On lift the ghost fades where it was, with no ring. Not scaled: the
+   individual `scale` property applies outside the transform that places the
+   dot, so it scaled the position too and slid the dot toward the canvas's
+   top-left corner as it faded. */
+.touchDot.lift { animation: touch-lift 450ms ease-out forwards; }
+@keyframes touch-lift {
+  to { opacity: 0; }
+}
+
+/* Agent cursors (cursor.js): an arrow with the agent's name, the way a
+   multiplayer canvas shows a collaborator. The element's origin is the
+   arrow's tip, so its translate is the point the agent acted on. */
+.cursorLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.agentCursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  --cursor: 255, 176, 32;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.agentCursor.gone { opacity: 0; }
+.agentArrow {
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  overflow: visible;
+  filter: drop-shadow(0 1px 2px var(--cursor-shadow));
+}
+.agentArrow path {
+  fill: rgb(var(--cursor));
+  stroke: var(--cursor-edge);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.agentName {
+  position: absolute;
+  left: 14px;
+  top: 18px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgb(var(--cursor));
+  color: var(--cursor-edge);
+  font: 600 11px/16px -apple-system, system-ui, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px var(--cursor-shadow);
+}
+.agentRipple {
+  position: absolute;
+  left: -14px;
+  top: -14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--cursor));
+  animation: agent-ripple 550ms ease-out forwards;
+}
+@keyframes agent-ripple {
+  from { transform: scale(0.3); opacity: 1; }
+  to { transform: scale(1.4); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agentCursor { transition: opacity 300ms !important; }
+  .agentRipple { animation: none; opacity: 0; }
+}
+
+.inspectBox {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--tint) 80%, transparent);
+  background: color-mix(in srgb, var(--tint) 8%, transparent);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+/* The Tree tab outlines only what can be tapped, dashed, and the
+   selection solid. */
+.inspectBox.clickable { border-style: dashed; background: transparent; }
+/* Tapped: a solid outline on every node, no fill; only the selection fills. */
+.inspectBox.plain { background: transparent; }
+.inspectBox.selected {
+  border: 2px solid var(--tint);
+  background: color-mix(in srgb, var(--tint) 18%, transparent);
+}
+
+.inspectStale {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--material-chrome);
+  color: var(--status-warning);
+  font-size: var(--text-caption1);
+  /* The notice itself is inert, but .inspectRefresh inside it is a real
+     button (review MEDIUM-6) -- .inspectLayer's own pointer-events:auto
+     only applies while it isn't hidden, and this element must not block
+     that with a blanket none of its own. */
+  pointer-events: none;
+}
+.inspectRefresh {
+  pointer-events: auto;
+  margin-left: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--status-warning);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--status-warning);
+  font-size: var(--text-caption1);
+  cursor: pointer;
+}
+
+/* Inspect (inspect.js, node 4:3): a sheet under the device with Tree, 3D
+   and Tapped, and a detail bar for the selection. html.inspecting pads the
+   stage by the sheet's height so the device is fitted above it, and hides
+   the corners, which would sit over the sheet. */
+:root { --inspect-h: 52dvh; }
+html.inspecting #stage { padding-bottom: calc(var(--inspect-h) + 10px); }
+html.inspecting #cornerNav,
+html.inspecting #cornerMore { display: none; }
+
+.inspectSheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: var(--inspect-h);
+  /* Under the overlay (19), so a lost connection covers it. */
+  z-index: 15;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--background-primary);
+  border-top: 1px solid var(--separator);
+  border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+  overflow: hidden;
+}
+.inspectSheet[hidden] { display: none; }
+@media (min-width: 481px) {
+  .inspectSheet {
+    max-width: 480px;
+    border-left: 1px solid var(--separator);
+    border-right: 1px solid var(--separator);
+  }
+}
+
+.inspectHeader {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 10px 16px 6px;
+}
+.inspectTitle {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--label-primary);
+}
+.inspectHeaderBtn {
+  justify-self: start;
+  background: transparent;
+  border: none;
+  padding: 6px 0;
+  color: var(--tint);
+  font-size: var(--text-body);
+}
+.inspectDone { justify-self: end; font-weight: 600; }
+
+/* The segmented control. */
+.inspectTabs {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  margin: 4px 16px 8px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--background-tertiary);
+}
+.inspectTab {
+  border: none;
+  border-radius: 7px;
+  padding: 6px 0;
+  background: transparent;
+  color: var(--label-primary);
+  font-size: var(--text-footnote);
+  font-weight: 500;
+}
+.inspectTab[aria-selected="true"] { background: var(--background-secondary); font-weight: 600; }
+.inspectTab:disabled { color: var(--label-secondary); opacity: 0.6; }
+
+/* Compose names: a toggle under the tabs, and the reason it found none. */
+.inspectComposeBar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0 16px 8px;
+}
+.inspectComposeBar[hidden] { display: none; }
+.inspectCompose {
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--label-primary);
+  font-size: var(--text-footnote);
+}
+.inspectCompose[aria-pressed="true"] { background: var(--background-tertiary); font-weight: 600; }
+.inspectComposeError {
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: var(--text-footnote);
+}
+.inspectComposeError[hidden] { display: none; }
+
+.inspectTree,
+.inspectTapped {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.inspectTree[hidden],
+.inspectTapped[hidden] { display: none; }
+.inspectTapped { padding: 4px 16px; }
+
+.inspectRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 16px 0 calc(8px + var(--depth, 0) * 14px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption1);
+  color: var(--label-primary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.inspectRow.selected { background: color-mix(in srgb, var(--tint) 18%, transparent); }
+.inspectTwisty {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--label-secondary);
+}
+.inspectClass { flex: none; font-weight: 600; }
+.inspectText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--label-secondary);
+}
+.inspectDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tint);
+}
+
+.inspectDetail {
+  flex: none;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--separator);
+  background: var(--background-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption1);
+  color: var(--label-primary);
+}
+.inspectDetailTop { display: flex; justify-content: space-between; gap: 8px; }
+.inspectCrumb { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspectFlags { color: var(--tint); white-space: nowrap; }
+.inspectGeom { margin-top: 2px; color: var(--label-secondary); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.inspectActions { display: flex; gap: 8px; margin-top: 8px; font-family: inherit; }
+.inspectAction {
+  flex: 1;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 0;
+  background: var(--background-tertiary);
+  color: var(--tint);
+  font-family: -apple-system, system-ui, sans-serif;
+  font-size: var(--text-footnote);
+  font-weight: 600;
+}
+.inspectTapIt { background: var(--tint); color: var(--label-on-tint); }
+.inspectAction:disabled { opacity: 0.4; }
+
+/* 3D (node 7:78): the sheet takes the whole screen, and the tree is a
+   stack of planes turned with CSS 3D transforms. --z is a plane's depth
+   from the middle of the stack, --spacing the CSS px between depths. */
+.inspectSheet.full {
+  top: 0;
+  height: auto;
+  border-top: 0;
+  border-radius: 0;
+  z-index: 18;
+}
+.inspect3d {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px 8px;
+}
+.inspect3d[hidden] { display: none; }
+.inspect3dStage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 1400px;
+  touch-action: none;
+  cursor: grab;
+  overflow: hidden;
+}
+.inspect3dWorld {
+  position: relative;
+  transform-style: preserve-3d;
+}
+.inspectPlane {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--label-primary) 22%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--label-primary) 5%, transparent);
+  transform: translateZ(calc(var(--z) * var(--spacing) * 1px));
+}
+.inspectPlane.clickable { border-style: dashed; }
+.inspectPlane.selected {
+  border: 1px solid var(--tint);
+  background: color-mix(in srgb, var(--tint) 45%, transparent);
+}
+.inspect3dCaption {
+  flex: none;
+  margin: 8px 0 4px;
+  text-align: center;
+  color: var(--label-secondary);
+  font-size: var(--text-footnote);
+}
+.inspect3dSpacing {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 20px;
+  color: var(--label-secondary);
+  font-size: var(--text-footnote);
+}
+.inspect3dSliderLine { display: flex; align-items: center; gap: 12px; }
+.inspect3dSliderLine input { flex: 1; min-width: 0; accent-color: var(--tint); }
+.inspect3dReset {
+  flex: none;
+  padding: 4px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--tint);
+  font: inherit;
+  cursor: pointer;
+}
+
+.inspectHint { margin: 8px 0; color: var(--label-secondary); font-size: var(--text-footnote); }
+.inspectFacts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption1);
+}
+.inspectFacts dt { color: var(--label-secondary); }
+.inspectFacts dd { margin: 0; color: var(--label-primary); word-break: break-word; }
+
+/* App card (Tools sheet, client Task 9). */
+/* A header (tile, name, package) over a few plain rows, with the long
+   strings (activity, PID, APK path) folded into Details so they do not
+   decide the card's width. */
+.appCard {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.appHead {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+.appNames { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.appTile {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--fill-pressed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: var(--text-subhead);
+}
+.appTitle {
+  font-weight: 600;
+  font-size: var(--text-subhead);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.appSubtitle {
+  color: var(--label-secondary);
+  font-size: var(--text-caption1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.appDetails > summary {
+  cursor: pointer;
+  color: var(--label-secondary);
+  font-size: var(--text-footnote);
+  padding: 4px 0;
+}
+.appDetails[open] > summary { margin-bottom: 6px; }
+
+/* Device settings rows (Tools sheet, client Task 9). */
+.settingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+/* The box sits in a sheet group as one row, so its own rows carry the
+   group's 44px height and hairline, the way Show touches above them does. */
+.sheetSectionContent > .settingRows { display: grid; border-top: none; }
+.sheetSectionContent > * + .settingRows { border-top: 1px solid var(--separator); }
+.settingRows > .settingRow { min-height: 44px; }
+.settingRows > .settingRow + .settingRow { border-top: 1px solid var(--separator); }
+.settingRow--unsupported .settingLabel { color: var(--label-secondary); }
+.settingLabel { font-size: inherit; }
+
+/* .settingSwitch is a real <input type=checkbox role=switch> (devicesettings.js
+   keeps it a checkbox rather than a plain button for the native semantics --
+   Tab, Space, and a screen reader's own checkbox/switch handling all come
+   free), but with no styling beyond width/height it renders as the browser's
+   native control -- on iOS Safari a blue square with a check mark, not a
+   switch, which is what the owner saw. appearance: none removes exactly the
+   native painting and nothing else: :checked and :disabled keep working the
+   normal way, so this only ever needs CSS, no JS change. The track/thumb
+   visual matches .switch (the button-based toggle used elsewhere in the
+   sheet) so the two read as the same control. */
+.settingSwitch {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--separator);
+  background: var(--background-primary);
+  position: relative;
+  flex: none;
+}
+.settingSwitch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--label-secondary);
+  transition: transform .15s;
+}
+.settingSwitch:checked {
+  background: var(--tint);
+  border-color: var(--tint);
+}
+.settingSwitch:checked::after {
+  transform: translateX(16px);
+  background: var(--label-on-tint);
+}
+/* :focus-visible rather than :focus, so a mouse/touch click that already
+   shows the state change (the track sliding) doesn't also draw a ring --
+   the ring is for a keyboard user who has no other indication which control
+   has focus. */
+.settingSwitch:focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: 2px;
+}
+/* Disabled matters here specifically: renderBoolControl disables the input
+   synchronously for the life of a pending PUT (devicesettings.js, review
+   HIGH-4), so this is on screen every time a setting is toggled, not an edge
+   case. */
+.settingSwitch:disabled {
+  opacity: .5;
+  cursor: default;
+}
+/* An enum setting (posture) as a segmented control, matching the switch's
+   track and accent. */
+.settingSegments {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.settingSegment {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 4px 10px;
+  border: 0;
+  background: var(--background-primary);
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-caption1);
+}
+.settingSegment + .settingSegment { border-left: 1px solid var(--separator); }
+.settingSegment[aria-checked="true"] {
+  background: var(--tint);
+  color: var(--label-on-tint);
+}
+.settingSegment:focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: -2px;
+}
+.settingSegment:disabled { opacity: .5; cursor: default; }
+/* The New device form's Platform control: the full width, with room to tap. */
+.settingSegments--wide { width: 100%; }
+.settingSegments--wide .settingSegment { flex: 1; padding: 10px 12px; font-size: var(--text-callout); }
+.settingRangeWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+}
+.settingRange { flex: 1; max-width: 140px; }
+.settingRangeValue {
+  font-variant-numeric: tabular-nums;
+  color: var(--label-secondary);
+  min-width: 2.5em;
+  text-align: right;
+}
+
+.hud {
+  position: absolute;
+  top: 8px; right: 8px;
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--material-chrome);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+  line-height: 1.35;
+}
+.hud[hidden] { display: none; }
+.hud div { display: flex; gap: 8px; justify-content: space-between; }
+.hud .k { color: var(--label-secondary); }
+.hud .v { color: var(--label-primary); font-variant-numeric: tabular-nums; }
+.hud .v.warn { color: var(--status-warning); }
+.hud .v.bad { color: var(--status-danger); }
+
+/* ---------------------------------------------------------------------------
+   Corner clusters
+   ---------------------------------------------------------------------------
+   Pinned to the page's own bottom corners rather than living in the document
+   flow, so they hold still across a resize or a rotation the way the old
+   #nav bar (which pushed the stage's available height around) did not.
+   app.js's cornerReservation() reads their footprint back out of --corner-w,
+   --corner-h and --corner-gap, so those have to agree with what is declared
+   here.
+
+   #cornerNav is a row of three 46px buttons, four with a fold button -- see
+   --corner-w/--corner-h's own comment. #cornerMore is the overflow button,
+   with the keyboard button beside it when shown. Both are pointer-events:
+   none as containers, so empty space around a button never swallows a tap
+   meant for the device underneath; only the buttons themselves are
+   pointer-events: auto. */
+.corner {
+  position: fixed;
+  /* position: fixed takes the corner out of the document flow, so the body's
+     safe-area padding never reaches it -- each inset has to be added here,
+     folded into the same offset that places the corner off the page edge. */
+  /* --keyboard-h is the part of the page the phone's keyboard covers, set
+     by app.js's sizeToScreen only while it is up. */
+  bottom: calc(var(--corner-gap) + env(safe-area-inset-bottom) + var(--keyboard-h, 0px));
+  z-index: 15;
+  pointer-events: none;
+}
+/* An id selector (#cornerNav/#cornerMore) outranks `.corner[hidden]` on
+   specificity, so `display: grid`/`display: flex` below would otherwise beat
+   this rule and hidden would have no visible effect. Matching the same ids
+   here keeps `hidden` in control regardless of what display value they set. */
+#cornerNav[hidden], #cornerMore[hidden] { display: none; }
+
+#cornerNav {
+  left: calc(var(--corner-gap) + env(safe-area-inset-left));
+  width: var(--corner-w);
+  height: var(--corner-h);
+  display: grid;
+  grid-template-columns: 46px 46px 46px;
+  grid-template-rows: 46px;
+  gap: var(--corner-btn-gap);
+  grid-template-areas: "upright elbow floor";
+}
+/* Mirrors by swapping the grid areas and the pinned edge -- no dir, no
+   transform: scaleX(-1) -- so the art inside a button never needs to be
+   drawn or flipped for the other hand. Back stays in the corner. */
+html.hand-right #cornerNav {
+  left: auto;
+  right: calc(var(--corner-gap) + env(safe-area-inset-right));
+  grid-template-areas: "floor elbow upright";
+}
+
+/* A row: the keyboard button (when shown) on the inner side of the overflow
+   button. Two buttons are narrower than --corner-w and one tall, so the row
+   stays inside what cornerReservation() keeps clear on this side. */
+#cornerMore {
+  right: calc(var(--corner-gap) + env(safe-area-inset-right));
+  height: 46px;
+  display: flex;
+  flex-direction: row;
+  gap: var(--corner-btn-gap);
+  align-items: flex-end;
+}
+#kbdBtn[aria-pressed="true"] { color: var(--tint); }
+/* row-reverse keeps the overflow button, last in the markup, against the
+   corner it is pinned to. */
+html.hand-right #cornerMore {
+  right: auto;
+  left: calc(var(--corner-gap) + env(safe-area-inset-left));
+  flex-direction: row-reverse;
+}
+
+/* Glass: the chrome material over a blur, the same as the pill and the
+   Tools button, so everything floating over the stage reads as one layer. */
+.cornerBtn, #toolsBtn {
+  width: 46px; height: 46px;
+  background: var(--material-chrome);
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  color: var(--label-primary);
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+.cornerBtn:active, #toolsBtn:active { color: var(--tint); }
+.cornerBtn[hidden] { display: none; }
+.cornerBtn svg {
+  width: 20px; height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#cornerNav .cornerBtn[data-slot="upright"] { grid-area: upright; }
+#cornerNav .cornerBtn[data-slot="elbow"] { grid-area: elbow; }
+#cornerNav .cornerBtn[data-slot="floor"] { grid-area: floor; }
+
+/* A foldable target adds the fold button at the inner end of the row
+   (fold.js sets has-fold). --corner-w grows with it, so cornerReservation()
+   keeps the screen clear of the wider row: four 46px buttons and three gaps. */
+html.has-fold { --corner-w: 208px; }
+html.has-fold #cornerNav {
+  grid-template-columns: 46px 46px 46px 46px;
+  grid-template-areas: "upright elbow floor fold";
+}
+html.has-fold.hand-right #cornerNav {
+  grid-template-areas: "fold floor elbow upright";
+}
+#cornerNav .cornerBtn[data-slot="fold"] { grid-area: fold; }
+/* The posture menu opens above the fold button, which is at the row's inner
+   end, three buttons and three gaps in from the corner. Two rows are short
+   enough to fit above it on a landscape phone. */
+#cornerNav .foldMenu {
+  right: auto;
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: calc(3 * (46px + 8px));
+  transform-origin: bottom left;
+  /* Its rows are one group with no wrapper, so the menu is the group. */
+  background: var(--material-sheet);
+}
+html.hand-right #cornerNav .foldMenu {
+  left: auto;
+  right: calc(3 * (46px + 8px));
+  transform-origin: bottom right;
+}
+
+/* .moreMenu is a child of #cornerMore (position: fixed, pointer-events:
+   none -- see .corner above), so it positions itself against that corner's
+   own edge rather than needing an inset of its own. bottom: 100% opens it
+   upward from the toggle button, which is the design spec's requirement:
+   opening downward off the last row on a 390x844 viewport would run the menu
+   off the bottom of the screen.
+
+   It is drawn as iOS draws a UIMenu: 250px wide, 13px corners, a heavy
+   blur, 44px rows separated by hairlines, and an 8px gap between groups. It
+   grows out of the button's corner, which is why transform-origin follows
+   the side the button is on. */
+.moreMenu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 250px;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  background: var(--menu-gap);
+  border-radius: 13px;
+  box-shadow: 0 10px 40px var(--menu-shadow), 0 0 0 .5px var(--separator);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  pointer-events: auto;
+  transform-origin: bottom right;
+  animation: menu-open .32s cubic-bezier(.32, 1.25, .5, 1);
+}
+@keyframes menu-open {
+  from { opacity: 0; transform: scale(.4); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .moreMenu { animation: menu-fade .15s ease-out; }
+}
+@keyframes menu-fade { from { opacity: 0; } }
+
+/* The menu's gap shows its own background between groups, as UIMenu's
+   section separator does. A hidden group takes no part in the gap. */
+.moreMenuGroup {
+  display: flex;
+  flex-direction: column;
+  background: var(--material-sheet);
+}
+.moreMenuGroup[hidden] { display: none; }
+#cornerNav .foldMenu { gap: 0; }
+/* corners.js hideOnPress: gone before a system callout freezes painting. */
+.moreMenu.pressing { opacity: 0; }
+
+/* #cornerMore itself moves to the left edge under hand-right (above); the
+   menu follows it rather than staying pinned to the corner square's right
+   side, the same left/right-only mirror as everything else in this
+   section. */
+html.hand-right .moreMenu {
+  right: auto;
+  left: 0;
+  transform-origin: bottom left;
+}
+.moreMenu[hidden] { display: none; }
+
+.moreMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--label-primary);
+  font-size: var(--text-body);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+/* Hairlines between rows of one group, inset as iOS insets them. */
+.moreMenuItem + .moreMenuItem:not([hidden]) {
+  box-shadow: inset 0 .5px 0 var(--separator);
+}
+.moreMenuItem:active { background: var(--fill-pressed); }
+.moreMenuItem span { flex: 1; }
+.moreMenuItem svg {
+  width: 20px; height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* The checkmark's column exists only while some item is checked, so an
+   unchecked menu's labels sit at the leading edge, as UIMenu's do. */
+.moreMenuItem .moreMenuCheck { display: none; width: 16px; height: 16px; stroke-width: 2.4; }
+.moreMenu.checked .moreMenuItem .moreMenuCheck { display: block; visibility: hidden; }
+.moreMenu.checked .moreMenuItem[aria-checked="true"] .moreMenuCheck { visibility: visible; }
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--background-primary);
+  /* Above the stage and its corners (15), below the scrim and the drawer,
+     so Can't stream's "Pick another device" opens the picker over it. */
+  z-index: 19;
+  padding: 24px;
+}
+.overlay[hidden] { display: none; }
+/* Side by side, a pane's own state (connecting, can't stream) fills its cell
+   under its header rather than the page. The page's #overlay stays fixed. */
+html.multi .pane .overlay {
+  position: absolute;
+  inset: var(--pane-header-h) 0 0 0;
+  border-radius: 0 0 12px 12px;
+  z-index: 2;
+  padding: 12px;
+}
+html.multi .pane .overlay .card { max-width: 100%; }
+
+.overlay .card {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+/* Figma node 6:36: a round icon, the title, one sentence, the raw error in
+   mono, then full-width buttons. The icon's colour says how bad it is. */
+.ovIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--background-tertiary);
+  color: var(--label-secondary);
+  margin-bottom: 16px;
+}
+.overlay[data-icon="error"] .ovIcon { color: var(--status-danger); }
+.overlay[data-icon="warning"] .ovIcon { color: var(--status-warning); }
+.overlay[data-icon="power"] .ovIcon { color: var(--status-danger); }
+.overlay[data-icon="add"] .ovIcon { color: var(--tint); }
+.ovIcon svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.ovIcon circle { fill: currentColor; }
+.ovSpinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  animation: ovSpin 0.9s linear infinite;
+}
+@keyframes ovSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ovSpinner { animation: none; }
+}
+.overlay h1 {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--label-primary);
+  margin: 0 0 6px;
+}
+.overlay p {
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: var(--text-subhead);
+  line-height: 1.4;
+}
+.ovDetail {
+  align-self: stretch;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--background-tertiary);
+  color: var(--label-secondary);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 30vh;
+  overflow: auto;
+}
+.ovDetail[hidden] { display: none; }
+.ovActions {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+.ovActions:empty { display: none; }
+.ovButton {
+  min-height: 50px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: 600;
+  background: var(--background-tertiary);
+  color: var(--tint);
+  cursor: pointer;
+}
+.ovButton--primary { background: var(--tint); color: var(--label-on-tint); }
+.ovButton:active { filter: brightness(0.9); }
+
+/* Action sheet (states.js ask): the iOS shape, a grouped list of choices
+   with Cancel apart beneath it, over a scrim. */
+.actionSheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--scrim);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 8px calc(8px + env(safe-area-inset-bottom));
+}
+.actionSheet__panel {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.actionSheet__group {
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--material-sheet);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.actionSheet__head {
+  padding: 14px 16px;
+  text-align: center;
+  border-bottom: 0.5px solid var(--separator);
+}
+.actionSheet__title {
+  margin: 0;
+  font-size: var(--text-footnote);
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+.actionSheet__message {
+  margin: 4px 0 0;
+  font-size: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.actionSheet__button {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--tint);
+  cursor: pointer;
+}
+.actionSheet__group .actionSheet__button + .actionSheet__button { border-top: 0.5px solid var(--separator); }
+.actionSheet__button--destructive { color: var(--status-danger); }
+.actionSheet__cancel {
+  border-radius: 14px;
+  background: var(--material-sheet);
+  font-weight: 600;
+}
+.actionSheet__button:active { background: var(--fill-pressed); }
+
+/* ---------------------------------------------------------------------------
+   Device picker, sheet, scrim, toast
+   --------------------------------------------------------------------------- */
+
+/* The device picker (node 3:3 dark, 3:131 light): a sheet from the bottom,
+   grouped by platform, each group a card as in the Tools sheet. The element
+   keeps its #drawer id, which app.js and the pill's aria-controls name. */
+.drawer {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 25;
+  max-height: calc(100% - 44px - env(safe-area-inset-top));
+  display: flex;
+  flex-direction: column;
+  background: var(--background-primary);
+  border-top: 1px solid var(--separator);
+  border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+  overflow: hidden;
+  margin: 0 auto;
+  transition: transform .15s ease-out;
+}
+.drawer[hidden] { display: none; }
+@media (min-width: 481px) {
+  .drawer {
+    max-width: 480px;
+    border-left: 1px solid var(--separator);
+    border-right: 1px solid var(--separator);
+  }
+}
+
+/* Handle and header are the drag area; the list scrolls on its own. */
+.pickerTop { flex: none; touch-action: none; }
+.pickerHeader {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 16px 8px;
+}
+.pickerTitle {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--label-primary);
+}
+.pickerDone {
+  justify-self: end;
+  background: none;
+  border: none;
+  padding: 6px 0;
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--tint);
+}
+
+.pickerSearchWrap { flex: none; padding: 0 16px 12px; }
+.pickerSearch {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--fill-pressed);
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--label-primary);
+  font: inherit;
+  font-size: var(--text-body);
+}
+.pickerSearch::placeholder { color: var(--label-secondary); }
+
+.pickerList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+}
+.pickerGroup + .pickerGroup { margin-top: 22px; }
+.pickerGroupTitle {
+  padding: 0 16px 6px;
+  font-size: var(--text-footnote);
+  text-transform: uppercase;
+  color: var(--label-secondary);
+}
+.pickerGroupRows {
+  border-radius: 10px;
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+.pickerEmpty { padding: 16px; color: var(--label-secondary); font-size: var(--text-footnote); }
+
+.pickerRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  padding: 8px 16px;
+  text-align: left;
+  font: inherit;
+  color: var(--label-primary);
+}
+/* Hairline between rows, inset to the text as iOS does. */
+.pickerRow { position: relative; }
+/* On the rows' children, so a bare row and a swipe wrapper both get one. */
+.pickerGroupRows > * { position: relative; }
+.pickerGroupRows > * + *::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  left: 60px;
+  border-top: 1px solid var(--separator);
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Swipe a row left for Shut Down and Delete (drawer.js). */
+.pickerSwipe { position: relative; overflow: hidden; }
+.pickerSwipe > .pickerRow {
+  position: relative;
+  z-index: 1;
+  background: var(--background-secondary);
+  touch-action: pan-y;
+  transition: transform .25s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pickerSwipe > .pickerRow { transition: none; }
+}
+.pickerActions { position: absolute; top: 0; right: 0; bottom: 0; display: flex; }
+.pickerAction {
+  border: none;
+  padding: 0 16px;
+  min-width: 76px;
+  font: inherit;
+  font-size: var(--text-subhead);
+  color: var(--label-on-platform);
+}
+.pickerAction--shutdown { background: var(--platform-other); }
+.pickerAction--delete { background: var(--status-danger); }
+.pickerAction--handsoff { background: var(--status-warning, var(--platform-other)); }
+.pickerAction--allow { background: var(--status-success); }
+.pickerAction--release { background: var(--tint); }
+/* --fill-pressed is translucent, and a swipe is a press for as long as the
+   finger is down, so the plain pressed rule below would show Shut Down and
+   Delete through the row's text mid-drag. Lay the tint over the opaque fill. */
+.pickerSwipe > .pickerRow:not(:disabled):active,
+.pickerSwipe > .pickerRow:not(:disabled):focus-visible {
+  background: linear-gradient(var(--fill-pressed), var(--fill-pressed)), var(--background-secondary);
+}
+.pickerSwipe--busy > .pickerRow { pointer-events: none; opacity: .6; }
+.pickerSwipe--busy .pickerCheck { display: none; }
+.pickerSwipe--busy > .pickerRow::after {
+  content: '';
+  flex: none;
+  width: 16px; height: 16px;
+  box-sizing: border-box;
+  border: 2px solid var(--separator);
+  border-top-color: var(--tint);
+  border-radius: 50%;
+  animation: ovSpin .8s linear infinite;
+}
+.pickerRow:not(:disabled):active,
+.pickerRow:not(:disabled):focus-visible { background: var(--fill-pressed); }
+.pickerRow:disabled { cursor: default; }
+.pickerRow:disabled .pickerTile,
+.pickerRow:disabled .pickerRowLabel,
+.pickerRow:disabled .pickerRowDetail,
+.pickerRow:disabled .pickerCheck { opacity: .45; }
+
+/* White glyph on a platform-coloured tile. */
+.pickerTile {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--label-on-platform);
+}
+.pickerTile svg { width: 20px; height: 20px; }
+.pickerTile--android { background: var(--platform-android); }
+.pickerTile--ios { background: var(--platform-ios); }
+.pickerTile--other { background: var(--platform-other); }
+
+.pickerRowMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pickerRowLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+}
+.pickerRowDetail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-footnote);
+  color: var(--label-secondary);
+}
+.pickerRowDetail--live { color: var(--status-success); }
+/* Why a row cannot open, or why a create failed, is the one detail worth
+   reading in full, and a row offers no other way to see it. */
+.pickerRowDetail--warn {
+  color: var(--status-warning);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+.pickerRowDetail--busy { color: var(--tint); }
+/* A peer's row names the server it lives on beside the label, so two
+   simulators with one name on two Macs read apart. */
+.pickerRowTitle { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pickerRowTitle .pickerRowLabel { flex: 0 1 auto; min-width: 0; }
+.pickerRowServer {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption1);
+  color: var(--label-secondary);
+}
+.pickerRow:disabled .pickerRowServer { opacity: .45; }
+
+/* The server filter (drawer.js): All, This server, then each peer. */
+.pickerChips { flex: none; display: flex; gap: 8px; padding: 0 16px 12px; overflow-x: auto; }
+.pickerChips[hidden] { display: none; }
+.pickerChip {
+  flex: none;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--background-secondary);
+  color: var(--label-primary);
+  font: inherit;
+  font-size: var(--text-footnote);
+}
+.pickerChip[aria-checked="true"] { background: var(--tint); color: var(--label-on-tint); }
+.pickerRowAgent {
+  display: block;
+  font-size: var(--text-caption1);
+  color: var(--label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pickerRowAgent--driving { color: var(--tint); }
+.pickerRowAgent--claimed { color: var(--label-secondary); }
+.pickerRowAgent--handsoff { color: var(--status-warning, var(--status-danger)); }
+.pickerAgentLink {
+  display: block;
+  padding: 0 16px 8px 64px;
+  font-size: var(--text-caption1);
+  color: var(--tint);
+}
+
+/* A creating row's bar (node 25:481): indeterminate, since the android CLI
+   reports no bytes while it downloads. */
+.pickerProgress {
+  display: block;
+  position: relative;
+  height: 3px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--fill-pressed);
+  overflow: hidden;
+}
+.pickerProgress > span {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 0;
+  width: 40%;
+  border-radius: 2px;
+  background: var(--tint);
+  animation: pickerProgress 1.6s ease-in-out infinite;
+}
+/* transform, not left: motion animates transform and opacity only. The
+   span is 40% of the bar, so -100% starts it just off the left edge and
+   250% ends it just off the right. */
+@keyframes pickerProgress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pickerProgress > span { animation: none; transform: none; width: 100%; opacity: .5; }
+}
+
+/* The Add group's row, and the New device sheet that opens over the picker
+   (node 25:2 dark, 25:167 light). */
+.pickerTile--add { background: var(--tint); }
+.pickerRowLabel--tint { color: var(--tint); }
+.drawer--over { z-index: 26; }
+.pickerCancel { justify-self: start; font-weight: 400; }
+.pickerFootnote {
+  margin: 0;
+  padding: 8px 32px 24px;
+  color: var(--label-secondary);
+  font-size: var(--text-footnote);
+}
+
+/* How to connect a phone and Switch server (helpsheets.js). */
+.helpSteps {
+  border-radius: 10px;
+  background: var(--background-secondary);
+  padding: 4px 16px;
+}
+.helpStep { padding: 12px 0; }
+.helpStep + .helpStep { border-top: 0.5px solid var(--separator); }
+.helpStepTitle { font-weight: 600; color: var(--label-primary); }
+.helpStepBody {
+  margin: 4px 0 0;
+  color: var(--label-secondary);
+  font-size: var(--text-subhead);
+  line-height: 1.4;
+}
+.helpStepBody code, .pickerFootnote code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--label-primary);
+}
+.helpActions { display: flex; flex-direction: column; margin-top: 16px; }
+.helpActions:not(:has(:not([hidden]))) { display: none; }
+.switchForm { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
+.switchForm .pickerGroupTitle { padding-bottom: 0; }
+.pickerGroup + .switchForm,
+.pickerGroup + .ovButton { margin-top: 22px; }
+.switchInput:disabled, .ovButton:disabled { opacity: .5; }
+.switchInput {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--background-secondary);
+  color: var(--label-primary);
+  font: inherit;
+  font-size: var(--text-callout); /* 16px or more, or iOS zooms the page on focus */
+}
+.switchError { margin: 0; padding: 0 16px; color: var(--status-danger); font-size: var(--text-footnote); }
+.switchError[hidden] { display: none; }
+.serverWarning { margin: 0; padding: 0 16px; color: var(--status-warning); font-size: var(--text-footnote); }
+.serverWarning[hidden] { display: none; }
+#serverListError { margin-bottom: 22px; }
+.serverRow { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 16px; }
+.serverRow + .serverRow { border-top: .5px solid var(--separator); }
+.serverDot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.serverDot--up { background: var(--status-success); }
+.serverDot--down { background: var(--status-warning); }
+.serverRemove {
+  flex: none;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--status-danger);
+  font: inherit;
+  font-size: var(--text-callout);
+}
+.serverRemove:disabled { opacity: .5; }
+#serverListGroup { margin-bottom: 22px; }
+
+/* An open pane's index, as its ⌘ shortcut (node 59:178's OPEN group). */
+.pickerBadge {
+  flex: none;
+  font-size: var(--text-caption1);
+  font-weight: 600;
+  color: var(--label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+/* Open beside shows on hover or keyboard focus, over the row's right edge. */
+.pickerRowWrap { position: relative; }
+.pickerBeside {
+  position: absolute;
+  top: 50%; right: 12px;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 999px;
+  /* Opaque, so the row's subtitle under it doesn't show through. */
+  background: linear-gradient(var(--fill-pressed), var(--fill-pressed)), var(--background-secondary);
+  color: var(--tint);
+  font: inherit;
+  font-size: var(--text-footnote);
+  font-weight: 600;
+  line-height: 1.3;
+  opacity: 0;
+  pointer-events: none;
+}
+.pickerRowWrap:hover .pickerBeside, .pickerSwipe:hover .pickerBeside,
+.pickerBeside:focus-visible { opacity: 1; pointer-events: auto; }
+.pickerCheck {
+  flex: none;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--tint);
+}
+
+.sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 25;
+  /* iOS inset grouped: the sheet is the grouped background and each group a
+     card on it. */
+  background: var(--background-primary);
+  border-top: 1px solid var(--separator);
+  border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* On a wide viewport a full-bleed sheet reads as a bottom-anchored strip
+     rather than a sized panel, and the phone-scale layout it was designed
+     for is nowhere on screen to anchor it against -- so above phone width it
+     centers and caps out, with side borders like any other panel. Only the
+     top corners are ever rounded (see border-radius above) -- the sheet is
+     anchored to the viewport's bottom edge at every width, so there is no
+     bottom edge to round. The side borders are scoped to that same
+     breakpoint: below it the sheet is flush with the screen's own edges, and
+     a hairline there would read as a stray line rather than a panel edge. */
+  margin: 0 auto;
+}
+.sheet[hidden] { display: none; }
+
+@media (min-width: 481px) {
+  .sheet {
+    max-width: 480px;
+    border-left: 1px solid var(--separator);
+    border-right: 1px solid var(--separator);
+  }
+}
+
+/* The grab handle: the only part (besides a section header) that starts a
+   drag, so a scroll inside a section's content is a scroll and not a sheet
+   drag -- see sheet.js's mount(). */
+.sheetHandle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 10px 0 6px;
+  touch-action: none;
+  cursor: grab;
+}
+.sheetGrip {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--separator);
+}
+
+.sheetBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 4px calc(12px + env(safe-area-inset-bottom));
+}
+
+.sheetPage[hidden] { display: none; }
+
+/* A pushed page's header: Back on the left naming where it returns to, the
+   title centred over the whole width. */
+.sheetPageHeader {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 4px 12px 8px;
+}
+.sheetBack {
+  justify-self: start;
+  background: transparent;
+  border: none;
+  padding: 6px 0;
+  color: var(--tint);
+  font-size: var(--text-body);
+}
+.sheetBack::before { content: '\2039\00a0'; font-size: var(--text-body); }
+.sheetPageTitle {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.sheetPageContent {
+  margin: 0 12px 24px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--background-secondary);
+  display: grid;
+  gap: 10px;
+}
+
+/* A page made of groups (Connection) is the groups' background, not a card
+   around them: each .sheetSection brings its own card and margins. */
+.sheetPageContent.grouped {
+  margin: 0;
+  padding: 0;
+  background: none;
+  display: block;
+}
+
+.sheetSection { margin: 0 12px 22px; }
+
+/* Group label above the card, iOS's footnote caps. Not a button: groups no
+   longer collapse. */
+.sheetSectionHeader {
+  margin: 0;
+  padding: 0 16px 6px;
+  font-size: var(--text-footnote);
+  font-weight: 400;
+  text-transform: uppercase;
+  color: var(--label-secondary);
+}
+
+.sheetSectionContent {
+  border-radius: 10px;
+  background: var(--background-secondary);
+  padding: 4px 16px;
+  display: grid;
+  /* One column no wider than the group: an auto column takes its widest
+     row's min-content, and Appearance's label beside its three segments
+     ran 44px past a docked panel at 900px. */
+  grid-template-columns: minmax(0, 1fr);
+  /* Row labels are iOS body, the size the Stream group's links use. */
+  font-size: var(--text-body);
+}
+.sheetSectionContent:empty { display: none; }
+/* Rows sit 44px tall with a hairline between them, inset to the text. */
+.sheetSectionContent > * {
+  min-height: 44px;
+  border-top: 1px solid var(--separator);
+}
+.sheetSectionContent > :first-child { border-top: none; }
+.sheetSectionContent > .sheetRows,
+.sheetSectionContent > div:not([class]) { padding: 10px 0; }
+
+.sheetLinkRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--separator);
+  padding: 0;
+  text-align: left;
+  font-size: var(--text-body);
+  color: var(--label-primary);
+}
+.sheetLinkRow:active { background: var(--fill-pressed); }
+.sheetLinkLabel { flex: 1; }
+.sheetLinkDetail { color: var(--label-secondary); }
+.sheetLinkRow::after { content: '\203a'; color: var(--label-secondary); font-size: var(--text-body); }
+
+.sheetCheckRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--separator);
+  padding: 0;
+  text-align: left;
+  font-size: var(--text-body);
+  color: var(--label-primary);
+}
+.sheetCheckRow:first-of-type { border-top: none; }
+.sheetCheckRow:active { background: var(--fill-pressed); }
+.sheetCheckRow[aria-checked="true"]::after { content: '\2713'; color: var(--tint); font-weight: 600; }
+.sheetLinkRow:disabled { color: var(--label-secondary); }
+.sheetLinkRow:disabled::after { content: none; }
+
+.sheetSectionFooter {
+  margin: 0;
+  padding: 6px 16px 0;
+  font-size: var(--text-footnote);
+  color: var(--label-secondary);
+}
+
+.sheetRows {
+  display: grid;
+  /* minmax(0, 1fr), not 1fr: a plain 1fr still lets the column grow past the
+     track to fit an unbreakable value (a package activity, an APK path with
+     no spaces to break on), because a grid track's automatic minimum is its
+     content's, not zero. That is what pushed the App card's values off the
+     sheet's right edge -- .sheetBody's own overflow-y: auto makes it an
+     independent scroll container (a non-'visible' value on one axis forces
+     the other off 'visible' too), so the overflow scrolled rather than being
+     clipped by .sheet's overflow: hidden, and read as values missing off the
+     edge of the visible sheet rather than as an overflow. minmax(0, 1fr)
+     gives the column an explicit zero minimum, so it is the value's own
+     wrapping (see .appRows below) that has to make room, not the grid. */
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+/* Labels stay one line -- a short label wrapping (e.g. "Version code" onto
+   two) reads as a layout glitch, not as the label running out of room; it is
+   the value column that is expected to be tight, not the label. */
+.sheetRows dt { color: var(--label-secondary); font-weight: 400; white-space: nowrap; }
+.sheetRows dd {
+  margin: 0;
+  text-align: right;
+  color: var(--label-primary);
+}
+.sheetRows dd.good { color: var(--status-success); }
+.sheetRows dd.warn { color: var(--status-warning); }
+.sheetRows dd.bad { color: var(--status-danger); }
+
+/* App card rows (appcard.js): values are package/activity/version/path
+   strings rather than the short numeric telemetry the other .sheetRows users
+   show, so they read left-aligned like the label beside them, and a long
+   unbroken value (a full activity name, an APK path) wraps inside the
+   column -- overflow-wrap: anywhere breaks mid-word/mid-path rather than
+   overflowing the sheet, which word-break: break-word would not do for a
+   run with no word boundaries at all. */
+.appRows dd {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+/* Details: label over value, one column, so a full activity name or APK
+   path gets the panel's whole width instead of the value column's. */
+.appRows--stacked { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.appRows--stacked dd {
+  margin-bottom: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption1);
+}
+
+.logList {
+  display: grid;
+  gap: 2px;
+  overflow-y: auto;
+  font-variant-numeric: tabular-nums;
+}
+.logRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: var(--text-caption1);
+  border-bottom: 1px solid var(--separator);
+}
+.logTime { color: var(--label-secondary); }
+.logWhat { color: var(--label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logSource { color: var(--label-secondary); text-align: right; }
+.logFailed .logWhat { color: var(--status-danger); }
+.logGap {
+  display: block;
+  color: var(--label-secondary);
+  font-style: italic;
+  font-size: var(--text-caption1);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--separator);
+}
+.sheetAction {
+  border: 1px solid var(--separator);
+  border-radius: 9px;
+  padding: 8px 14px;
+  margin: 0 8px 8px 0;
+  background: var(--background-secondary);
+  color: var(--label-primary);
+  font-size: var(--text-callout);
+}
+.sheetAction:active { opacity: 0.6; }
+.sheetNote { margin: 0 0 8px; color: var(--label-secondary); font-size: var(--text-footnote); }
+.logcatSwitch { margin-bottom: 8px; }
+.logcatBody[hidden], .logGestures[hidden], .logcatSwitch[hidden] { display: none; }
+.logcatBar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.logcatReload {
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--label-primary);
+  font-size: var(--text-footnote);
+}
+.logcatText {
+  margin: 0;
+  max-height: 50dvh;
+  overflow: auto;
+  white-space: pre;
+  font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--label-primary);
+}
+.logEmpty { color: var(--label-secondary); font-size: var(--text-caption1); }
+.logBadge {
+  display: inline-block;
+  margin: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--separator);
+  color: var(--label-secondary);
+  font-size: var(--text-caption2);
+  font-variant-numeric: tabular-nums;
+}
+
+.sheetSwitchRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* A minimal on/off switch. State lives in aria-checked, which both drives
+   the caller's logic and is what a screen reader announces. */
+.switch {
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--separator);
+  background: var(--background-primary);
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+.switch::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--label-secondary);
+  transition: transform .15s;
+}
+.switch[aria-checked="true"] {
+  background: var(--tint);
+  border-color: var(--tint);
+}
+.switch[aria-checked="true"]::after {
+  transform: translateX(16px);
+  background: var(--label-on-tint);
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--scrim);
+}
+.scrim[hidden] { display: none; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  /* --corner-h is the taller of the two clusters (the nav stack), so this
+     clears both regardless of which corner raised the toast. */
+  bottom: calc(var(--corner-h) + var(--corner-gap) + env(safe-area-inset-bottom) + 12px);
+  transform: translateX(-50%);
+  /* Above the control banner (35), which a pane's own toast can sit beside. */
+  z-index: 36;
+  background: var(--background-secondary);
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: var(--text-caption1);
+}
+.toast[hidden] { display: none; }
+
+/* clipboard.js's offer of what was copied on the device. Just under the top bar,
+   clear of the corners and of the toast, and a button because Safari writes
+   the clipboard only inside a tap. */
+.clipOffer {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top) + var(--bar-h) + var(--banner-gap));
+  box-sizing: border-box;
+  height: var(--banner-h);
+  line-height: calc(var(--banner-h) - 2px);
+  transform: translateX(-50%);
+  z-index: 36;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--background-secondary);
+  color: inherit;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: var(--text-caption1);
+}
+/* record.js: the finished recording, in .clipOffer's place and shape, one
+   layer above it. The message, then Share and Save. */
+.recBanner {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top) + var(--bar-h) + var(--banner-gap));
+  box-sizing: border-box;
+  height: var(--banner-h);
+  transform: translateX(-50%);
+  z-index: 37;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+  background: var(--background-secondary);
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: var(--text-caption1);
+}
+.recMsg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.recBanner button,
+.recBanner a {
+  flex: none;
+  background: transparent;
+  border: none;
+  /* A taller hit area than the 30px banner draws, without growing it. */
+  padding: 8px 4px;
+  margin: -8px -4px;
+  color: var(--tint);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+/* corners.js sets data-corner to whichever corner raised the error, and the
+   toast anchors to that corner's own edge instead of the page centre -- the
+   same left/right-only mirror #cornerNav/#cornerMore already do, so
+   data-corner="nav" always means "the corner currently holding the nav L"
+   regardless of handedness. transform: none replaces the centred rule's
+   translateX(-50%), which would otherwise offset the toast by half of its
+   own width off whichever edge it is now pinned to. */
+.toast[data-corner="nav"] {
+  left: calc(var(--corner-gap) + env(safe-area-inset-left));
+  right: auto;
+  transform: none;
+}
+.toast[data-corner="more"] {
+  right: calc(var(--corner-gap) + env(safe-area-inset-right));
+  left: auto;
+  transform: none;
+}
+html.hand-right .toast[data-corner="nav"] {
+  left: auto;
+  right: calc(var(--corner-gap) + env(safe-area-inset-right));
+}
+html.hand-right .toast[data-corner="more"] {
+  right: auto;
+  left: calc(var(--corner-gap) + env(safe-area-inset-left));
+}
+
+@media (min-width: 900px) {
+  #stage { padding: 20px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Device frame
+   ---------------------------------------------------------------------------
+   Every layer fills .screenWrap, which fitScreen() has already sized to the
+   whole bezel. The canvas is the exception: it is positioned and sized to the
+   display rect inside that box.
+
+   The frame's geometry is in device pixels and the canvas is in stream pixels,
+   which MaxSize may have scaled down. Stretching the canvas across the display
+   rect is only right because that downscale preserves aspect. */
+.frameLayer {
+  position: absolute;
+  /* left/top/width/height rather than inset, because fitScreen() assigns
+     exactly those four on every layer. Leaving right and bottom at 0 would
+     over-constrain it and leave the browser to decide which of the six to
+     drop. The 100% is only what a layer shows for the frame it is between
+     hidden and fitted; fitScreen() replaces all four. */
+  left: 0;
+  top: 0;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* The mask and the cutout sit above the video; the back art sits below it. */
+.frameArt { z-index: 0; }
+/* Skin art can be larger than the layout it belongs to -- pixel_10 declares
+   1198x2531 and ships a 1205x2535 back.webp -- and the emulator crops it to
+   the layout. Drawing it at its natural size is what keeps its screen hole on
+   the display rect, so the wrap has to do that cropping. */
+.screenWrap.framed { overflow: hidden; }
+.frameMask { z-index: 2; }
+.frameCutout { z-index: 2; }
+.frameCutout path { fill: var(--device-screen); }
+
+/* A derived frame has no art, so the bezel is drawn here: a dark rounded slab
+   behind the screen. The radius is the screen's own, widened by the bezel, so
+   the two curves stay concentric instead of the outer one looking flat. */
+.screenWrap.derived {
+  background: var(--device-bezel);
+  box-shadow: inset 0 0 0 1px var(--device-bezel-edge);
+}
+
+.screenWrap.framed .screen { position: absolute; }
+/* Skin art already draws its own rounded screen, so a radius on the canvas
+   underneath it would only clip video the art was going to cover anyway. */
+.screenWrap.skin .screen { border-radius: 0; }
+
+/* ---------------------------------------------------------------------------
+   Immersive mode (immersive.js)
+   ---------------------------------------------------------------------------
+   The stream alone. The body keeps its safe-area padding, so the video stays
+   clear of the notch and the home indicator; everything else goes, and the
+   stage gives up its own padding. With the top bar gone the stage is the
+   body's only grid row. */
+/* Peek (peek.js): the stream in its bezel in a Mac pop-up, like the
+   emulator's own window. The top bar goes; the nav row and the overflow
+   stay, since a headless emulator has no Back or Home of its own. */
+html.peek body { grid-template-rows: 1fr; }
+html.peek #topbar { display: none; }
+
+html.immersive body { grid-template-rows: 1fr; }
+html.immersive #topbar,
+html.immersive #cornerNav,
+html.immersive #cornerMore { display: none; }
+html.immersive #stage { padding: 0; }
+
+/* A grabber at the top edge, over the video. It is a real button so it takes
+   the pointer and the device never sees a hold on it; touch-action and the
+   callout rules stop iOS turning the hold into a scroll or a menu. */
+.immersiveHandle {
+  position: fixed;
+  top: env(safe-area-inset-top);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 96px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  z-index: 15;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.immersiveHandle[hidden] { display: none; }
+/* With the top bar gone, the banners move up to sit just under the handle,
+   so the clipboard offer, a button, does not take the handle's hold. */
+html.immersive .clipOffer,
+html.immersive .recBanner,
+html.immersive .controlBanner { top: calc(env(safe-area-inset-top) + 28px + 8px); }
+.immersiveHandle span {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--overlay-handle);
+  box-shadow: 0 0 0 1px var(--overlay-handle-edge);
+}
+
+/* The field that raises this phone's keyboard for a simulator (keyboard.js).
+   It has to stay focusable, so it is transparent rather than display:none,
+   and it sits inside the viewport so iOS does not scroll the page to bring
+   it into view. 16px is the smallest font iOS focuses without zooming the
+   page. */
+.phoneKeyboard {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: var(--text-callout);
+  resize: none;
+  caret-color: transparent;
+  pointer-events: none;
+}
+/* control.js: who is driving. Top centre like .clipOffer, one layer below
+   it so a clipboard offer the person can act on stays tappable. It takes no
+   taps itself -- touching the screen is how control is taken. */
+.controlBanner {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top) + var(--bar-h) + var(--banner-gap));
+  box-sizing: border-box;
+  height: var(--banner-h);
+  line-height: calc(var(--banner-h) - 2px);
+  transform: translateX(-50%);
+  z-index: 35;
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  background: var(--material-chrome);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  padding: 0 12px;
+  font-size: var(--text-caption1);
+}
+.controlBanner[hidden] { display: none; }
+.controlText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The banner lets taps through to the device under it; only this takes one. */
+.controlTakeOver {
+  flex: none;
+  pointer-events: auto;
+  background: transparent;
+  border: none;
+  /* A taller hit area than the 30px banner draws, without growing it. */
+  padding: 8px 6px;
+  margin: -8px -6px;
+  color: var(--tint);
+  font-weight: 600;
+  font-size: var(--text-caption1);
+  line-height: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.controlTakeOver[hidden] { display: none; }
+.controlBanner[data-agent="waiting"] {
+  border-color: var(--status-human-held);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--status-human-held) 45%, transparent);
+}
+
+/* While an agent is driving, the banner and the device glow, so a glance at
+   the phone says the screen is not the person's right now. control.js sets
+   data-agent on its host, the pane's root. The ring is a pseudo-element
+   over the screen rather than a filter on it: a filter would re-rasterise
+   with every video frame. */
+.controlBanner[data-agent="driving"] {
+  border-color: var(--tint);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--tint) 55%, transparent);
+}
+.screenWrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity .25s;
+  box-shadow: 0 0 0 2px var(--tint), 0 0 22px 4px color-mix(in srgb, var(--tint) 55%, transparent);
+}
+/* A framed wrap clips outside itself, so the ring goes inside the bezel box. */
+.screenWrap.framed::after {
+  border-radius: 0;
+  box-shadow: inset 0 0 0 2px var(--tint), inset 0 0 22px 4px color-mix(in srgb, var(--tint) 45%, transparent);
+}
+[data-agent="driving"] .screenWrap::after {
+  opacity: 1;
+  animation: agentGlow 2s ease-in-out infinite;
+}
+@keyframes agentGlow {
+  50% { opacity: .55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-agent="driving"] .screenWrap::after { animation: none; }
+}
+
+/* Fold motion (web/fold.js). The stream has nothing between postures, so
+   the page draws the fold itself. A flip hides the box and hands the picture
+   to .foldBook, two halves of the panel split at the hinge, one swinging
+   shut over the other; the box comes back once the other panel's picture
+   is in it. A tilt only leans the box. Input is off throughout, since the
+   canvas rect is not where the picture is. */
+.screenWrap.fold-away,
+.screenWrap.fold-back { pointer-events: none; }
+.screenWrap.fold-flip.fold-away { opacity: 0; }
+.screenWrap.fold-flip.fold-back { animation: foldShow 240ms ease-out; }
+.screenWrap.fold-tilt.fold-away { animation: var(--fold-away) 260ms ease-in forwards; }
+.screenWrap.fold-tilt.fold-back { animation: var(--fold-back) 320ms ease-out; }
+.screenWrap.fold-tilt[data-fold="closing"] { --fold-away: tiltAwayL; --fold-back: tiltBackL; }
+.screenWrap.fold-tilt[data-fold="opening"] { --fold-away: tiltAwayR; --fold-back: tiltBackR; }
+@keyframes tiltAwayL { to { transform: perspective(1400px) rotateY(28deg); } }
+@keyframes tiltAwayR { to { transform: perspective(1400px) rotateY(-28deg); } }
+@keyframes tiltBackL { from { transform: perspective(1400px) rotateY(28deg); } }
+@keyframes tiltBackR { from { transform: perspective(1400px) rotateY(-28deg); } }
+@keyframes foldShow { from { opacity: 0; } }
+@keyframes foldDim { to { opacity: .3; } }
+@keyframes foldLift { from { opacity: .3; } }
+/* Still a change of state to see, and still an animationend to clear it.
+   fold.js draws no book here, so the flip has to show something itself. */
+@media (prefers-reduced-motion: reduce) {
+  .screenWrap.fold-flip.fold-away { opacity: 1; animation: foldDim 260ms ease-in forwards; }
+  .screenWrap.fold-flip.fold-back { animation: foldLift 320ms ease-out; }
+  .screenWrap.fold-tilt { --fold-away: foldDim; --fold-back: foldLift; }
+}
+
+/* The book: placed over the panel's canvas rect by fold.js, which also
+   sets --r to the canvas's corner radius. The left leaf turns about its
+   right edge, the hinge, and its back face is the outer panel. */
+.foldBook, .foldSlab {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+.foldLeaf {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+}
+.foldLeaf.r { left: 50%; }
+.foldLeaf.l {
+  left: 0;
+  transform-origin: 100% 50%;
+  transform-style: preserve-3d;
+}
+.foldFace, .foldSlab {
+  overflow: hidden;
+  background: var(--device-bezel);
+}
+.foldFace {
+  position: absolute;
+  inset: 0;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+.foldLeaf.r .foldFace { border-radius: 0 var(--r) var(--r) 0; }
+.foldFace.front { border-radius: var(--r) 0 0 var(--r); }
+/* With a frame the halves are the bezel's own art, which draws its own
+   corners; only the shell on the back keeps a curve and a colour. */
+.foldBook.framed .foldFace:not(.back) { background: transparent; border-radius: 0; }
+.foldPic { position: absolute; overflow: hidden; }
+.foldPic.derived { background: var(--device-bezel); }
+/* The back is the phone's shell until the outer panel's picture is put on
+   it. Black there vanished into the page for the second half of a fold. */
+.foldFace.back {
+  transform: rotateY(180deg);
+  border-radius: var(--r);
+  background: linear-gradient(135deg, var(--device-bezel-hi), var(--device-bezel-lo));
+  box-shadow: inset 0 0 0 1px var(--device-bezel-rim);
+}
+.foldSlab { border-radius: var(--r); }
+.foldFace > canvas, .foldSlab > canvas { display: block; }
+.foldSlab > canvas { width: 100%; height: 100%; }
+.foldShade {
+  position: absolute;
+  inset: 0;
+  background: var(--device-screen);
+  opacity: 0;
+}
+
+/* The key strip, on top of the phone's keyboard. Its height is STRIP_H in
+   app.js, which takes it out of --app-h. */
+.keyStrip {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--keyboard-cover, 0px);
+  height: 44px;
+  box-sizing: border-box;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0 calc(6px + env(safe-area-inset-right)) 0 calc(6px + env(safe-area-inset-left));
+  background: var(--material-chrome);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border-top: 0.5px solid var(--separator);
+  z-index: 16;
+}
+.keyStrip[hidden] { display: none; }
+.stripKey {
+  /* Shared out across the width, so all eight fit on a 375px phone. */
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--label-primary);
+  font: inherit;
+  font-size: var(--text-subhead);
+}
+.stripKey:active { background: var(--fill-pressed); }
+.stripKey[data-key="done"] { font-weight: 600; color: var(--tint); }
+
+/* ---------------------------------------------------------------------------
+   Docked panels (desktop and tablet landscape)
+   ---------------------------------------------------------------------------
+   html.docked is set by app.js from the same 900px breakpoint as the stage
+   padding above. There the picker (and the sheets that open over it) is a
+   permanent panel on the left and the Tools sheet a permanent panel on the
+   right, both under the top bar, and the stage gives up both widths so
+   fitScreen() refits the device between them. Nothing opens or closes them
+   there: no scrim, no grabber, no drag, no Done. Inspect takes the right
+   panel while it is on and Tools steps aside; immersive hides both.
+
+   This block comes after the 481px rules so the same-specificity ones lose
+   to it. The width leaves a portrait phone room at 900px: 2 x 28vw is 504px,
+   so about 400px for the stage. */
+:root {
+  --panel-w: min(360px, 28vw);
+  /* Each side's width, 0 while that panel is collapsed (panels.js). The
+     stage and the corners read these, so fitScreen() gives the device the
+     room. Inspect keeps the right side whatever Tools' state. */
+  --panel-l: var(--panel-w);
+  --panel-r: var(--panel-w);
+}
+html.docked.left-collapsed { --panel-l: 0px; }
+html.docked.right-collapsed:not(.inspecting) { --panel-r: 0px; }
+html.docked.left-collapsed .drawer,
+html.docked.right-collapsed .sheet { display: none; }
+
+html.docked .sheet,
+html.docked .drawer,
+html.docked .inspectSheet {
+  top: calc(var(--bar-h) + env(safe-area-inset-top));
+  bottom: 0;
+  width: var(--panel-w);
+  max-width: none;
+  max-height: none;
+  /* !important because sheet.js writes the detent height inline. */
+  height: auto !important;
+  margin: 0;
+  border-top: 1px solid var(--separator);
+  padding-bottom: env(safe-area-inset-bottom);
+  transform: none !important;
+}
+html.docked .sheet,
+html.docked .inspectSheet {
+  right: 0;
+  left: auto;
+  border-left: 1px solid var(--separator);
+  border-right: 0;
+  border-radius: 0;
+}
+html.docked .drawer {
+  left: 0;
+  right: auto;
+  border-right: 1px solid var(--separator);
+  border-left: 0;
+  border-radius: 0;
+}
+html.docked .sheetHandle,
+html.docked .pickerTop .grabber,
+html.docked .pickerDone { display: none; }
+/* A sheet over the docked picker has no scrim to tap, so its Done or
+   Cancel is the only way back. */
+html.docked .drawer--over .pickerDone { display: inline-block; }
+html.docked .scrim { display: none; }
+html.docked.inspecting .sheet { display: none; }
+
+html.docked #stage {
+  padding-left: calc(var(--panel-l) + 20px);
+  padding-right: calc(var(--panel-r) + 20px);
+}
+/* The inspect sheet is beside the device now, not under it. 3D stays in the
+   panel too: taking the whole screen is how a phone fits it (node 7:78), and
+   on a desktop that would hide the device it is a picture of. */
+html.docked.inspecting #stage { padding-bottom: 20px; }
+html.docked .inspectSheet.full { z-index: 15; }
+
+/* Immersive is the stream alone, at every width. */
+html.docked.immersive .sheet,
+html.docked.immersive .drawer,
+html.docked.immersive .inspectSheet { display: none; }
+html.docked.immersive #stage { padding-left: 0; padding-right: 0; }
+
+/* The corners are pinned to the viewport, so each moves in by its side's
+   panel, to the stage's edge, where cornerReservation() already keeps them
+   clear of the device. Hand only decides which corner is on which side.
+   Inspect hides them at every width (see .inspectSheet). */
+html.docked:not(.hand-right) #cornerNav,
+html.docked:not(.hand-right) .toast[data-corner="nav"],
+html.docked.hand-right #cornerMore,
+html.docked.hand-right .toast[data-corner="more"] {
+  left: calc(var(--corner-gap) + env(safe-area-inset-left) + var(--panel-l));
+}
+html.docked:not(.hand-right) #cornerMore,
+html.docked:not(.hand-right) .toast[data-corner="more"],
+html.docked.hand-right #cornerNav,
+html.docked.hand-right .toast[data-corner="nav"] {
+  right: calc(var(--corner-gap) + env(safe-area-inset-right) + var(--panel-r));
+}
+
+/* Docked panels are desktop sidebars, not sheets: sections run the panel's
+   full width under a hairline, with no inset cards, and rows answer hover
+   since a pointer is there. */
+html.docked .pickerList { padding: 0 0 calc(16px + env(safe-area-inset-bottom)); }
+html.docked .pickerGroup + .pickerGroup { margin-top: 0; border-top: 1px solid var(--separator); }
+/* Sentence case, not uppercase: the transform turned the iOS group into
+   "IOS". */
+html.docked .pickerGroupTitle,
+html.docked .sheetSectionHeader {
+  padding: 14px 16px 6px;
+  text-transform: none;
+  font-weight: 600;
+}
+html.docked .pickerGroupRows { border-radius: 0; background: none; }
+/* Rows are flat strips on the panel. Every button inherits an 8px radius,
+   which left a notch at each row's right edge, and the swipe row's own fill
+   was a card colour on the panel's. The swipe row stays opaque, since its
+   actions sit behind it. */
+html.docked .pickerRow,
+html.docked .sheetSectionContent > * { border-radius: 0; }
+html.docked .pickerSwipe > .pickerRow { background: var(--background-primary); }
+html.docked .pickerSwipe > .pickerRow:not(:disabled):active,
+html.docked .pickerSwipe > .pickerRow:not(:disabled):focus-visible {
+  background: linear-gradient(var(--fill-pressed), var(--fill-pressed)), var(--background-primary);
+}
+/* The current device is a tinted row, as a sidebar marks where you are. */
+html.docked .pickerRow[aria-selected="true"],
+html.docked .pickerSwipe > .pickerRow[aria-selected="true"] {
+  background: linear-gradient(var(--fill-selected), var(--fill-selected)), var(--background-primary);
+}
+/* Hover layers over the row's own fill, so a swipe row stays opaque and the
+   current row keeps its tint. The plain hover rule below outranks the two
+   above, so these name the row twice. */
+@media (hover: hover) {
+  html.docked .pickerSwipe > .pickerRow.pickerRow:not(:disabled):hover {
+    background: linear-gradient(var(--fill-pressed), var(--fill-pressed)), var(--background-primary);
+  }
+  html.docked .pickerRow.pickerRow[aria-selected="true"]:not(:disabled):hover {
+    background: linear-gradient(var(--fill-pressed), var(--fill-pressed)),
+      linear-gradient(var(--fill-selected), var(--fill-selected)), var(--background-primary);
+  }
+}
+/* A segmented row stacks, label over a full-width control, so Appearance
+   does not wrap at one panel width and sit inline at another. */
+html.docked .sheetSwitchRow:has(> .settingSegments) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 0;
+}
+html.docked .sheetSwitchRow > .settingSegments { width: 100%; }
+html.docked .sheetSwitchRow > .settingSegments > .settingSegment { flex: 1; }
+/* Tools gets the title row the picker has. Only the root page shows it, and
+   only docked: the sheet's grabber does that job on a phone. */
+.sheetRootTitle { display: none; }
+html.docked .sheetRootTitle {
+  display: block;
+  margin: 0;
+  padding: 0 16px 8px;
+  text-align: center;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+html.docked .sheetBody { padding: 0 0 calc(12px + env(safe-area-inset-bottom)); }
+html.docked .sheetSection { margin: 0; padding-bottom: 10px; }
+html.docked .sheetSection + .sheetSection { border-top: 1px solid var(--separator); }
+html.docked .sheetSectionHeader { padding: 14px 16px 6px; }
+html.docked .sheetSectionContent { border-radius: 0; background: none; }
+@media (hover: hover) {
+  html.docked .pickerRow:not(:disabled):hover { background: var(--fill-pressed); cursor: pointer; }
+}
+
+/* Docked, the top bar's corners hold the panel toggles. Tools is always a
+   panel there, so its button goes; on a phone the toggles go instead. */
+.panelToggle { display: none; }
+/* .ghost.icon sets display: grid and outranks a bare class, which showed
+   the toggles at phone width, so both rules carry the id. */
+#topbar > .panelToggle { display: none; }
+html.docked #topbar > .panelToggle { display: grid; }
+html.docked #toolsBtn { display: none; }
+#topbar > #leftPanelBtn { grid-column: 1; grid-row: 1; }
+#topbar > #rightPanelBtn { grid-column: 3; grid-row: 1; }
+.panelToggle[aria-expanded="true"] .panelFill { fill: currentColor; opacity: .35; }
+html.immersive #topbar > .panelToggle { display: none; }
+
+/* A desktop has a keyboard of its own: no key strip, and no setting for it. */
+html.docked .keyStripRow { display: none; }
+
+/* Docked, the picker is always beside the stage, so the pill is a label:
+   no chevron and nothing to open. A recording's stop control in it still
+   takes a click. */
+html.docked #pill { pointer-events: none; cursor: default; }
+html.docked #pill .chevron { display: none; }
+html.docked #pill #pillRec { pointer-events: auto; cursor: pointer; }
+html.docked #keyStrip { display: none; }
+
+/* Zoom mode (zoom.js). The screen layer is scaled and panned by a transform
+   the module writes; its touches never reach the device, so the canvas's own
+   touch-action no longer matters, and nothing on it should select or callout. */
+.screenWrap.zoomed { touch-action: none; }
+html.zoomed #stage { touch-action: none; }
+.zoomBadge {
+  position: absolute;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--material-sheet);
+  color: var(--label-primary);
+  font: 600 var(--text-callout, 16px) system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 10px var(--menu-shadow);
+  cursor: pointer;
+}
+html.zoomed #cornerNav,
+html.zoomed #cornerMore { display: none; }

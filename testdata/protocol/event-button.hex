@@ -1,0 +1,13 @@
+# EncodeEvent(Event{Seq: 3, T: 1727177401000, Source: "viewer", Viewer: 2,
+#             Kind: "button", Button: "home"})
+#
+# A viewer's own key-up whose keycode names a device button (Session.ViewerKey,
+# target.ButtonForKeycode) publishes as kind "button" with the name rather
+# than kind "key" with a raw code -- an agent's POST /api/input {"action":
+# "button"} publishes the same shape, kind "button", source "agent".
+#
+# byte 0  type   06   MsgEvent
+# bytes 1+ the event, as JSON:
+#   {"seq":3,"t":1727177401000,"source":"viewer","viewer":2,"kind":"button","button":"home"}
+06
+7b22736571223a332c2274223a313732373137373430313030302c22736f75726365223a22766965776572222c22766965776572223a322c226b696e64223a22627574746f6e222c22627574746f6e223a22686f6d65227d

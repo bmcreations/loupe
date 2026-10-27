@@ -1,0 +1,26 @@
+Drop box contents: 16 entries
+Max entries: 1000
+Low priority rate limit period: 2000 ms
+Low priority tags: {data_app_wtf, keymaster, system_server_wtf, system_app_strictmode, system_app_wtf, system_server_strictmode, data_app_strictmode, netstats}
+Searching for: system_app_crash
+
+========================================
+2026-10-22 22:23:16 system_app_crash (text, 714 bytes)
+/data/system/dropbox/system_app_crash@1792722196248.txt
+Process: com.android.settings
+PID: 4312
+UID: 1000
+Flags: 0x28c9be45
+Package: com.android.settings v29 (10)
+Foreground: Yes
+Build: google/sdk_gphone64_arm64/emulator64_arm64:10/QSR1.211112.011/13135432:user/release-keys
+
+android.app.RemoteServiceException: shell-induced crash
+	at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1945)
+	at android.os.Handler.dispatchMessage(Handler.java:107)
+	at android.os.Looper.loop(Looper.java:214)
+	at android.app.ActivityThread.main(ActivityThread.java:7356)
+	at java.lang.reflect.Method.invoke(Native Method)
+	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:492)
+	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:930)
+

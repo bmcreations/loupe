@@ -1,0 +1,13 @@
+# MsgKey, type byte included in the numbering below.
+# byte 0      type      11          MsgKey
+# byte 1      action    01          up (1) -- not 0, so a swap with the type byte or a
+#                                   read from the wrong offset changes the value
+11
+01
+# bytes 2-5   keycode   7e020304    2114978052 -- >= 0x01000000, so a byte-order swap
+#                                   or a narrowed read both change the value; its
+#                                   first byte (0x7e) deliberately does not equal
+#                                   action (0x01), so a read of Action from the wrong
+#                                   offset (b[1] instead of b[0]) cannot coincidentally
+#                                   read back the same value
+7e020304

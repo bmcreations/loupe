@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<d:devices xmlns:d="http://schemas.android.com/sdk/android/repo/devices/03">
+  <d:device><d:name>Pixel 9</d:name><d:id>pixel_9</d:id><d:manufacturer>Google</d:manufacturer>
+    <d:hardware><d:screen><d:screen-size>normal</d:screen-size><d:diagonal-length>6.24</d:diagonal-length><d:pixel-density>420dpi</d:pixel-density>
+      <d:dimensions><d:x-dimension>1080</d:x-dimension><d:y-dimension>2424</d:y-dimension></d:dimensions></d:screen></d:hardware>
+    <d:software><d:api-level>-</d:api-level></d:software></d:device>
+  <d:device><d:name>Pixel 9 Pro Fold</d:name><d:id>pixel_9_pro_fold</d:id><d:manufacturer>Google</d:manufacturer>
+    <d:hardware><d:screen><d:diagonal-length>8.0</d:diagonal-length>
+      <d:dimensions><d:x-dimension>2076</d:x-dimension><d:y-dimension>2152</d:y-dimension></d:dimensions></d:screen>
+      <d:hinge><d:count>1</d:count></d:hinge></d:hardware>
+    <d:software><d:api-level>35-</d:api-level></d:software></d:device>
+  <d:device><d:name>Pixel Fold</d:name><d:id>pixel_fold</d:id><d:manufacturer>Google</d:manufacturer>
+    <d:hardware><d:screen><d:diagonal-length>7.58</d:diagonal-length>
+      <d:dimensions><d:x-dimension>2208</d:x-dimension><d:y-dimension>1840</d:y-dimension></d:dimensions></d:screen>
+      <d:hinge><d:count>1</d:count></d:hinge></d:hardware>
+    <d:software><d:api-level>34-</d:api-level></d:software></d:device>
+  <d:device><d:name>Pixel Tablet</d:name><d:id>pixel_tablet</d:id><d:manufacturer>Google</d:manufacturer>
+    <d:hardware><d:screen><d:diagonal-length>10.95</d:diagonal-length>
+      <d:dimensions><d:x-dimension>2560</d:x-dimension><d:y-dimension>1600</d:y-dimension></d:dimensions></d:screen></d:hardware>
+    <d:software><d:api-level>-</d:api-level></d:software></d:device>
+  <d:device><d:name>Android TV (1080p)</d:name><d:id>tv_1080p</d:id><d:tag-id>android-tv</d:tag-id>
+    <d:hardware><d:screen><d:diagonal-length>55.0</d:diagonal-length>
+      <d:dimensions><d:x-dimension>1920</d:x-dimension><d:y-dimension>1080</d:y-dimension></d:dimensions></d:screen></d:hardware></d:device>
+  <d:device deprecated="true"><d:name>7.6in Foldable</d:name><d:id>7.6in Foldable</d:id>
+    <d:hardware><d:screen><d:diagonal-length>7.6</d:diagonal-length>
+      <d:dimensions><d:x-dimension>2208</d:x-dimension><d:y-dimension>1768</d:y-dimension></d:dimensions></d:screen></d:hardware></d:device>
+</d:devices>

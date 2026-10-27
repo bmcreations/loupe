@@ -1,0 +1,104 @@
+[
+  {
+    "name": "good, fresh",
+    "input": { "health": "good", "healthReason": "", "receivedAt": 1000 },
+    "now": 1000,
+    "expect": { "state": "good", "label": "good" }
+  },
+  {
+    "name": "degraded, fresh, carries the server's reason",
+    "input": { "health": "degraded", "healthReason": "shed 23/s", "receivedAt": 1000 },
+    "now": 1000,
+    "expect": { "state": "degraded", "label": "shed 23/s" }
+  },
+  {
+    "name": "bad, fresh, carries the server's reason",
+    "input": { "health": "bad", "healthReason": "delivered 41 of 60 frames", "receivedAt": 1000 },
+    "now": 1000,
+    "expect": { "state": "bad", "label": "delivered 41 of 60 frames" }
+  },
+  {
+    "name": "degraded with no reason still reads degraded",
+    "input": { "health": "degraded", "healthReason": "", "receivedAt": 1000 },
+    "now": 1000,
+    "expect": { "state": "degraded", "label": "degraded" }
+  },
+  {
+    "name": "boundary: good at 2499ms old is still good (just inside the stale cut)",
+    "input": { "health": "good", "healthReason": "", "receivedAt": 1000 },
+    "now": 3499,
+    "expect": { "state": "good", "label": "good" }
+  },
+  {
+    "name": "boundary: good at exactly 2500ms old is stale (trap 26: an old reading is no reading)",
+    "input": { "health": "good", "healthReason": "", "receivedAt": 1000 },
+    "now": 3500,
+    "expect": { "state": "stale", "label": "no signal" }
+  },
+  {
+    "name": "a bad verdict that is 2500ms stale still reads stale, not bad -- age wins over verdict",
+    "input": { "health": "bad", "healthReason": "delivered 10 of 60 frames", "receivedAt": 1000 },
+    "now": 3500,
+    "expect": { "state": "stale", "label": "no signal" }
+  },
+  {
+    "name": "unknown verdict from a newer server reads degraded, never good, and names the verdict",
+    "input": { "health": "excellent", "healthReason": "", "receivedAt": 1000 },
+    "now": 1000,
+    "expect": { "state": "degraded", "label": "excellent" }
+  },
+  {
+    "name": "null input (no MsgStats has ever arrived) is idle",
+    "input": null,
+    "now": 1000,
+    "expect": { "state": "idle", "label": "idle" }
+  },
+  {
+    "name": "an input with no receivedAt is idle, same as null",
+    "input": { "health": "good", "healthReason": "" },
+    "now": 1000,
+    "expect": { "state": "idle", "label": "idle" }
+  },
+  {
+    "name": "receivedAt explicitly null is idle, same as missing",
+    "input": { "health": "good", "healthReason": "", "receivedAt": null },
+    "now": 1000,
+    "expect": { "state": "idle", "label": "idle" }
+  },
+  {
+    "name": "a non-finite receivedAt (NaN) is idle rather than falling through to age math",
+    "input": { "health": "good", "healthReason": "", "receivedAt": "NaN" },
+    "now": 1000,
+    "expect": { "state": "idle", "label": "idle" }
+  },
+  {
+    "name": "receivedAt in the future (negative age) reads stale, not the verdict it carried",
+    "input": { "health": "good", "healthReason": "", "receivedAt": 5000 },
+    "now": 1000,
+    "expect": { "state": "stale", "label": "no signal" }
+  },
+  {
+    "name": "boundary: receivedAt 2499ms in the future is still within the window (abs age just under the cut)",
+    "input": { "health": "good", "healthReason": "", "receivedAt": 3499 },
+    "now": 1000,
+    "expect": { "state": "good", "label": "good" }
+  },
+  {
+    "name": "boundary: receivedAt exactly 2500ms in the future is stale (abs age at the cut)",
+    "input": { "health": "good", "healthReason": "", "receivedAt": 3500 },
+    "now": 1000,
+    "expect": { "state": "stale", "label": "no signal" }
+  },
+  {
+    "name": "a missing health field reads idle/'no signal', not degraded -- base MsgStats has no health field until session-health lands, and that must never read as amber",
+    "input": { "healthReason": "", "receivedAt": 1000 },
+    "now": 1000,
+    "expect": { "state": "idle", "label": "no signal" }
+  },
+  {
+    "name": "health explicitly null also reads idle/'no signal', same as missing",
+    "input": { "health": null, "healthReason": "", "receivedAt": 1000 },
+    "now": 1000,
+    "expect": { "state": "idle", "label": "no signal" }
+  }
+]

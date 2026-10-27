@@ -1,0 +1,96 @@
+name: loupe preview
+description: Install a PR's APK on a loupe target and comment a link that opens it.
+
+inputs:
+  server:
+    description: The loupe server's base URL, e.g. https://host.tailnet.ts.net:18456
+    required: true
+  token:
+    description: The server's shared token, from a secret. Empty reads token-file instead. Never written to the comment.
+    default: ""
+  token-file:
+    description: Where to read the token when token is empty. The default is where loupe keeps it, for a runner on loupe's own Mac.
+    default: "~/Library/Caches/loupe/token"
+  connect-to:
+    description: host:port to dial instead of the server's, e.g. 127.0.0.1:18456 on loupe's own Mac. TLS is still checked against the server's name.
+    default: ""
+  target:
+    description: The target id to install on, e.g. avd:Pixel_10. The target must be running.
+    required: true
+  apk:
+    description: APK paths or globs, whitespace separated. Several files go as one base-plus-splits install.
+    required: true
+  allow-test:
+    description: Accept an APK marked android:testOnly (adds -t).
+    default: "false"
+  launch:
+    description: Ask the server to launch the app after installing. The comment says whether it did.
+    default: "false"
+  package:
+    description: The package name, sent as ?package= and shown in the comment. Read from the base APK with aapt2 when empty; the server's own reading wins if they differ, and nothing is launched.
+    default: ""
+  comment:
+    description: Post or update the PR comment.
+    default: "true"
+  insecure:
+    description: Skip TLS verification. Only for a local test server.
+    default: "false"
+  pr-number:
+    description: The PR to comment on. Set it in a workflow_run job, where there is no pull_request event.
+    default: ${{ github.event.pull_request.number }}
+  head-sha:
+    description: The commit the build came from, shown in the comment.
+    default: ${{ github.event.pull_request.head.sha }}
+  github-token:
+    description: Token for the PR comment. Needs pull-requests write.
+    default: ${{ github.token }}
+
+outputs:
+  outcome:
+    description: ok, refused or error
+    value: ${{ steps.install.outputs.outcome }}
+  url:
+    description: The viewer link for the target
+    value: ${{ steps.install.outputs.url }}
+  package:
+    description: The installed package, when known
+    value: ${{ steps.install.outputs.package }}
+  code:
+    description: The INSTALL_FAILED_* code on a refusal
+    value: ${{ steps.install.outputs.code }}
+  took-ms:
+    description: How long the server took to install
+    value: ${{ steps.install.outputs.took-ms }}
+
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        LOUPE_SERVER: ${{ inputs.server }}
+        LOUPE_TOKEN: ${{ inputs.token }}
+        LOUPE_TOKEN_FILE: ${{ inputs.token-file }}
+        LOUPE_CONNECT: ${{ inputs.connect-to }}
+        LOUPE_TARGET: ${{ inputs.target }}
+        LOUPE_APKS: ${{ inputs.apk }}
+        LOUPE_ALLOW_TEST: ${{ inputs.allow-test }}
+        LOUPE_LAUNCH: ${{ inputs.launch }}
+        LOUPE_PACKAGE: ${{ inputs.package }}
+        LOUPE_INSECURE: ${{ inputs.insecure }}
+        LOUPE_RESULT: ${{ runner.temp }}/loupe-preview.json
+      run: bash "$GITHUB_ACTION_PATH/install.sh"
+
+    # Runs on a failed install too, so the comment stops pointing at a build
+    # that is no longer on the device.
+    - if: inputs.comment == 'true' && inputs.pr-number != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        PR_HEAD_SHA: ${{ inputs.head-sha }}
+      run: bash "$GITHUB_ACTION_PATH/comment.sh" "${{ steps.install.outputs.result }}"
+
+    - if: steps.install.outputs.outcome != 'ok'
+      shell: bash
+      run: exit 1

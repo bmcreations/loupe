@@ -1,0 +1,707 @@
+{
+  "two": {
+    "platforms": [
+      {
+        "id": "android",
+        "label": "Android",
+        "os": [
+          {
+            "id": "system-images;android-36.1;google_apis_playstore;arm64-v8a",
+            "label": "Android 16",
+            "detail": "API 36.1 · Google Play"
+          },
+          {
+            "id": "system-images;android-34;google_apis_playstore;arm64-v8a",
+            "label": "Android 14",
+            "detail": "API 34 · Google Play"
+          }
+        ],
+        "devices": [
+          {
+            "id": "pixel_9",
+            "label": "Pixel 9",
+            "group": "phone",
+            "size": "6.2\" · 1080×2424"
+          },
+          {
+            "id": "pixel_fold",
+            "label": "Pixel Fold",
+            "group": "foldable",
+            "size": "7.6\" · 2208×1840"
+          },
+          {
+            "id": "pixel_tablet",
+            "label": "Pixel Tablet",
+            "group": "tablet",
+            "size": "10.9\" · 2560×1600"
+          }
+        ],
+        "pairs": {
+          "system-images;android-34;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_tablet"
+          ],
+          "system-images;android-36.1;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_fold",
+            "pixel_tablet"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      },
+      {
+        "id": "ios",
+        "label": "iOS",
+        "os": [
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+            "label": "iOS 27.1"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+            "label": "iOS 27.0"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-26-4",
+            "label": "iOS 26.4"
+          }
+        ],
+        "devices": [
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "label": "iPhone 17",
+            "group": "phone",
+            "size": "6.3\" · 1206×2622"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13",
+            "label": "iPad Pro 13-inch",
+            "group": "tablet",
+            "size": "13\" · 2064×2752"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
+            "label": "iPhone Duo",
+            "group": "foldable",
+            "size": "7.6\" · 2853×2007"
+          }
+        ],
+        "pairs": {
+          "com.apple.CoreSimulator.SimRuntime.iOS-26-4": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-1": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$"
+      }
+    ],
+    "existingNames": {
+      "android": [
+        "Pixel_10",
+        "Pixel_9_API_36.1"
+      ],
+      "ios": [
+        "loupe-probe",
+        "iPhone 17 iOS 27.0"
+      ]
+    },
+    "profilesFallback": false
+  },
+  "noIosRuntimes": {
+    "platforms": [
+      {
+        "id": "android",
+        "label": "Android",
+        "os": [
+          {
+            "id": "system-images;android-36.1;google_apis_playstore;arm64-v8a",
+            "label": "Android 16",
+            "detail": "API 36.1 · Google Play"
+          },
+          {
+            "id": "system-images;android-34;google_apis_playstore;arm64-v8a",
+            "label": "Android 14",
+            "detail": "API 34 · Google Play"
+          }
+        ],
+        "devices": [
+          {
+            "id": "pixel_9",
+            "label": "Pixel 9",
+            "group": "phone",
+            "size": "6.2\" · 1080×2424"
+          },
+          {
+            "id": "pixel_fold",
+            "label": "Pixel Fold",
+            "group": "foldable",
+            "size": "7.6\" · 2208×1840"
+          },
+          {
+            "id": "pixel_tablet",
+            "label": "Pixel Tablet",
+            "group": "tablet",
+            "size": "10.9\" · 2560×1600"
+          }
+        ],
+        "pairs": {
+          "system-images;android-34;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_tablet"
+          ],
+          "system-images;android-36.1;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_fold",
+            "pixel_tablet"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      },
+      {
+        "id": "ios",
+        "label": "iOS",
+        "os": [],
+        "devices": [
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "label": "iPhone 17",
+            "group": "phone",
+            "size": "6.3\" · 1206×2622"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13",
+            "label": "iPad Pro 13-inch",
+            "group": "tablet",
+            "size": "13\" · 2064×2752"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
+            "label": "iPhone Duo",
+            "group": "foldable",
+            "size": "7.6\" · 2853×2007"
+          }
+        ],
+        "pairs": {},
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$"
+      }
+    ],
+    "existingNames": {
+      "android": [
+        "Pixel_10",
+        "Pixel_9_API_36.1"
+      ],
+      "ios": [
+        "loupe-probe",
+        "iPhone 17 iOS 27.0"
+      ]
+    },
+    "profilesFallback": false
+  },
+  "androidOnly": {
+    "platforms": [
+      {
+        "id": "android",
+        "label": "Android",
+        "os": [
+          {
+            "id": "system-images;android-36.1;google_apis_playstore;arm64-v8a",
+            "label": "Android 16",
+            "detail": "API 36.1 · Google Play"
+          },
+          {
+            "id": "system-images;android-34;google_apis_playstore;arm64-v8a",
+            "label": "Android 14",
+            "detail": "API 34 · Google Play"
+          }
+        ],
+        "devices": [
+          {
+            "id": "pixel_9",
+            "label": "Pixel 9",
+            "group": "phone",
+            "size": "6.2\" · 1080×2424"
+          },
+          {
+            "id": "pixel_fold",
+            "label": "Pixel Fold",
+            "group": "foldable",
+            "size": "7.6\" · 2208×1840"
+          },
+          {
+            "id": "pixel_tablet",
+            "label": "Pixel Tablet",
+            "group": "tablet",
+            "size": "10.9\" · 2560×1600"
+          }
+        ],
+        "pairs": {
+          "system-images;android-34;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_tablet"
+          ],
+          "system-images;android-36.1;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_fold",
+            "pixel_tablet"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      }
+    ],
+    "existingNames": {
+      "android": [
+        "Pixel_10",
+        "Pixel_9_API_36.1"
+      ],
+      "ios": [
+        "loupe-probe",
+        "iPhone 17 iOS 27.0"
+      ]
+    },
+    "profilesFallback": false
+  },
+  "creating": {
+    "platforms": [
+      {
+        "id": "android",
+        "label": "Android",
+        "os": [
+          {
+            "id": "system-images;android-36.1;google_apis_playstore;arm64-v8a",
+            "label": "Android 16",
+            "detail": "API 36.1 · Google Play"
+          },
+          {
+            "id": "system-images;android-34;google_apis_playstore;arm64-v8a",
+            "label": "Android 14",
+            "detail": "API 34 · Google Play"
+          }
+        ],
+        "devices": [
+          {
+            "id": "pixel_9",
+            "label": "Pixel 9",
+            "group": "phone",
+            "size": "6.2\" · 1080×2424"
+          },
+          {
+            "id": "pixel_fold",
+            "label": "Pixel Fold",
+            "group": "foldable",
+            "size": "7.6\" · 2208×1840"
+          },
+          {
+            "id": "pixel_tablet",
+            "label": "Pixel Tablet",
+            "group": "tablet",
+            "size": "10.9\" · 2560×1600"
+          }
+        ],
+        "pairs": {
+          "system-images;android-34;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_tablet"
+          ],
+          "system-images;android-36.1;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_fold",
+            "pixel_tablet"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      },
+      {
+        "id": "ios",
+        "label": "iOS",
+        "os": [
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+            "label": "iOS 27.1"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+            "label": "iOS 27.0"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-26-4",
+            "label": "iOS 26.4"
+          }
+        ],
+        "devices": [
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "label": "iPhone 17",
+            "group": "phone",
+            "size": "6.3\" · 1206×2622"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13",
+            "label": "iPad Pro 13-inch",
+            "group": "tablet",
+            "size": "13\" · 2064×2752"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
+            "label": "iPhone Duo",
+            "group": "foldable",
+            "size": "7.6\" · 2853×2007"
+          }
+        ],
+        "pairs": {
+          "com.apple.CoreSimulator.SimRuntime.iOS-26-4": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-1": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$"
+      }
+    ],
+    "existingNames": {
+      "android": [
+        "Pixel_10",
+        "Pixel_9_API_36.1"
+      ],
+      "ios": [
+        "loupe-probe",
+        "iPhone 17 iOS 27.0"
+      ]
+    },
+    "profilesFallback": false,
+    "job": {
+      "id": "sim-new:iPhone 17 iOS 27.0 2",
+      "platform": "ios",
+      "name": "iPhone 17 iOS 27.0 2",
+      "state": "creating"
+    }
+  },
+  "failed": {
+    "platforms": [
+      {
+        "id": "android",
+        "label": "Android",
+        "os": [
+          {
+            "id": "system-images;android-36.1;google_apis_playstore;arm64-v8a",
+            "label": "Android 16",
+            "detail": "API 36.1 · Google Play"
+          },
+          {
+            "id": "system-images;android-34;google_apis_playstore;arm64-v8a",
+            "label": "Android 14",
+            "detail": "API 34 · Google Play"
+          }
+        ],
+        "devices": [
+          {
+            "id": "pixel_9",
+            "label": "Pixel 9",
+            "group": "phone",
+            "size": "6.2\" · 1080×2424"
+          },
+          {
+            "id": "pixel_fold",
+            "label": "Pixel Fold",
+            "group": "foldable",
+            "size": "7.6\" · 2208×1840"
+          },
+          {
+            "id": "pixel_tablet",
+            "label": "Pixel Tablet",
+            "group": "tablet",
+            "size": "10.9\" · 2560×1600"
+          }
+        ],
+        "pairs": {
+          "system-images;android-34;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_tablet"
+          ],
+          "system-images;android-36.1;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_fold",
+            "pixel_tablet"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      },
+      {
+        "id": "ios",
+        "label": "iOS",
+        "os": [
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+            "label": "iOS 27.1"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+            "label": "iOS 27.0"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-26-4",
+            "label": "iOS 26.4"
+          }
+        ],
+        "devices": [
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "label": "iPhone 17",
+            "group": "phone",
+            "size": "6.3\" · 1206×2622"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13",
+            "label": "iPad Pro 13-inch",
+            "group": "tablet",
+            "size": "13\" · 2064×2752"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
+            "label": "iPhone Duo",
+            "group": "foldable",
+            "size": "7.6\" · 2853×2007"
+          }
+        ],
+        "pairs": {
+          "com.apple.CoreSimulator.SimRuntime.iOS-26-4": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-1": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$"
+      }
+    ],
+    "existingNames": {
+      "android": [
+        "Pixel_10",
+        "Pixel_9_API_36.1"
+      ],
+      "ios": [
+        "loupe-probe",
+        "iPhone 17 iOS 27.0"
+      ]
+    },
+    "profilesFallback": false,
+    "job": {
+      "id": "avd:Pixel_9_API_36.1_2",
+      "platform": "android",
+      "name": "Pixel_9_API_36.1_2",
+      "state": "createFailed",
+      "error": "Error: no space left on device"
+    }
+  },
+  "done": {
+    "platforms": [
+      {
+        "id": "android",
+        "label": "Android",
+        "os": [
+          {
+            "id": "system-images;android-36.1;google_apis_playstore;arm64-v8a",
+            "label": "Android 16",
+            "detail": "API 36.1 · Google Play"
+          },
+          {
+            "id": "system-images;android-34;google_apis_playstore;arm64-v8a",
+            "label": "Android 14",
+            "detail": "API 34 · Google Play"
+          }
+        ],
+        "devices": [
+          {
+            "id": "pixel_9",
+            "label": "Pixel 9",
+            "group": "phone",
+            "size": "6.2\" · 1080×2424"
+          },
+          {
+            "id": "pixel_fold",
+            "label": "Pixel Fold",
+            "group": "foldable",
+            "size": "7.6\" · 2208×1840"
+          },
+          {
+            "id": "pixel_tablet",
+            "label": "Pixel Tablet",
+            "group": "tablet",
+            "size": "10.9\" · 2560×1600"
+          }
+        ],
+        "pairs": {
+          "system-images;android-34;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_tablet"
+          ],
+          "system-images;android-36.1;google_apis_playstore;arm64-v8a": [
+            "pixel_9",
+            "pixel_fold",
+            "pixel_tablet"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      },
+      {
+        "id": "ios",
+        "label": "iOS",
+        "os": [
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+            "label": "iOS 27.1"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+            "label": "iOS 27.0"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-26-4",
+            "label": "iOS 26.4"
+          }
+        ],
+        "devices": [
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "label": "iPhone 17",
+            "group": "phone",
+            "size": "6.3\" · 1206×2622"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13",
+            "label": "iPad Pro 13-inch",
+            "group": "tablet",
+            "size": "13\" · 2064×2752"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
+            "label": "iPhone Duo",
+            "group": "foldable",
+            "size": "7.6\" · 2853×2007"
+          }
+        ],
+        "pairs": {
+          "com.apple.CoreSimulator.SimRuntime.iOS-26-4": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-1": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$"
+      }
+    ],
+    "existingNames": {
+      "android": [
+        "Pixel_10",
+        "Pixel_9_API_36.1"
+      ],
+      "ios": [
+        "loupe-probe",
+        "iPhone 17 iOS 27.0"
+      ]
+    },
+    "profilesFallback": false,
+    "job": {
+      "id": "sim-new:Phone A",
+      "platform": "ios",
+      "name": "Phone A",
+      "state": "done",
+      "createdId": "sim:5C1D7C5E-0000-4000-8000-000000000001"
+    }
+  },
+  "fallback": {
+    "platforms": [],
+    "existingNames": {},
+    "profilesFallback": true
+  },
+  "fallbackWithIos": {
+    "platforms": [
+      {
+        "id": "ios",
+        "label": "iOS",
+        "os": [
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+            "label": "iOS 27.1"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+            "label": "iOS 27.0"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimRuntime.iOS-26-4",
+            "label": "iOS 26.4"
+          }
+        ],
+        "devices": [
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "label": "iPhone 17",
+            "group": "phone",
+            "size": "6.3\" · 1206×2622"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13",
+            "label": "iPad Pro 13-inch",
+            "group": "tablet",
+            "size": "13\" · 2064×2752"
+          },
+          {
+            "id": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
+            "label": "iPhone Duo",
+            "group": "foldable",
+            "size": "7.6\" · 2853×2007"
+          }
+        ],
+        "pairs": {
+          "com.apple.CoreSimulator.SimRuntime.iOS-26-4": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13"
+          ],
+          "com.apple.CoreSimulator.SimRuntime.iOS-27-1": [
+            "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo"
+          ]
+        },
+        "nameRule": "^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$"
+      }
+    ],
+    "existingNames": {
+      "android": [
+        "Pixel_10",
+        "Pixel_9_API_36.1"
+      ],
+      "ios": [
+        "loupe-probe",
+        "iPhone 17 iOS 27.0"
+      ]
+    },
+    "profilesFallback": true
+  }
+}

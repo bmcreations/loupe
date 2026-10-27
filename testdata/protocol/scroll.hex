@@ -1,0 +1,13 @@
+# MsgScroll, type byte included in the numbering below.
+# byte 0      type      12          MsgScroll
+# bytes 1-4   x         fffb6c20    -300000 (int32) -- width and sign both matter
+12
+fffb6c20
+# bytes 5-8   y         00061a80    400000 (int32)
+00061a80
+# bytes 9-12  hscroll   c0200000    -2.5 (float32 bits) -- negative and fractional,
+#                                   changes value under either an endian swap or a
+#                                   width change
+c0200000
+# bytes 13-16 vscroll   40600000    3.5 (float32 bits)
+40600000

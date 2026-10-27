@@ -1,0 +1,14 @@
+# wtEncodeFrameHeader(id=1, ptsMicros=352074200000, key=true, config=false)
+#
+# This is the 13-byte header SendFrame writes at the start of one
+# WebTransport uni stream, before the raw access-unit payload. There is no
+# message-type byte and no length prefix: the stream boundary (its own
+# FIN) delimits the frame, which is what the WebSocket envelope needs the
+# extra type byte and the 18-byte fixed length for.
+#
+# bytes 0-3  frameID    00000001            1, big endian
+# bytes 4-11 ptsMicros  00000051f941f3c0    352074200000, big endian
+# byte 12    flags      01                  flagKey set, flagConfig clear
+00000001
+00000051f941f3c0
+01

@@ -1,0 +1,60 @@
+Drop box contents: 9 entries
+Max entries: 1000
+Low priority rate limit period: 2000 ms
+Low priority tags: {data_app_wtf, keymaster, system_server_wtf, system_app_strictmode, system_app_wtf, system_server_strictmode, data_app_strictmode, netstats}
+Searching for: system_app_native_crash
+
+========================================
+2026-10-22 14:35:08 system_app_native_crash (text, 5877 bytes)
+/data/system/dropbox/system_app_native_crash@1792694108563.txt
+SystemUptimeMs: 26851
+Process: com.google.android.bluetooth
+PID: 1145
+UID: 1002
+Frozen: false
+Flags: 0x20c9be45
+Package: com.google.android.bluetooth v37 (17)
+Foreground: No
+Process-Runtime: 18358
+Build: google/sdk_gphone16k_arm64/emu64a16k:17/CP21.260330.005/15181570:user/dev-keys
+PageSize: 16384
+DefaultScreen-State: ON
+Keyguard-Locked: false
+Loading-Progress: 1.0
+Dropped-Count: 0
+
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+Build fingerprint: 'google/sdk_gphone16k_arm64/emu64a16k:17/CP21.260330.005/15181570:user/dev-keys'
+Kernel Release: '6.12.58-android16-6-gccafb60de224-ab14828483'
+Revision: '0'
+ABI: 'arm64'
+Timestamp: 2026-10-22 14:35:08.120660339-0400
+Process uptime: 0s
+Page size: 16384 bytes
+Executable: /system/bin/app_process64
+Cmdline: com.google.android.bluetooth
+pid: 1145, ppid: 433, tid: 1351, name: gd_stack_thread  >>> com.google.android.bluetooth <<<
+uid: 1002
+tagged_addr_ctrl: 0000000000000001 (PR_TAGGED_ADDR_ENABLE)
+pac_enabled_keys: 000000000000000f (PR_PAC_APIAKEY, PR_PAC_APIBKEY, PR_PAC_APDAKEY, PR_PAC_APDBKEY)
+esr: 0000000092000006 (Data Abort Exception 0x24)
+signal 6 (SIGABRT), code -1 (SI_QUEUE), fault addr --------
+Abort message: 'system/gd/hci/hci_layer.cc:565 on_hardware_error: Hardware Error Event with code 0x42'
+    x0  0000000000000000  x1  0000000000000547  x2  0000000000000006  x3  000076a0174f0e40
+    x4  6e1f343534396262  x5  6e1f343534396262  x6  6e1f343534396262  x7  7f7f7f7f7f7f7f7f
+    x8  00000000000000f0  x9  0e0a55e26c393200  x10 000000ff00000020  x11 0000000000058006
+    x12 000000007fffffff  x13 0000000000002f48  x14 000007abfe33bc73  x15 0000000029aaaaab
+    x16 000076a3f018f3e0  x17 000076a3f01764c0  x18 000076a00c864048  x19 0000000000000479
+    x20 0000000000000547  x21 00000000ffffffff  x22 000076a13351a000  x23 000076a0174f1488
+    x24 000076a0174f14a0  x25 000076a0174f0fa8  x26 000076a0174f2300  x27 000076a011d0d75b
+    x28 000076a012a57930  x29 000076a0174f0ec0
+    lr  000076a3f011391c  sp  000076a0174f0e40  pc  000076a3f0113940  pst 0000000000001000
+    esr 0000000092000006  vg  0000000000000000
+14 total frames
+backtrace:
+      #00 pc 000000000007b940  /apex/com.android.runtime/lib64/bionic/libc.so (abort+160) (BuildId: 2b45d17e0b10945475de75d36ca06c40)
+      #01 pc 000000000060aadc  /apex/com.android.art/lib64/libart.so (art::Runtime::Abort(char const*)+628) (BuildId: e65c6c7e332651ccb61659e8a99bbbd5)
+      #02 pc 000000000001644c  /apex/com.android.art/lib64/libbase.so (android::base::SetAborter(std::__1::function<void (char const*)>&&)::$_0::__invoke(char const*)+84) (BuildId: 6fabc39c947e59790084bf0be7368dcb)
+      #03 pc 0000000000d9cba0  /apex/com.android.bt/lib64/libbluetooth_jni.so (bluetooth::log_internal::vlog(bluetooth::log_internal::Level, char const*, bluetooth::log_internal::source_location, std::__1::basic_string_view<char, std::__1::char_traits<char>>, std::__1::basic_format_args<std::__1::basic_format_context<std::__1::back_insert_iterator<std::__1::__format::__output_buffer<char>>, char>>)+844) (BuildId: 84339c63ede0d9075e20e07c0ddaf709)
+      #04 pc 0000000000b6ca00  /apex/com.android.bt/lib64/libbluetooth_jni.so (void bluetooth::log::fatal<unsigned char>(std::__1::basic_format_string<char, std::__1::type_identity<unsigned char>::type>, unsigned char&&, bluetooth::log_internal::source_location)+100) (BuildId: 84339c63ede0d9075e20e07c0ddaf709)
+      #05 pc 0000000000b671d4  /apex/com.android.bt/lib64/libbluetooth_jni.so (bluetooth::hci::HciLayer::impl::on_hci_event(bluetooth::hci::EventView)+20988) (BuildId: 84339c63ede0d9075e20e07c0ddaf709)

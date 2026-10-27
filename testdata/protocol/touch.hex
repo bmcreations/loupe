@@ -1,0 +1,16 @@
+# MsgTouch, type byte included in the numbering below.
+# byte 0      type            10          MsgTouch
+# byte 1      action          02          move -- not 0, so a read of Action from
+#                                   the wrong offset (b[1], pointerId's high byte,
+#                                   which is also 00) cannot coincidentally read
+#                                   back the same value
+# bytes 2-5   pointerId       000186a0    100000 -- width matters: overflows a u16
+10
+02
+000186a0
+# bytes 6-9   x               000aae60    700000 -- width matters: overflows a u16
+000aae60
+# bytes 10-13 y               0016e360    1500000 -- width matters: overflows a u16
+0016e360
+# bytes 14-15 pressure        1234        0x1234/0xffff, a byte-order swap changes the value
+1234

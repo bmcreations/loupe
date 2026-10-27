@@ -1,0 +1,287 @@
+{
+  "settle": [
+    {
+      "name": "small downward drag from half returns to half",
+      "startDetent": "half",
+      "dragDy": 10,
+      "velocityY": 0.1,
+      "vh": 800,
+      "expect": "half"
+    },
+    {
+      "name": "small upward drag from half returns to half",
+      "startDetent": "half",
+      "dragDy": -10,
+      "velocityY": -0.1,
+      "vh": 800,
+      "expect": "half"
+    },
+    {
+      "name": "small downward drag from full returns to full",
+      "startDetent": "full",
+      "dragDy": 10,
+      "velocityY": 0.1,
+      "vh": 800,
+      "expect": "full"
+    },
+    {
+      "name": "dragged down from full to nearer half lands on half, not full",
+      "startDetent": "full",
+      "dragDy": 300,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "half"
+    },
+    {
+      "name": "released just above the half threshold, moving down, does not close",
+      "startDetent": "full",
+      "dragDy": 335,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "half"
+    },
+    {
+      "name": "released just below the half threshold, moving down, closes",
+      "startDetent": "full",
+      "dragDy": 337,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "closed"
+    },
+    {
+      "name": "released exactly at the half threshold, moving down, does not close",
+      "startDetent": "full",
+      "dragDy": 336,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "half"
+    },
+    {
+      "name": "dragged well past the closed/half midpoint from half closes",
+      "startDetent": "half",
+      "dragDy": 250,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "closed"
+    },
+    {
+      "name": "dragged just short of the closed/half midpoint from half stays half",
+      "startDetent": "half",
+      "dragDy": 199,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "half"
+    },
+    {
+      "name": "dragged just past the closed/half midpoint from half closes",
+      "startDetent": "half",
+      "dragDy": 201,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "closed"
+    },
+    {
+      "name": "a downward fling closes from full even though the position is still near full",
+      "startDetent": "full",
+      "dragDy": 5,
+      "velocityY": 0.6,
+      "vh": 800,
+      "expect": "closed"
+    },
+    {
+      "name": "a downward fling closes from half",
+      "startDetent": "half",
+      "dragDy": 5,
+      "velocityY": 0.6,
+      "vh": 800,
+      "expect": "closed"
+    },
+    {
+      "name": "a fling at exactly the velocity threshold is not a fling",
+      "startDetent": "full",
+      "dragDy": 5,
+      "velocityY": 0.5,
+      "vh": 800,
+      "expect": "full"
+    },
+    {
+      "name": "an upward fling from half goes full",
+      "startDetent": "half",
+      "dragDy": -5,
+      "velocityY": -0.6,
+      "vh": 800,
+      "expect": "full"
+    },
+    {
+      "name": "an upward fling from full stays full",
+      "startDetent": "full",
+      "dragDy": -5,
+      "velocityY": -0.6,
+      "vh": 800,
+      "expect": "full"
+    },
+    {
+      "name": "an upward fling from closed is not promoted straight to full",
+      "startDetent": "closed",
+      "dragDy": -5,
+      "velocityY": -0.6,
+      "vh": 800,
+      "expect": "closed"
+    },
+    {
+      "name": "an upward fling at exactly the velocity threshold is not a fling",
+      "startDetent": "half",
+      "dragDy": -5,
+      "velocityY": -0.5,
+      "vh": 800,
+      "expect": "half"
+    },
+    {
+      "name": "no movement at all stays at the start detent",
+      "startDetent": "half",
+      "dragDy": 0,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "half"
+    },
+    {
+      "name": "dragged all the way up from half lands on full",
+      "startDetent": "half",
+      "dragDy": -400,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "full"
+    },
+    {
+      "name": "dragged all the way down from full closes",
+      "startDetent": "full",
+      "dragDy": 800,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "closed"
+    },
+    {
+      "name": "released exactly on the closed/half tie (25% of vh) resolves to closed",
+      "startDetent": "half",
+      "dragDy": 200,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "closed"
+    },
+    {
+      "name": "no viewport height returns the start detent unchanged, even an unrecognized one",
+      "startDetent": "bogus",
+      "dragDy": 50,
+      "velocityY": 0,
+      "vh": 0,
+      "expect": "bogus"
+    },
+    {
+      "name": "an unrecognized start detent with a real vh falls back to half's fraction",
+      "startDetent": "bogus",
+      "dragDy": 0,
+      "velocityY": 0,
+      "vh": 800,
+      "expect": "half"
+    }
+  ],
+  "velocity": [
+    {
+      "name": "a held-then-released pointer with a stale last move reads zero",
+      "samples": [{ "t": 0, "y": 0 }, { "t": 40, "y": 80 }],
+      "now": 200,
+      "expect": 0
+    },
+    {
+      "name": "two samples 1ms apart cannot produce a fling",
+      "samples": [{ "t": 0, "y": 0 }, { "t": 1, "y": 50 }],
+      "now": 1,
+      "expect": 0
+    },
+    {
+      "name": "a real flick over 64ms reads its average velocity",
+      "samples": [
+        { "t": 0, "y": 0 },
+        { "t": 16, "y": 40 },
+        { "t": 32, "y": 80 },
+        { "t": 48, "y": 120 },
+        { "t": 64, "y": 160 }
+      ],
+      "now": 64,
+      "expect": 2.5
+    },
+    {
+      "name": "no samples at all reads zero",
+      "samples": [],
+      "now": 100,
+      "expect": 0
+    },
+    {
+      "name": "the window is measured back from the newest sample, not from release: a gap before release does not shrink which samples count",
+      "samples": [
+        { "t": 0, "y": 0 },
+        { "t": 20, "y": 100 },
+        { "t": 40, "y": 110 }
+      ],
+      "now": 100,
+      "expect": 2.75
+    },
+    {
+      "name": "a sample exactly 80ms behind the newest is still inside the window",
+      "samples": [
+        { "t": 0, "y": 0 },
+        { "t": 70, "y": 35 },
+        { "t": 150, "y": 135 }
+      ],
+      "now": 150,
+      "expect": 1.25
+    },
+    {
+      "name": "a sample just past 80ms behind the newest falls outside the window and is not used",
+      "samples": [
+        { "t": 0, "y": 0 },
+        { "t": 69, "y": 34.5 },
+        { "t": 90, "y": 45 },
+        { "t": 150, "y": 135 }
+      ],
+      "now": 150,
+      "expect": 1.5
+    },
+    {
+      "name": "a gap of exactly 100ms since the last move is not yet stale",
+      "samples": [
+        { "t": 0, "y": 0 },
+        { "t": 50, "y": 50 }
+      ],
+      "now": 150,
+      "expect": 1
+    },
+    {
+      "name": "a gap of 101ms since the last move reads as stale",
+      "samples": [
+        { "t": 0, "y": 0 },
+        { "t": 50, "y": 50 }
+      ],
+      "now": 151,
+      "expect": 0
+    },
+    {
+      "name": "a span of exactly 16ms is wide enough to trust",
+      "samples": [
+        { "t": 0, "y": 0 },
+        { "t": 16, "y": 32 }
+      ],
+      "now": 16,
+      "expect": 2
+    },
+    {
+      "name": "a span of 15ms is one short of trustworthy and reads zero",
+      "samples": [
+        { "t": 0, "y": 0 },
+        { "t": 15, "y": 32 }
+      ],
+      "now": 15,
+      "expect": 0
+    }
+  ]
+}

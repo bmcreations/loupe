@@ -1,0 +1,16 @@
+# EncodeFrame(nil, pts=352074200000, key=true, config=false,
+#             sentAtMicros=1727177400123456, data)
+# where data = 00 00 00 01 65 aa bb cc (an Annex B start code, NAL type 5 --
+# an IDR slice -- and three arbitrary payload bytes; the fixture does not
+# carry a real encoded picture).
+#
+# byte 0      type      02            MsgFrame
+# byte 1      flags     01            flagKey set, flagConfig clear
+# bytes 2-9   pts       00000051f941f3c0   352074200000, big endian
+# bytes 10-17 sentAt    000622dbd3660040   1727177400123456, big endian
+# bytes 18+   data      0000000165aabbcc
+02
+01
+00000051f941f3c0
+000622dbd3660040
+0000000165aabbcc

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f3f5">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0d10">
+<script>
+// Handedness, applied before first paint. A separate script from the boot
+// probe below (which must stay byte-for-byte identical) -- this one has
+// nothing to do with telemetry, and runs here rather than from app.js
+// because a module import runs long after the first frame is painted, which
+// is what "before first paint" rules out. Kept in sync with
+// handedness.js's readHand/applyHand by hand, since a classic script here
+// cannot import a module.
+(function () {
+  try {
+    if (window.localStorage && window.localStorage.getItem('loupe.hand') === 'right') {
+      document.documentElement.classList.add('hand-right');
+    }
+  } catch (e) { /* no storage, no problem: the class is simply left off */ }
+})();
+// Appearance, applied before first paint, for the same reason as
+// handedness above: a module runs after the first frame, and a forced Dark
+// on a light phone would flash light first. Kept in step with
+// appearance.js by hand; appearance.test.mjs checks the key and values.
+(function () {
+  try {
+    var v = window.localStorage && window.localStorage.getItem('loupe.appearance');
+    if (v === 'light' || v === 'dark') document.documentElement.dataset.theme = v;
+  } catch (e) { /* no storage: System, which is no attribute at all */ }
+})();
+// Peek, applied before first paint so the pop-up never shows the top bar it
+// is about to hide. Kept in step with peek.js's isPeek by hand.
+(function () {
+  try {
+    if (/[?&]peek(=|&|$)/.test(window.location.search)) document.documentElement.classList.add('peek');
+  } catch (e) { /* no URL: not a peek */ }
+})();
+</script>
+<title>Loupe</title>
+<meta name="apple-mobile-web-app-title" content="Loupe">
+<!-- use-credentials so the manifest request carries the cookie, which is
+     what lets its start_url carry the token into the Home Screen app. -->
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <!-- The device pill: what's connected and its live/error dot. Opens the
+         device picker (drawer.js). -->
+    <button id="pill" class="pill" aria-haspopup="dialog" aria-controls="drawer" aria-expanded="false">
+      <span id="pillDot" class="dot"></span>
+      <!-- record.js: shown while this page's recording runs; a tap stops it. -->
+      <span id="pillRec" class="pillRec" hidden role="button" aria-label="Stop recording"><span class="recDot"></span><span class="recTime">0:00</span></span>
+      <span id="pillName">Loupe</span>
+      <!-- pill.js: an emulator running with no window on the Mac. -->
+      <span id="pillTag" class="pillTag" hidden>Headless</span>
+      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 10l5 5 5-5"/>
+      </svg>
+    </button>
+    <!-- Opens the Tools bottom sheet: connection details, stats overlay and
+         device frame toggles, screenshot (client Task 6). -->
+    <button id="toolsBtn" class="ghost icon" aria-haspopup="true" aria-expanded="false" aria-label="Tools">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="5" r="1.6"/><circle cx="19" cy="12" r="1.6"/>
+        <path d="M4 12h11M4 19h15"/>
+      </svg>
+    </button>
+    <!-- panels.js: collapse the docked picker and Tools panels. Shown only
+         when docked. -->
+    <button id="leftPanelBtn" class="ghost icon panelToggle" aria-expanded="true" aria-controls="drawer" aria-label="Device list">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect class="panelFill" x="4" y="5" width="6" height="14" rx="1" fill="none" stroke="none"/>
+        <rect x="4" y="5" width="16" height="14" rx="2"/><path d="M10 5v14"/>
+      </svg>
+    </button>
+    <button id="rightPanelBtn" class="ghost icon panelToggle" aria-expanded="true" aria-controls="sheet" aria-label="Tools panel">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect class="panelFill" x="14" y="5" width="6" height="14" rx="1" fill="none" stroke="none"/>
+        <rect x="4" y="5" width="16" height="14" rx="2"/><path d="M14 5v14"/>
+      </svg>
+    </button>
+  </header>
+
+  <!-- Panes live in #stage, one clone of #paneTemplate each (pane.js). The
+       clone has no ids: app.js finds its parts by data-r. -->
+  <main id="stage"></main>
+
+  <template id="paneTemplate">
+    <div class="pane">
+      <!-- Side by side only: index, status, name, close (paneheader.js). -->
+      <div class="paneHeader" data-r="header" hidden></div>
+      <!-- .screenWrap is the frame box. With no device frame it is exactly the
+           canvas; with one it is the whole bezel and the canvas is positioned
+           inside it. layoutScreen() drives both cases through the same arithmetic. -->
+      <div class="screenWrap" data-r="wrap">
+        <img class="frameArt frameLayer" data-r="frameArt" alt="" hidden>
+        <canvas class="screen" data-r="canvas" width="720" height="1560"></canvas>
+        <img class="frameMask frameLayer" data-r="frameMask" alt="" hidden>
+        <svg class="frameCutout frameLayer" data-r="frameCutout" hidden aria-hidden="true"
+             preserveAspectRatio="none"><path data-r="frameCutoutPath" /></svg>
+        <!-- Touch markers, touches.js. Never takes a tap: the canvas under it
+             has to. -->
+        <div class="touchLayer" data-r="touchLayer" hidden aria-hidden="true"></div>
+        <!-- Agent cursors, cursor.js: where an agent's /api/input lands.
+             Always on, and like the touch layer never takes a tap. -->
+        <!-- Extension overlays, extoverlay.js: a reference image and labelled
+             boxes an extension posted (spec-compare). Under the cursors, so
+             an agent's pointer stays on top of what it is checking. -->
+        <div class="extLayer" data-r="extLayer" hidden></div>
+        <div class="cursorLayer" data-r="cursorLayer" aria-hidden="true"></div>
+        <!-- Hit-testing surface for inspect mode. -->
+        <div class="inspectLayer" data-r="inspectLayer" hidden></div>
+      </div>
+
+      <!-- Stats HUD, toggled by "Stats overlay" in the Tools sheet. -->
+      <div class="statsOverlay hud" data-r="hud" hidden>
+        <div><span class="k">fps</span><span class="v" data-m="fps">--</span></div>
+        <div><span class="k">dec</span><span class="v" data-m="dec">--</span></div>
+        <div><span class="k">rtt</span><span class="v" data-m="rtt">--</span></div>
+        <div><span class="k">jitter</span><span class="v" data-m="jit">--</span></div>
+        <div><span class="k">queue</span><span class="v" data-m="q">--</span></div>
+        <div><span class="k">drop</span><span class="v" data-m="drop">--</span></div>
+        <div><span class="k">buf</span><span class="v" data-m="buf">--</span></div>
+        <div><span class="k">via</span><span class="v" data-m="trans">--</span></div>
+        <div><span class="k">shed</span><span class="v" data-m="shed">--</span></div>
+        <div><span class="k">kbps</span><span class="v" data-m="rate">--</span></div>
+      </div>
+
+      <!-- This pane's connecting, reconnecting and can't-stream states.
+           #overlay below is the page's: unreachable, no devices. -->
+      <div class="overlay" data-r="overlay" data-icon="progress" hidden>
+        <div class="card">
+          <div class="ovIcon" aria-hidden="true"><span class="ovSpinner"></span></div>
+          <h1 class="ovTitle">Connecting</h1>
+          <p class="ovBody">Looking for a device.</p>
+          <pre class="ovDetail" hidden></pre>
+          <div class="ovActions"></div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- The nav L: pinned to the page's own corner rather than the device, so
+       it does not move on resize or rotation (unlike the old #nav bar, which
+       pushed the stage up). Empty until client Task 7 fills the three slots
+       per OS (Android: back/home/recents; iOS: none today) and wires
+       sendKey(); hidden entirely for a target that reports no control, or one
+       whose OS this does not recognise. -->
+  <nav id="cornerNav" class="corner" hidden>
+    <button class="cornerBtn" data-slot="upright" hidden></button>
+    <button class="cornerBtn" data-slot="elbow" hidden></button>
+    <button class="cornerBtn" data-slot="floor" hidden></button>
+  </nav>
+
+  <!-- The overflow corner: screenshot, rotate, inspect (client Task 7). The
+       button itself is not OS-specific, so it is built and shown here; the
+       menu it opens is filled later. -->
+  <!-- Keys the phone's keyboard lacks, on top of it. keyboard.js fills it. -->
+  <div id="keyStrip" class="keyStrip" role="toolbar" aria-label="Keys" hidden></div>
+  <div id="cornerMore" class="corner">
+    <!-- The phone keyboard, above the overflow button. corners.js shows it
+         for a target that takes typing; keyboard.js does the rest. -->
+    <button id="kbdBtn" class="cornerBtn" aria-pressed="false" aria-label="Keyboard" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>
+      </svg>
+    </button>
+    <button id="moreBtn" class="cornerBtn" aria-haspopup="true" aria-expanded="false" aria-label="More">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>
+      </svg>
+    </button>
+    <div id="moreMenu" class="moreMenu" hidden></div>
+  </div>
+
+  <!-- Device picker, a sheet from the bottom (drawer.js). -->
+  <aside id="drawer" class="drawer" hidden></aside>
+  <aside id="newDevice" class="drawer drawer--over" hidden></aside>
+  <aside id="connectHelp" class="drawer drawer--over" hidden></aside>
+  <aside id="switchServer" class="drawer drawer--over" hidden></aside>
+  <aside id="addServer" class="drawer drawer--over" hidden></aside>
+
+  <!-- Tools bottom sheet, client Task 6. -->
+  <div id="sheet" class="sheet" hidden></div>
+  <!-- Inspect, under the device: inspect.js builds it. -->
+  <section id="inspectSheet" class="inspectSheet" aria-label="Inspect" hidden></section>
+
+  <!-- Shared dimmer for the picker and the Tools sheet. -->
+  <div id="scrim" class="scrim" hidden></div>
+
+  <div id="overlay" class="overlay" data-icon="progress">
+    <div class="card">
+      <div class="ovIcon" aria-hidden="true"><span class="ovSpinner"></span></div>
+      <h1 class="ovTitle">Connecting</h1>
+      <p class="ovBody">Looking for a device.</p>
+      <pre class="ovDetail" hidden></pre>
+      <div class="ovActions"></div>
+    </div>
+  </div>
+
+  <!-- The only way out of immersive mode, which hides everything else.
+       immersive.js leaves on a hold, so a stray tap never exits by accident. -->
+  <button id="immersiveHandle" class="immersiveHandle" aria-label="Hold to leave full screen" hidden><span></span></button>
+
+  <div id="toast" class="toast" hidden></div>
+
+<script>
+// Boot probe.
+//
+// Runs as a classic script before the module, so it is installed even when the
+// module itself fails to parse or throws during evaluation. Without this a
+// client that dies before its first WebSocket frame is completely invisible on
+// the server: the assets return 200 and then nothing happens, which looks
+// identical to a client that loaded fine and found no target.
+(function () {
+  var seq = 0;
+  function beacon(rec) {
+    try {
+      rec.seq = seq++;
+      rec.href = location.href;
+      rec.at = Date.now();
+      var body = JSON.stringify(rec);
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/log', new Blob([body], { type: 'application/json' }));
+      } else {
+        fetch('/api/log', { method: 'POST', body: body, keepalive: true });
+      }
+    } catch (e) { /* a failed probe must never break the page */ }
+  }
+  window.__loupeLog = beacon;
+
+  window.addEventListener('error', function (ev) {
+    beacon({
+      event: 'error',
+      message: String(ev.message || ''),
+      source: String(ev.filename || ''),
+      line: ev.lineno, col: ev.colno,
+      stack: ev.error && ev.error.stack ? String(ev.error.stack).slice(0, 1200) : ''
+    });
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    var r = ev.reason;
+    beacon({
+      event: 'unhandledrejection',
+      message: r && r.message ? String(r.message) : String(r),
+      stack: r && r.stack ? String(r.stack).slice(0, 1200) : ''
+    });
+  });
+
+  beacon({
+    event: 'boot',
+    secureContext: !!window.isSecureContext,
+    videoDecoder: typeof VideoDecoder,
+    webTransport: typeof WebTransport,
+    webSocket: typeof WebSocket,
+    mediaSource: typeof MediaSource,
+    dpr: window.devicePixelRatio,
+    screen: screen.width + 'x' + screen.height
+  });
+  window.addEventListener('load', function () {
+    // If the module evaluated, app.js has already reported 'module'. A load
+    // event with no preceding 'module' record means evaluation aborted.
+    beacon({ event: 'load' });
+  });
+})();
+</script>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

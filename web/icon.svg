@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2029"/>
+      <stop offset="1" stop-color="#0b0d10"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0.4" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#4ea1ff" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#4ea1ff" stop-opacity="0.06"/>
+    </radialGradient>
+  </defs>
+  <!-- Full bleed: iOS masks the corners itself, and a transparent corner
+       would come out black. -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- Handle, drawn first so the ring sits over its end. -->
+  <path d="M690 690 L842 842" stroke="#8b98a5" stroke-width="92" stroke-linecap="round"/>
+  <!-- The lens, and the phone seen through it. -->
+  <circle cx="448" cy="448" r="262" fill="url(#glass)"/>
+  <rect x="372" y="300" width="152" height="296" rx="30" fill="none" stroke="#e6edf3" stroke-width="26"/>
+  <rect x="428" y="322" width="40" height="12" rx="6" fill="#e6edf3"/>
+  <circle cx="448" cy="448" r="262" fill="none" stroke="#4ea1ff" stroke-width="56"/>
+</svg>

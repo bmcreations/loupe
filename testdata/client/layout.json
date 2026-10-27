@@ -1,0 +1,548 @@
+{
+  "fitStage": [
+    {
+      "name": "iphone portrait, matching stream: passes between the corners at full height",
+      "stage": {
+        "width": 390,
+        "height": 844
+      },
+      "box": {
+        "width": 480,
+        "height": 1080
+      },
+      "corners": {
+        "width": 4,
+        "height": 4,
+        "gap": 2
+      },
+      "expect": {
+        "scale": 0.7814814814814814,
+        "x": 8,
+        "y": 0,
+        "width": 375,
+        "height": 844,
+        "band": false
+      }
+    },
+    {
+      "name": "same stage, rotated emulator stream: wide, lifted clear of the band",
+      "stage": {
+        "width": 390,
+        "height": 844
+      },
+      "box": {
+        "width": 1080,
+        "height": 480
+      },
+      "corners": {
+        "width": 4,
+        "height": 4,
+        "gap": 2
+      },
+      "expect": {
+        "scale": 0.3611111111111111,
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 173,
+        "band": true
+      }
+    },
+    {
+      "name": "same stage, pixel_10 skin frame: the lifted (band) fit still beats keeping full height between the corners, because the frame's width leaves almost no clear gap either way",
+      "stage": {
+        "width": 390,
+        "height": 844
+      },
+      "box": {
+        "width": 1198,
+        "height": 2531
+      },
+      "corners": {
+        "width": 4,
+        "height": 4,
+        "gap": 2
+      },
+      "expect": {
+        "scale": 0.32554257095158595,
+        "x": 1,
+        "y": 0,
+        "width": 389,
+        "height": 823,
+        "band": true
+      }
+    },
+    {
+      "name": "ipad-sized stage, tablet stream in landscape: lifted clear of the band",
+      "stage": {
+        "width": 820,
+        "height": 1180
+      },
+      "box": {
+        "width": 2560,
+        "height": 1600
+      },
+      "corners": {
+        "width": 4,
+        "height": 4,
+        "gap": 2
+      },
+      "expect": {
+        "scale": 0.3203125,
+        "x": 0,
+        "y": 0,
+        "width": 820,
+        "height": 512,
+        "band": true
+      }
+    },
+    {
+      "name": "zero-sized stage returns null",
+      "stage": {
+        "width": 0,
+        "height": 0
+      },
+      "box": {
+        "width": 480,
+        "height": 1080
+      },
+      "corners": {
+        "width": 4,
+        "height": 4,
+        "gap": 2
+      },
+      "expect": null
+    },
+    {
+      "name": "zero-sized box returns null",
+      "stage": {
+        "width": 390,
+        "height": 844
+      },
+      "box": {
+        "width": 0,
+        "height": 0
+      },
+      "corners": {
+        "width": 4,
+        "height": 4,
+        "gap": 2
+      },
+      "expect": null
+    },
+    {
+      "name": "boundary: resulting width exactly equals the clear width -- kept as full height (<=, not <)",
+      "stage": {
+        "width": 140,
+        "height": 100
+      },
+      "box": {
+        "width": 100,
+        "height": 100
+      },
+      "corners": {
+        "width": 20,
+        "height": 20,
+        "gap": 0
+      },
+      "expect": {
+        "scale": 1,
+        "x": 20,
+        "y": 0,
+        "width": 100,
+        "height": 100,
+        "band": false
+      }
+    },
+    {
+      "name": "boundary: one pixel over the clear width -- the full-height option shrinks but still beats the lift, so band stays false and the scale actually changes",
+      "stage": {
+        "width": 140,
+        "height": 100
+      },
+      "box": {
+        "width": 101,
+        "height": 100
+      },
+      "corners": {
+        "width": 20,
+        "height": 20,
+        "gap": 0
+      },
+      "expect": {
+        "scale": 0.9900990099009901,
+        "x": 20,
+        "y": 0,
+        "width": 100,
+        "height": 99,
+        "band": false
+      }
+    },
+    {
+      "name": "zero corners never reserve a band, so even a wide box stays full height",
+      "stage": {
+        "width": 140,
+        "height": 100
+      },
+      "box": {
+        "width": 200,
+        "height": 100
+      },
+      "corners": {
+        "width": 0,
+        "height": 0,
+        "gap": 0
+      },
+      "expect": {
+        "scale": 0.7,
+        "x": 0,
+        "y": 0,
+        "width": 140,
+        "height": 70,
+        "band": false
+      }
+    },
+    {
+      "name": "upscaling is allowed: a small stream on a large stage fills it rather than staying pixel-sized",
+      "stage": {
+        "width": 800,
+        "height": 800
+      },
+      "box": {
+        "width": 100,
+        "height": 100
+      },
+      "corners": {
+        "width": 0,
+        "height": 0,
+        "gap": 0
+      },
+      "expect": {
+        "scale": 8,
+        "x": 0,
+        "y": 0,
+        "width": 800,
+        "height": 800,
+        "band": false
+      }
+    },
+    {
+      "name": "missing corners defaults to no reservation",
+      "stage": {
+        "width": 140,
+        "height": 100
+      },
+      "box": {
+        "width": 200,
+        "height": 100
+      },
+      "corners": null,
+      "expect": {
+        "scale": 0.7,
+        "x": 0,
+        "y": 0,
+        "width": 140,
+        "height": 70,
+        "band": false
+      }
+    },
+    {
+      "name": "the owner's iPhone Safari report: 390x657 stage, 1200x2670 stream, asymmetric corner cluster (44 gutter, 148 band) -- full height wins because the gutter clears it, not the band",
+      "stage": {
+        "width": 390,
+        "height": 657
+      },
+      "box": {
+        "width": 1200,
+        "height": 2670
+      },
+      "corners": {
+        "width": 44,
+        "height": 148,
+        "gap": 12
+      },
+      "expect": {
+        "scale": 0.23166666666666666,
+        "x": 56,
+        "y": 0,
+        "width": 278,
+        "height": 618,
+        "band": false
+      }
+    },
+    {
+      "name": "same asymmetric cluster, landscape stream on a short stage: band wins and availH is bound by corners.height (148), not corners.width (44) -- pins that the two are read independently",
+      "stage": {
+        "width": 390,
+        "height": 300
+      },
+      "box": {
+        "width": 2670,
+        "height": 1200
+      },
+      "corners": {
+        "width": 44,
+        "height": 148,
+        "gap": 12
+      },
+      "expect": {
+        "scale": 0.11666666666666667,
+        "x": 40,
+        "y": 0,
+        "width": 311,
+        "height": 140,
+        "band": true
+      }
+    },
+    {
+      "name": "two candidate fits, and the full-height one wins: a rotated pixel_10 at square corner-cluster dimensions keeps its height instead of always lifting",
+      "stage": {
+        "width": 844,
+        "height": 390
+      },
+      "box": {
+        "width": 2531,
+        "height": 1198
+      },
+      "corners": {
+        "width": 132,
+        "height": 132,
+        "gap": 12
+      },
+      "expect": {
+        "scale": 0.21967601738443304,
+        "x": 144,
+        "y": 0,
+        "width": 556,
+        "height": 263,
+        "band": false
+      }
+    },
+    {
+      "name": "clear width boundary with a nonzero gap: exact match keeps full height",
+      "stage": {
+        "width": 150,
+        "height": 100
+      },
+      "box": {
+        "width": 100,
+        "height": 100
+      },
+      "corners": {
+        "width": 20,
+        "height": 20,
+        "gap": 5
+      },
+      "expect": {
+        "scale": 1,
+        "x": 25,
+        "y": 0,
+        "width": 100,
+        "height": 100,
+        "band": false
+      }
+    },
+    {
+      "name": "clear width boundary with a nonzero gap: one pixel over still beats the lift here, pinning that the gap is subtracted twice from clearWidth",
+      "stage": {
+        "width": 150,
+        "height": 100
+      },
+      "box": {
+        "width": 101,
+        "height": 100
+      },
+      "corners": {
+        "width": 20,
+        "height": 20,
+        "gap": 5
+      },
+      "expect": {
+        "scale": 0.9900990099009901,
+        "x": 25,
+        "y": 0,
+        "width": 100,
+        "height": 99,
+        "band": false
+      }
+    },
+    {
+      "name": "the lifted fit wins and is bound by the gap-reduced available height, not the width, with a nonzero gap",
+      "stage": {
+        "width": 500,
+        "height": 190
+      },
+      "box": {
+        "width": 600,
+        "height": 200
+      },
+      "corners": {
+        "width": 20,
+        "height": 20,
+        "gap": 10
+      },
+      "expect": {
+        "scale": 0.8,
+        "x": 10,
+        "y": 0,
+        "width": 480,
+        "height": 160,
+        "band": true
+      }
+    },
+    {
+      "name": "stage shorter than size+gap: the lifted option has no room at all and is excluded, not clamped to a negative scale",
+      "stage": {
+        "width": 300,
+        "height": 15
+      },
+      "box": {
+        "width": 100,
+        "height": 50
+      },
+      "corners": {
+        "width": 10,
+        "height": 10,
+        "gap": 10
+      },
+      "expect": {
+        "scale": 0.3,
+        "x": 135,
+        "y": 0,
+        "width": 30,
+        "height": 15,
+        "band": false
+      }
+    },
+    {
+      "name": "both options excluded (corners consume the whole stage): falls back to a plain contain fit instead of returning null",
+      "stage": {
+        "width": 20,
+        "height": 20
+      },
+      "box": {
+        "width": 50,
+        "height": 50
+      },
+      "corners": {
+        "width": 15,
+        "height": 15,
+        "gap": 10
+      },
+      "expect": {
+        "scale": 0.4,
+        "x": 0,
+        "y": 0,
+        "width": 20,
+        "height": 20,
+        "band": false
+      }
+    },
+    {
+      "name": "negative corner size and gap sanitise to zero rather than widening the reservation",
+      "stage": {
+        "width": 140,
+        "height": 100
+      },
+      "box": {
+        "width": 200,
+        "height": 100
+      },
+      "corners": {
+        "width": -5,
+        "height": -5,
+        "gap": -3
+      },
+      "expect": {
+        "scale": 0.7,
+        "x": 0,
+        "y": 0,
+        "width": 140,
+        "height": 70,
+        "band": false
+      }
+    },
+    {
+      "name": "an Infinity corner size sanitises to zero (positive() must check isFinite, not just > 0)",
+      "stage": {
+        "width": 844,
+        "height": 390
+      },
+      "box": {
+        "width": 2531,
+        "height": 1198
+      },
+      "corners": {
+        "width": "Infinity",
+        "height": "Infinity",
+        "gap": 12
+      },
+      "expect": {
+        "scale": 0.32398261556696956,
+        "x": 12,
+        "y": 0,
+        "width": 820,
+        "height": 388,
+        "band": false
+      }
+    },
+    {
+      "name": "a fractional stage floors the box so it cannot overflow by half a pixel",
+      "stage": {
+        "width": 100.5,
+        "height": 1000
+      },
+      "box": {
+        "width": 201,
+        "height": 100
+      },
+      "corners": {
+        "width": 0,
+        "height": 0,
+        "gap": 0
+      },
+      "expect": {
+        "scale": 0.5,
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 50,
+        "band": false
+      }
+    }
+  ],
+  "placeArt": [
+    {
+      "name": "untouched turn: natural size, no translate",
+      "x": 59,
+      "y": 55,
+      "w": 1080,
+      "h": 2424,
+      "scale": 0.5,
+      "turn": 0,
+      "expect": {
+        "left": 30,
+        "top": 28,
+        "width": 540,
+        "height": 1212,
+        "transform": ""
+      }
+    },
+    {
+      "name": "one quarter turn: axes swap and the shift comes from turnedArt, not reinvented here",
+      "x": 0,
+      "y": 0,
+      "w": 1080,
+      "h": 2424,
+      "scale": 0.5,
+      "turn": 1,
+      "expect": {
+        "left": 0,
+        "top": 0,
+        "width": 540,
+        "height": 1212,
+        "transform": "translate(1212px, 0px) rotate(90deg)"
+      }
+    }
+  ]
+}

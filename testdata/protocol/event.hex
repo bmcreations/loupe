@@ -1,0 +1,8 @@
+# EncodeEvent(Event{Seq: 1, T: 1727177400000, Source: "viewer", Viewer: 2,
+#             Kind: "tap", From: &Point{X: 0.512, Y: 0.734}})
+#
+# byte 0  type   06   MsgEvent
+# bytes 1+  the event, as JSON:
+#   {"seq":1,"t":1727177400000,"source":"viewer","viewer":2,"kind":"tap","from":[0.512,0.734]}
+06
+7b22736571223a312c2274223a313732373137373430303030302c22736f75726365223a22766965776572222c22766965776572223a322c226b696e64223a22746170222c2266726f6d223a5b302e3531322c302e3733345d7d

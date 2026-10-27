@@ -1,0 +1,9 @@
+ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
+Display #0 (activities from top to bottom):
+  * Task{fake1 #99 type=standard A=1000:com.example.paused.root U=0 visible=false}
+    mLastPausedActivity: ActivityRecord{aaaaaaa u0 com.example.paused/.MainActivity t99}
+    * Hist  #0: ActivityRecord{aaaaaaa u0 com.example.paused/.MainActivity t99}
+  * Task{fake2 #100 type=standard A=1000:com.example.resumed.root U=0 visible=true}
+    topResumedActivity=ActivityRecord{bbbbbbb u0 com.example.resumed/.HomeActivity t100}
+    * Hist  #0: ActivityRecord{bbbbbbb u0 com.example.resumed/.HomeActivity t100}
+  ResumedActivity: ActivityRecord{bbbbbbb u0 com.example.resumed/.HomeActivity t100}
