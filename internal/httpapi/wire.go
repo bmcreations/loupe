@@ -121,6 +121,11 @@ const ErrCodeNotSupported = "notSupported"
 // on PATH, in /opt/homebrew/bin or in /usr/local/bin.
 const ErrCodeNoFFmpeg = "noFFmpeg"
 
+// ErrCodeSharedClipboardOff is /api/clipboard/shared's 409 while this
+// server's sharedClipboard is off, including a long-poll that was waiting
+// when it was turned off.
+const ErrCodeSharedClipboardOff = "disabled"
+
 // OKResponse is the body a handler sends when there is nothing to report but
 // success -- /healthz and a successful /api/input action. Like
 // ErrorResponse, this replaces an ad hoc map literal built at each call site

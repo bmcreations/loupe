@@ -72,6 +72,10 @@ type configField struct {
 type ConfigResponse struct {
 	Path   string        `json:"path"`
 	Fields []configField `json:"fields"`
+	// HostPasteboard names the Mac whose pasteboard this server mirrors into
+	// the shared clipboard (clipshare.HostID), so Handset joins unless it is
+	// on that same Mac. Absent when the server mirrors none.
+	HostPasteboard string `json:"hostPasteboard,omitempty"`
 }
 
 type PutResponse struct {
@@ -89,7 +93,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, ConfigResponse{Path: s.cfg.Path(), Fields: s.cfg.fields()})
+		resp := ConfigResponse{Path: s.cfg.Path(), Fields: s.cfg.fields()}
+		if s.clipShare != nil {
+			resp.HostPasteboard = s.clipShare.MirroredHost()
+		}
+		writeJSON(w, http.StatusOK, resp)
 	case http.MethodPut:
 		s.cfg.put(w, r)
 	default:

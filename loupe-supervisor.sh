@@ -21,7 +21,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT" || exit 1
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:$PATH"
 
-HOSTNAME_TS="my-mac.tailnet-0000.ts.net"
+# The tailnet name the cert is issued for: LOUPE_TS_HOSTNAME, else the name
+# of a cert already issued here, else a placeholder to replace.
+HOSTNAME_TS="${LOUPE_TS_HOSTNAME:-}"
+if [ -z "$HOSTNAME_TS" ]; then
+  for c in "$ROOT"/*.ts.net.crt; do
+    [ -e "$c" ] && HOSTNAME_TS="$(basename "$c" .crt)"
+    break
+  done
+fi
+HOSTNAME_TS="${HOSTNAME_TS:-my-mac.tailnet-0000.ts.net}"
 PORT=18456
 BINARY="$ROOT/loupe"
 RUNDIR="$ROOT/.run"

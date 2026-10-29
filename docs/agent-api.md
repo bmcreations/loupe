@@ -387,6 +387,48 @@ and `outcome`.
   - The phone's own clipboard UI is in `web/clipboard.js` and uses this
     route.
 
+- `GET /api/clipboard/shared?after=<seq>&waitMs=<ms>` long-polls the shared
+  clipboard (`sharedClipboard`, `docs/targets.md`, Clipboard). It answers
+  `200 {"seq","id","text","origin","at"}` once a value with a `seq` past
+  `after` is there, at once when one already is, and `204` when none arrives
+  within `waitMs` (default 25000, at most 30000). `after` absent or 0 gets
+  the current value. An `after` past every `seq` the server has given out
+  came from before it restarted and counts as 0. `seq` counts values on that
+  server only; `id` (`<instance>-<n>`) is the value's identity across
+  servers, `origin` is `target:<id>`, `mac`, `participant` or
+  `peer:<name>`, and `at` is when this server accepted the value, in its own
+  clock's Unix milliseconds.
+  - `POST /api/clipboard/shared {"text", "id", "at"}` offers text and
+    answers 204. `id` and `at` are optional and filled in. Every POST is
+    stored with origin `participant`, whatever the body says. A value is
+    dropped, still with 204, when its `id` or its text is the current one's,
+    or when it arrives in the same millisecond as the current one with a
+    smaller `id`. A sent `at` is ignored: the server stamps its own clock,
+    so values order by arrival and a peer's clock skew cannot win or lose
+    a copy. Empty text or text that isn't UTF-8 answers 400,
+    and text over 64 KiB 413.
+  - With `sharedClipboard` off both answer 409 with `code: "disabled"`, and
+    a GET already waiting when it is turned off gets that 409 too. A server
+    without the service answers 404.
+  - **A hub bridges it to each peer** through the peer's pinned client, so
+    the token only goes to a peer whose certificate verified. One loop
+    long-polls the peer and publishes what arrives as `peer:<name>` under
+    the peer's `id` and `at`; each change that didn't come from that peer is
+    posted to it. When the peer first answers, or answers after being off,
+    the hub posts its current value, so the peer catches up; after a failed
+    exchange it posts only a value accepted since the peer last answered. A peer that
+    answers 409 is asked again after 30s, one that answers 404 (an older
+    build) after 5 min, and a failed exchange after 5s; nothing is posted to
+    it meanwhile. Two servers that hold each other as peers settle, because
+    a value coming back carries the id the server already holds.
+  - Handset joins as a participant unless its server mirrors that same Mac
+    (Device > Share Clipboard, which writes `sharedClipboard` through
+    `/api/config`). `GET /api/config` carries `hostPasteboard`, a hash of the
+    server Mac's hardware UUID (`clipshare.HostID`), while the server can
+    mirror its Mac's pasteboard, and omits it otherwise; Handset hashes its
+    own the same way and compares, so a tunnel to a remote Mac's loopback
+    port still joins.
+
 - `GET /api/handoff?target=<id>&target=<id>` returns `{"url"}`, the web
   client's link for up to four targets, the first one focused: the startup
   banner's phone link, on the certificate's host, with the token. The Mac
@@ -510,6 +552,78 @@ fails with ETXTBSY, which is why the supervisor runs from `.run/`.
 cp loupe ~/.local/bin/loupe
 claude mcp add loupe -- ~/.local/bin/loupe mcp
 ```
+
+### Pairing and sessions
+
+A paired device holds a session instead of the master token, so one device
+can be signed out without re-keying every other. Sessions are added beside
+the master token, so the master token, the `loupe_token` cookie and `?token=`
+still work exactly as before.
+
+- `POST /api/pairings {"target": [...], "label", "canPair"}` mints a
+  one-time code, `XXXX-XXXX-XXXX` from a 32-letter alphabet with no `0 O 1 I`,
+  good for 5 minutes. 201 `{"id", "code", "expiresAt"}`. Only the master
+  token or a session paired with `canPair` may call it (403 otherwise), and
+  the caller decides whether the redeemed session gets `canPair`. The code
+  records who minted it as `parent`: a session id, or `master`.
+- `GET /api/pairings` lists pending codes without the code itself;
+  `DELETE /api/pairings/{id}` withdraws one. Same 403 rule.
+- `POST /api/pair {"code", "kind": "browser"|"bearer"|"peer", "label"}` is
+  the one write route that takes no credential. `browser` answers 204 and
+  sets `loupe_session`; `bearer` and `peer` answer 201
+  `{"id", "token", "expiresAt"}` with an `lsn_` token shown once. Dashes,
+  spaces and case in the code are ignored. An unknown, expired, spent or
+  orphaned code is the same 401. Failures are limited to 5 a minute per
+  remote address, 429 past that. There is no cap across addresses, so junk
+  from elsewhere cannot keep pairing shut for everyone. A `browser`
+  exchange runs the Origin check, so a page elsewhere cannot pair a
+  visitor's browser into its own session.
+- `GET /api/auth` answers any caller with `{"method":
+  "master"|"session"|"none", "session", "pairing", "canPair"}`. A server
+  older than this answers 404, which is how a client tells them apart.
+  `pairing` is false when `sessions.json` could not be read at startup;
+  every pairing route then answers 404 and only the master token works.
+- `GET /api/sessions` lists sessions without their hashes: every session for
+  the master token, and for a session only itself and the sessions it
+  paired. The caller's own row has `"current": true`. `DELETE /api/sessions/{id}` revokes one;
+  `DELETE /api/sessions?others=1` revokes every session with the master
+  token, and with a session only the ones it paired. A session may revoke
+  only itself and the sessions it paired, down the line, and gets 403 for
+  any other, so a stolen phone session cannot sign out every other device.
+  Both answer `{"revoked": [ids]}`.
+
+**Revoking cascades.** A revoke also revokes every session paired through
+a code the revoked one minted, and so on down, and drops its pending codes.
+A code whose minter is no longer a live `canPair` session will not redeem.
+Without that, a stolen `canPair` session could pair a second device and
+survive its own revocation. A revoke does not yet close a stream already
+open (spec Task 4).
+
+**Sessions slide.** One expires 30 days after its last use. Use is noted in
+memory and written to disk at most every 5 minutes per session. Revoked
+rows stay 7 days so `loupe sessions` can show them, then go.
+
+**`sessions.json` sits beside `config.json`** (by default
+`~/Library/Application Support/loupe/`; a spare server with `-config` keeps
+its own), 0600, written whole through a temp file and a
+rename. It holds SHA-256 hashes of tokens and codes, never the secrets, so
+a lookup is a map index on the hash and needs no constant-time compare. A
+file that does not parse is left alone and pairing is off until it is
+fixed, rather than overwritten and signing every device out.
+
+**From the shell**, with the master token from the token file as `loupe mcp`
+reads it:
+
+```sh
+loupe pair -label "phone"                 # prints the code and its expiry
+loupe pair -can-pair -label "desktop"     # the paired device may pair others
+loupe pair -bearer -label "mcp on ci"     # mints and redeems; prints only the lsn_ token on stdout
+loupe sessions                            # table of sessions
+loupe sessions revoke <id>                # one, and its descendants
+loupe sessions revoke -all
+```
+
+Each takes `-url` (default `https://localhost:18456`) and `-token`.
 
 ### Recording
 

@@ -175,6 +175,14 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
 		os.Exit(runMCP(os.Args[2:]))
 	}
+	// So are `loupe pair` and `loupe sessions`, which use the master token
+	// to mint codes and manage sessions over loopback.
+	if len(os.Args) > 1 && os.Args[1] == "pair" {
+		os.Exit(runPair(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "sessions" {
+		os.Exit(runSessions(os.Args[2:]))
+	}
 	tightenOutput(os.Stdout)
 	tightenOutput(os.Stderr)
 	def := config.Default()
@@ -572,12 +580,19 @@ func main() {
 	if err := api.SetHandsOffPath(filepath.Join(filepath.Dir(cfgPath), "handsoff.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: hands-off list unreadable, starting empty: %v\n", err)
 	}
+	// Paired devices' sessions and pending codes, hashed. Beside hands-off
+	// for the same reason: a spare server keeps its own.
+	if err := api.SetSessionsPath(filepath.Join(filepath.Dir(cfgPath), "sessions.json")); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: sessions unreadable, pairing off and only the master token works: %v\n", err)
+	}
 	// The peers' tokens live here, so it is a file beside hands-off and not a
 	// config field. The trace gets a peer's name and URL, never its token.
 	peers, err := peer.NewRegistry(peer.NewStore(filepath.Join(filepath.Dir(cfgPath), "servers.json")), tracer.Record)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: servers list unreadable, starting empty: %v\n", err)
 	}
+	// Before SetPeers, whose first sync starts a bridge per peer.
+	api.SetClipShare(share)
 	api.SetPeers(peers)
 	peers.Start(ctx)
 	recDir := filepath.Join(scrcpyserver.DefaultDir(), "recordings")

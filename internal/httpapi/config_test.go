@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/clipshare"
 	"github.com/bmcreations/loupe/internal/config"
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
@@ -376,5 +377,22 @@ func TestConfigPutWithNoActualChangeReturnsAnEmptyArrayNotNull(t *testing.T) {
 	}
 	if len(resp.Changed) != 0 {
 		t.Fatalf("Changed = %v, want empty", resp.Changed)
+	}
+}
+
+func TestConfigGetReportsMirroredHost(t *testing.T) {
+	st, _ := newTestStore(t, "maxFps")
+	s := &Server{cfg: st, clipShare: clipshare.New()}
+	get := func() ConfigResponse {
+		w := httptest.NewRecorder()
+		s.handleConfig(w, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		var got ConfigResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return got
+	}
+	if got := get().HostPasteboard; got != "" {
+		t.Fatalf("hostPasteboard = %q with no mirror, want none", got)
 	}
 }

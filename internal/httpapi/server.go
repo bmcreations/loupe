@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/bmcreations/loupe/internal/awake"
+	"github.com/bmcreations/loupe/internal/clipshare"
+	"github.com/bmcreations/loupe/internal/pairing"
 	"github.com/bmcreations/loupe/internal/peer"
 	"github.com/bmcreations/loupe/internal/record"
 	"github.com/bmcreations/loupe/internal/session"
@@ -45,6 +48,17 @@ type Server struct {
 	// token is the shared secret every request must present. Empty disables
 	// the check entirely, which is what -no-auth selects.
 	token string
+
+	// pairing holds device sessions and pending pairing codes (pairing.go).
+	// Nil when sessions.json could not be read: only the master token works
+	// then, and the pairing routes answer 404.
+	pairing *pairing.Store
+	// pairLimit throttles failed POST /api/pair attempts.
+	pairLimit *pairLimiter
+	// cookieSet is when each browser session's cookie was last sent, so its
+	// Max-Age is refreshed once a day rather than on every response.
+	cookieMu  sync.Mutex
+	cookieSet map[string]time.Time
 
 	// cfg is the persisted settings store. Nil leaves /api/config answering
 	// 404, which is what a build with no config file selects.
@@ -79,6 +93,14 @@ type Server struct {
 	// peerSync serializes syncPeers: two peers' pollers finish at once, and
 	// the older merge must not be the one applied last.
 	peerSync sync.Mutex
+
+	// clipShare is the shared clipboard /api/clipboard/shared serves and
+	// the peer bridges carry. Nil answers that route 404.
+	clipShare *clipshare.Service
+	// bridgeMu guards bridges, one cancel per peer bridged
+	// (clipshare_bridge.go).
+	bridgeMu sync.Mutex
+	bridges  map[string]context.CancelFunc
 
 	// recordings holds /api/record's recordings. Nil answers 501.
 	recordings *record.Store
@@ -247,6 +269,7 @@ var routes = []route{
 	{"/api/app", []string{http.MethodGet}, (*Server).handleApp, ""},
 	{"/api/settings", []string{http.MethodGet, http.MethodPut}, (*Server).handleSettings, ""},
 	{"/api/clipboard", []string{http.MethodGet, http.MethodPost}, (*Server).handleClipboard, ""},
+	{"/api/clipboard/shared", []string{http.MethodGet, http.MethodPost}, (*Server).handleSharedClipboard, ""},
 	{"/api/avds", []string{http.MethodPost}, (*Server).handleCreateAVD, ""},
 	{"/api/avds/profiles", []string{http.MethodGet}, (*Server).handleAVDProfiles, ""},
 	{"/api/devices/options", []string{http.MethodGet}, (*Server).handleDeviceOptions, ""},
@@ -256,6 +279,12 @@ var routes = []route{
 	{"/api/devices", []string{http.MethodPost, http.MethodDelete}, (*Server).handleDevices, ""},
 	{"/api/devices/handsoff", []string{http.MethodPost}, (*Server).handleHandsOff, ""},
 	{"/api/claims", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleClaims, ""},
+	{"/api/auth", []string{http.MethodGet}, (*Server).handleAuth, ""},
+	{"/api/pair", []string{http.MethodPost}, (*Server).handlePair, ""},
+	{"/api/pairings", []string{http.MethodGet, http.MethodPost}, (*Server).handlePairings, ""},
+	{"/api/pairings/", []string{http.MethodDelete}, (*Server).handlePairingItem, ""},
+	{"/api/sessions", []string{http.MethodGet, http.MethodDelete}, (*Server).handleSessions, ""},
+	{"/api/sessions/", []string{http.MethodDelete}, (*Server).handleSessionItem, ""},
 }
 
 // Route is one method+path pair Handler actually serves.
@@ -424,9 +453,10 @@ func (s *Server) handleClientLog(w http.ResponseWriter, r *http.Request) {
 		rec = map[string]any{}
 	}
 	// A client record carries location.href, which holds the token whenever
-	// the page was opened from a token link the strip redirect didn't see.
+	// the page was opened from a token link the strip redirect didn't see,
+	// and a pairing link's code in its fragment.
 	for k, v := range rec {
-		if str, ok := v.(string); ok && strings.Contains(str, "token=") {
+		if str, ok := v.(string); ok && holdsSecretParam(str) {
 			rec[k] = redactURL(str)
 		}
 	}

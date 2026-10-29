@@ -183,3 +183,24 @@ func TestHostPasteboardRestartsAfterExit(t *testing.T) {
 	_ = syscall.Kill(first, syscall.SIGKILL)
 	waitFor(t, "helper restarted", func() bool { p := readPid(dir); return p != 0 && p != first })
 }
+
+// The service reports this Mac while the helper is available, even before
+// sharing is on, and none for a simcap without it.
+func TestMirroredHost(t *testing.T) {
+	id := HostID(context.Background())
+	if id == "" {
+		t.Skip("no host id on this platform")
+	}
+	bin, _ := fakeSimcap(t, "hostpasteboard")
+	s := New()
+	runHost(t, s, bin)
+	waitFor(t, "host reported", func() bool { return s.MirroredHost() == id })
+
+	bin, _ = fakeSimcap(t, "video input")
+	s = New()
+	runHost(t, s, bin)
+	time.Sleep(100 * time.Millisecond)
+	if got := s.MirroredHost(); got != "" {
+		t.Fatalf("MirroredHost = %q for a simcap without hostpasteboard", got)
+	}
+}

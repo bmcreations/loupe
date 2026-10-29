@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/clipshare"
 	"github.com/bmcreations/loupe/internal/config"
 	"github.com/bmcreations/loupe/internal/httpapi"
 	"github.com/bmcreations/loupe/internal/session"
@@ -107,6 +108,10 @@ var endpoints = []endpoint{
 	{"GET /api/clipboard", dirResponse, httpapi.ClipboardResponse{}},
 	{"POST /api/clipboard request", dirRequest, httpapi.ClipboardRequest{}},
 	{"POST /api/clipboard 200", dirResponse, httpapi.OKResponse{}},
+	{"GET /api/clipboard/shared", dirResponse, clipshare.Value{}},
+	{"GET /api/clipboard/shared 409", dirResponse, httpapi.ErrorResponse{}},
+	{"POST /api/clipboard/shared request", dirRequest, httpapi.SharedClipboardRequest{}},
+	{"POST /api/clipboard/shared 409", dirResponse, httpapi.ErrorResponse{}},
 	{"GET /api/avds/profiles", dirResponse, httpapi.AVDProfilesResponse{}},
 	{"POST /api/avds request", dirRequest, httpapi.CreateAVDRequest{}},
 	{"POST /api/avds 202", dirResponse, httpapi.CreateAVDResponse{}},
@@ -138,6 +143,28 @@ var endpoints = []endpoint{
 	{"POST /api/extensions 200", dirResponse, httpapi.Extension{}},
 	{"DELETE /api/extensions", dirResponse, httpapi.OKResponse{}},
 	{"GET /api/handoff", dirResponse, httpapi.HandoffResponse{}},
+	// Open to callers with no credential, which get method "none".
+	{"GET /api/auth", dirResponse, httpapi.AuthResponse{}},
+	{"POST /api/pairings request", dirRequest, httpapi.PairingRequest{}},
+	{"POST /api/pairings 201", dirResponse, httpapi.PairingResponse{}},
+	// 403: the caller is a session without canPair.
+	{"POST /api/pairings 403", dirResponse, httpapi.ErrorResponse{}},
+	{"GET /api/pairings", dirResponse, []httpapi.PairingInfo{}},
+	{"DELETE /api/pairings/ 200", dirResponse, httpapi.OKResponse{}},
+	{"DELETE /api/pairings/ 404", dirResponse, httpapi.ErrorResponse{}},
+	// A browser kind answers 204 with the loupe_session cookie and no body.
+	{"POST /api/pair request", dirRequest, httpapi.PairRequest{}},
+	{"POST /api/pair 201", dirResponse, httpapi.PairResponse{}},
+	// 401 for a code that is unknown, expired or spent, alike; 429 past the
+	// rate limit.
+	{"POST /api/pair 401", dirResponse, httpapi.ErrorResponse{}},
+	{"POST /api/pair 429", dirResponse, httpapi.ErrorResponse{}},
+	{"GET /api/sessions", dirResponse, []httpapi.SessionInfo{}},
+	{"DELETE /api/sessions", dirResponse, httpapi.RevokeResponse{}},
+	{"DELETE /api/sessions/ 200", dirResponse, httpapi.RevokeResponse{}},
+	{"DELETE /api/sessions/ 404", dirResponse, httpapi.ErrorResponse{}},
+	// 403: a session revoking one it neither is nor paired.
+	{"DELETE /api/sessions/ 403", dirResponse, httpapi.ErrorResponse{}},
 	{"GET /api/overlays", dirResponse, httpapi.OverlaysResponse{}},
 	{"POST /api/overlays request", dirRequest, httpapi.OverlayRequest{}},
 	{"POST /api/overlays 200", dirResponse, httpapi.Overlay{}},
