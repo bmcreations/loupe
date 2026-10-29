@@ -12,7 +12,25 @@
     "DELETE /api/overlays": {
       "$ref": "#/$defs/httpapi.OverlayDeleteResponse"
     },
+    "DELETE /api/pairings/ 200": {
+      "$ref": "#/$defs/httpapi.OKResponse"
+    },
+    "DELETE /api/pairings/ 404": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
     "DELETE /api/servers 404": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "DELETE /api/sessions": {
+      "$ref": "#/$defs/httpapi.RevokeResponse"
+    },
+    "DELETE /api/sessions/ 200": {
+      "$ref": "#/$defs/httpapi.RevokeResponse"
+    },
+    "DELETE /api/sessions/ 403": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "DELETE /api/sessions/ 404": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
     "ErrorResponse": {
@@ -20,6 +38,9 @@
     },
     "GET /api/app": {
       "$ref": "#/$defs/target.App"
+    },
+    "GET /api/auth": {
+      "$ref": "#/$defs/httpapi.AuthResponse"
     },
     "GET /api/avds/profiles": {
       "$ref": "#/$defs/httpapi.AVDProfilesResponse"
@@ -32,6 +53,12 @@
     },
     "GET /api/clipboard": {
       "$ref": "#/$defs/httpapi.ClipboardResponse"
+    },
+    "GET /api/clipboard/shared": {
+      "$ref": "#/$defs/clipshare.Value"
+    },
+    "GET /api/clipboard/shared 409": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
     },
     "GET /api/config": {
       "$ref": "#/$defs/httpapi.ConfigResponse"
@@ -48,6 +75,18 @@
     "GET /api/extensions": {
       "$ref": "#/$defs/httpapi.ExtensionsResponse"
     },
+    "GET /api/flags": {
+      "$ref": "#/$defs/httpapi.FlagsResponse"
+    },
+    "GET /api/flags one": {
+      "$ref": "#/$defs/httpapi.Flag"
+    },
+    "GET /api/flags/destinations": {
+      "$ref": "#/$defs/httpapi.FlagDestinationsResponse"
+    },
+    "GET /api/flags/listeners": {
+      "$ref": "#/$defs/httpapi.FlagListenersResponse"
+    },
     "GET /api/frame": {
       "$ref": "#/$defs/target.DeviceFrame"
     },
@@ -56,6 +95,12 @@
     },
     "GET /api/overlays": {
       "$ref": "#/$defs/httpapi.OverlaysResponse"
+    },
+    "GET /api/pairings": {
+      "items": {
+        "$ref": "#/$defs/httpapi.PairingInfo"
+      },
+      "type": "array"
     },
     "GET /api/record": {
       "items": {
@@ -66,6 +111,12 @@
     "GET /api/servers": {
       "items": {
         "$ref": "#/$defs/httpapi.ServerInfo"
+      },
+      "type": "array"
+    },
+    "GET /api/sessions": {
+      "items": {
+        "$ref": "#/$defs/httpapi.SessionInfo"
       },
       "type": "array"
     },
@@ -105,6 +156,12 @@
     "POST /api/clipboard request": {
       "$ref": "#/$defs/httpapi.ClipboardRequest"
     },
+    "POST /api/clipboard/shared 409": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "POST /api/clipboard/shared request": {
+      "$ref": "#/$defs/httpapi.SharedClipboardRequest"
+    },
     "POST /api/devices 202": {
       "$ref": "#/$defs/httpapi.CreateDeviceResponse"
     },
@@ -138,6 +195,18 @@
     "POST /api/extensions request": {
       "$ref": "#/$defs/httpapi.ExtensionRequest"
     },
+    "POST /api/flags 200": {
+      "$ref": "#/$defs/httpapi.Flag"
+    },
+    "POST /api/flags request": {
+      "$ref": "#/$defs/httpapi.FlagRequest"
+    },
+    "POST /api/flags/end 200": {
+      "$ref": "#/$defs/httpapi.Flag"
+    },
+    "POST /api/flags/end request": {
+      "$ref": "#/$defs/httpapi.FlagEndRequest"
+    },
     "POST /api/input 200": {
       "$ref": "#/$defs/httpapi.OKResponse"
     },
@@ -161,6 +230,27 @@
     },
     "POST /api/overlays request": {
       "$ref": "#/$defs/httpapi.OverlayRequest"
+    },
+    "POST /api/pair 201": {
+      "$ref": "#/$defs/httpapi.PairResponse"
+    },
+    "POST /api/pair 401": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "POST /api/pair 429": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "POST /api/pair request": {
+      "$ref": "#/$defs/httpapi.PairRequest"
+    },
+    "POST /api/pairings 201": {
+      "$ref": "#/$defs/httpapi.PairingResponse"
+    },
+    "POST /api/pairings 403": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "POST /api/pairings request": {
+      "$ref": "#/$defs/httpapi.PairingRequest"
     },
     "POST /api/record 201": {
       "$ref": "#/$defs/httpapi.RecordStartResponse"
@@ -228,6 +318,9 @@
         "simulatorSlim": {
           "type": "boolean"
         },
+        "t3Projects": {
+          "type": "string"
+        },
         "tlsCert": {
           "type": "string"
         },
@@ -251,6 +344,33 @@
     },
     "PUT /api/settings request": {
       "$ref": "#/$defs/httpapi.SettingsPutRequest"
+    },
+    "clipshare.Value": {
+      "properties": {
+        "at": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "id",
+        "text",
+        "origin",
+        "at"
+      ],
+      "type": "object"
     },
     "composetree.Composable": {
       "properties": {
@@ -327,6 +447,35 @@
       },
       "required": [
         "profiles"
+      ],
+      "type": "object"
+    },
+    "httpapi.AuthResponse": {
+      "properties": {
+        "canPair": {
+          "type": "boolean"
+        },
+        "method": {
+          "type": "string"
+        },
+        "pairing": {
+          "type": "boolean"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.SessionInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "method",
+        "pairing",
+        "canPair"
       ],
       "type": "object"
     },
@@ -409,6 +558,9 @@
             "$ref": "#/$defs/httpapi.configField"
           },
           "type": "array"
+        },
+        "hostPasteboard": {
+          "type": "string"
         },
         "path": {
           "type": "string"
@@ -728,6 +880,391 @@
       },
       "required": [
         "extensions"
+      ],
+      "type": "object"
+    },
+    "httpapi.Flag": {
+      "properties": {
+        "claimedBy": {
+          "type": "string"
+        },
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagDelivery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/httpapi.FlagEvent"
+          },
+          "type": "array"
+        },
+        "eventsTruncated": {
+          "type": "boolean"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rev": {
+          "type": "integer"
+        },
+        "start": {
+          "$ref": "#/$defs/httpapi.FlagSnapshot"
+        },
+        "target": {
+          "type": "string"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRecipient"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "watching": {
+          "type": "boolean"
+        },
+        "width": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "target",
+        "rev",
+        "watching",
+        "start"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagDelivery": {
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagDestinationsResponse": {
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/httpapi.NamedDestination"
+          },
+          "type": "array"
+        },
+        "error": {
+          "type": "string"
+        },
+        "t3": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.T3Destinations"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "webhooks": {
+          "items": {
+            "$ref": "#/$defs/httpapi.NamedDestination"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagEndRequest": {
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "region": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRecipient"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagEvent": {
+      "properties": {
+        "button": {
+          "type": "string"
+        },
+        "from": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "keycode": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "t": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "to": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "t",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagListener": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "holds": {
+          "type": "boolean"
+        },
+        "idleMs": {
+          "type": "integer"
+        },
+        "session": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagListenersResponse": {
+      "properties": {
+        "active": {
+          "items": {
+            "$ref": "#/$defs/httpapi.FlagListener"
+          },
+          "type": "array"
+        },
+        "claimedBy": {
+          "type": "string"
+        },
+        "holder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRecipient"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "listeners": {
+          "items": {
+            "$ref": "#/$defs/httpapi.FlagListener"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "listeners",
+        "active"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagRecipient": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "t3Project": {
+          "type": "string"
+        },
+        "t3Thread": {
+          "type": "string"
+        },
+        "webhook": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagRect": {
+      "properties": {
+        "height": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagRequest": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "region": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRecipient"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "watch": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagSnapshot": {
+      "properties": {
+        "screenshot": {
+          "type": "string"
+        },
+        "screenshotError": {
+          "type": "string"
+        },
+        "t": {
+          "type": "integer"
+        },
+        "ui": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/target.Node"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "uiError": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagsResponse": {
+      "properties": {
+        "flags": {
+          "items": {
+            "$ref": "#/$defs/httpapi.Flag"
+          },
+          "type": "array"
+        },
+        "rev": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rev",
+        "flags"
       ],
       "type": "object"
     },
@@ -1812,6 +2349,21 @@
       ],
       "type": "object"
     },
+    "httpapi.NamedDestination": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label"
+      ],
+      "type": "object"
+    },
     "httpapi.OKResponse": {
       "properties": {
         "ok": {
@@ -2005,6 +2557,118 @@
       ],
       "type": "object"
     },
+    "httpapi.PairRequest": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "httpapi.PairResponse": {
+      "properties": {
+        "expiresAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "token",
+        "expiresAt"
+      ],
+      "type": "object"
+    },
+    "httpapi.PairingInfo": {
+      "properties": {
+        "canPair": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "parent": {
+          "type": "string"
+        },
+        "target": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "parent",
+        "createdAt",
+        "expiresAt"
+      ],
+      "type": "object"
+    },
+    "httpapi.PairingRequest": {
+      "properties": {
+        "canPair": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "target": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.PairingResponse": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "code",
+        "expiresAt"
+      ],
+      "type": "object"
+    },
     "httpapi.PutResponse": {
       "properties": {
         "changed": {
@@ -2048,6 +2712,20 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "httpapi.RevokeResponse": {
+      "properties": {
+        "revoked": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "revoked"
       ],
       "type": "object"
     },
@@ -2099,6 +2777,66 @@
         "state",
         "targets",
         "rttMs"
+      ],
+      "type": "object"
+    },
+    "httpapi.SessionInfo": {
+      "properties": {
+        "canPair": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "current": {
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "lastUsedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "parent": {
+          "type": "string"
+        },
+        "remoteAddr": {
+          "type": "string"
+        },
+        "revokedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "userAgent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "parent",
+        "createdAt",
+        "lastUsedAt",
+        "expiresAt"
       ],
       "type": "object"
     },
@@ -2163,6 +2901,94 @@
       },
       "required": [
         "settings"
+      ],
+      "type": "object"
+    },
+    "httpapi.SharedClipboardRequest": {
+      "properties": {
+        "at": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "httpapi.T3Destinations": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "projects": {
+          "items": {
+            "$ref": "#/$defs/httpapi.T3ProjectInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "projects"
+      ],
+      "type": "object"
+    },
+    "httpapi.T3ProjectInfo": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "threads": {
+          "items": {
+            "$ref": "#/$defs/httpapi.T3ThreadInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "path",
+        "name",
+        "threads"
+      ],
+      "type": "object"
+    },
+    "httpapi.T3ThreadInfo": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "updatedAt"
       ],
       "type": "object"
     },

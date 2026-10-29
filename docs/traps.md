@@ -1174,10 +1174,10 @@ refer to `docs/architecture.md`, `docs/targets.md`, `docs/ios.md` and
 
     `toast.js` breaks the rule. `appcard.js`, `clipboard.js`, `corners.js`,
     `devicesettings.js`, `drawer.js`, `fold.js`, `immersive.js`, `inspect.js`,
-    `keyboard.js`, `newdevice.js`, `record.js`, `streamconfig.js` and
-    `drop.js` each import it directly, and `app.js` does not import it at all. It works only because `toast.js` is
+    `flag.js`, `keyboard.js`, `newdevice.js`, `record.js`, `streamconfig.js`
+    and `drop.js` each import it directly, and `app.js` does not import it at all. It works only because `toast.js` is
     stateless. If `app.js` ever imports it too, its specifier gets stamped and
-    the other thirteen do not, and the page holds two instances of the module
+    the other fourteen do not, and the page holds two instances of the module
     under two URLs. `TestEveryClientModuleIsStamped` walks imports
     transitively, so it checks that `toast.js` is *listed*, not that every file
     naming it is rewritten. The full account is the comment above
@@ -1544,6 +1544,19 @@ refer to `docs/architecture.md`, `docs/targets.md`, `docs/ios.md` and
     489. `composetree.Stable` re-asks every 150ms until two replies agree
     on the node count; don't drop the loop to save latency.
     `TestStable*` in `internal/composetree` pins it.
+
+54. **`loupe mcp`'s channel messages never reach the session, with no
+    error anywhere.** Claude Code registers no channel for a stdio server that
+    negotiated MCP protocol 2026-07-28, and drops events for an unregistered
+    channel in silence (channels-reference). The go-sdk negotiates the newest
+    version both sides know, so `NewServer` sets `SupportedProtocolVersions`
+    to stop at 2025-11-25; the documented workaround,
+    `MCP_PROTOCOL_NEGOTIATION=legacy`, would have to be set in every user's
+    environment. Don't add newer versions to that list until channels
+    register on them. `TestChannelCapabilityIsDeclared` checks the
+    negotiated version against a go-sdk client. Not yet confirmed against
+    Claude Code itself: if its tools vanish from `/mcp`, the cap broke
+    negotiation, so revert it and document the env var instead.
 
 ## Open observation: a 4.87s held sample in a Pixel_10 recording
 

@@ -531,6 +531,27 @@ Mac. The helper runs only while sharing is on, and a simcap built before it
 existed (no `hostpasteboard` in `-caps`) is never started; run `make simcap`.
 Each step is traced as `kind:"clipboard"` with lengths only, never text.
 
+Participants and peers share it over `/api/clipboard/shared`
+(`docs/agent-api.md`). A hub bridges its value to every peer that also has
+`sharedClipboard` on, so the hub's peers converge on one value; each server
+still writes only its own targets and its own Mac. A server stamps
+each value it accepts with its own clock and ignores the sender's `at`, so
+clock skew between servers decides nothing: the order is arrival, and a
+same-millisecond tie goes to the larger id. Two copies made at once on two
+servers each take the other's, and the servers then hold different values
+until the next copy. A bridge that reconnects after a failure posts only a
+value accepted since the peer last answered.
+Handset's Device > Share Clipboard toggles `sharedClipboard`. When the
+server is on another Mac, Handset also polls that Mac's pasteboard every
+500ms and posts new text, skipping the same three password-manager types,
+and writes what the feed delivers. A write from the feed is skipped when it
+is text Handset just posted, or when the pasteboard changed since Handset
+last wrote or posted it; a post that fails is retried on the next poll.
+When the server reports in `GET /api/config` (`hostPasteboard`) that it
+mirrors this same Mac, Handset leaves the pasteboard to
+`simcap -hostpasteboard`; the host's address does not decide it, so an
+`ssh -L` tunnel to another Mac's loupe still joins.
+
 
 ## Full screen
 

@@ -49,6 +49,8 @@ var toolRoutes = []toolRoute{
 	{"install", http.MethodPost, "/api/install"},
 	{"boot", http.MethodPost, "/api/devices/boot"},
 	{"release", http.MethodDelete, "/api/claims"},
+	{"flags", http.MethodGet, "/api/flags"},
+	{"flag", http.MethodGet, "/api/flags"},
 }
 
 // Targeted is the one field every device tool takes.

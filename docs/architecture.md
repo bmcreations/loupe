@@ -122,6 +122,8 @@ a canvas. Pointer and key events go back over the same connection.
 | `internal/target/clipboard.go`, `simclipboard.go` | Clipboard on Android (scrcpy's control socket) and on a simulator (simcap's CoreDevice pasteboard) |
 | `internal/clipshare/` | The shared clipboard: one value, its subscribers, and the Mac pasteboard helper's runner (`hostpb.go`) |
 | `internal/httpapi/clipshare_targets.go` | Joins target sessions to the shared clipboard and writes each new value to the others |
+| `internal/httpapi/clipshare.go` | `/api/clipboard/shared`: the long-poll and participants' posts |
+| `internal/httpapi/clipshare_bridge.go` | One bridge per peer: pulls the peer's shared value and posts this server's |
 | simcap's `hostpasteboard.swift` | `simcap -hostpasteboard`: the Mac's own pasteboard, polled, for the shared clipboard |
 | `internal/target/adbkeyboard.go` | Android's hardware keyboard: a scrcpy UHID device per session, and typing over the control socket |
 | `web/livecheck.js` | Layout self-check run against a live page (see Verification) |
@@ -326,6 +328,28 @@ TLS is served directly here for other reasons (trap 4).
 
 Every response carries `Referrer-Policy: no-referrer`, so the token in a
 first-load URL or a `/wt` URL never leaves as a `Referer`.
+
+**A paired device presents a session instead of the token**
+(`internal/pairing`, `internal/httpapi/pairing.go`; routes in
+`docs/agent-api.md`, Pairing and sessions). `authed` also accepts an `lsn_`
+token as `Authorization: Bearer` and the `loupe_session` cookie. The
+session cookie goes through the same Origin check as the master cookie; it
+is `HttpOnly`, `SameSite=Strict`, `Secure` over TLS, and its 30-day
+`Max-Age` is re-sent at most once a day. `?token=` with the master token
+still wins over a session cookie on the same request, so an old link keeps
+setting `loupe_token` and stripping itself. `authed` puts which credential
+it accepted on the request's context: `GET /api/auth` reports it, and
+`POST /api/pairings` uses it to allow only the master token or a `canPair`
+session. `POST /api/pair` and `GET /api/auth` are open, like `/healthz`.
+A session currently carries the master token's full authority; scopes are
+out of the spec.
+
+A browser paired this way cannot open `/wt` yet: `web/transport.js` still
+builds that URL from the readable `loupe_token` cookie, and stream tickets
+replace it in the spec's Task 3. Until then the web client keeps using the
+master token. The trace and `handleClientLog` redact `code=` and `ticket=`
+as well as `token=`, in the query and in the fragment, where a pairing link
+carries its code.
 
 
 ### Configuration
@@ -571,8 +595,12 @@ below QUIC rather than anywhere in the application.
 The shared clipboard traces `kind:"clipboard"`. `from: "shared"` is a value
 written to a target (`target` is its id, or `mac`), and `from: "mac"` a copy
 on the server's Mac, a `confidential` one it kept, or the helper's `error`.
-A copy on a target is the existing `from: "device"` record. A record carries
-`textLen` or `error`, never the text.
+A copy on a target is the existing `from: "device"` record. A POST to
+`/api/clipboard/shared` is `from: "participant"`. A value pulled from a peer
+is `from: "peer"` with `server`, and one posted to a peer is `from:
+"shared"` with `target: "peer:<name>"`; a failed exchange carries `error`
+or the peer's `status`. A record carries `textLen` or `error`, never the
+text.
 
 Each viewer that arrives over Tailscale gets a `kind:"path"` record: `path`
 is `direct`, `peerRelay` or `derp`, a direct path carries `pathAddr` and

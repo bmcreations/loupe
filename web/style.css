@@ -469,6 +469,127 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
 .inspectLayer:not([hidden]) { pointer-events: auto; cursor: crosshair; }
 .inspectLayer[hidden] { display: none; }
 
+/* Flag for agent (flag.js). The layer takes the drag that boxes what is off,
+   instead of the device. .flagPic is the picture's own rect inside it, so the
+   box (percentages of the picture) lands on the picture even when a bezel or
+   letterboxing makes the layer bigger; its overflow clips the dimming shadow
+   to the picture. */
+.flagLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.flagLayer:not([hidden]) { pointer-events: auto; cursor: crosshair; }
+.flagLayer[hidden] { display: none; }
+.flagPic { position: absolute; overflow: hidden; }
+.flagBox {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--status-danger);
+  box-shadow: 0 0 0 100vmax var(--scrim);
+}
+.flagBox[hidden], .flagHint[hidden], .flagPanel[hidden], .flagPill[hidden],
+.flagError[hidden], .flagBtn[hidden] { display: none; }
+.flagHint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  border: 1px solid var(--separator);
+  color: var(--label-primary);
+  font-size: var(--text-footnote);
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.flagPanel {
+  position: absolute;
+  left: 50%;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 30;
+  box-sizing: border-box;
+  width: min(360px, calc(100% - 20px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--background-secondary);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  color: var(--label-primary);
+  font-size: var(--text-footnote);
+}
+.flagTitle { color: var(--status-danger); font-weight: 600; font-size: var(--text-body); }
+.flagNote {
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  color: inherit;
+  /* 16px keeps iOS from zooming the page when the field takes focus. */
+  font: inherit;
+  font-size: var(--text-callout);
+}
+.flagWatchRow { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.flagError { margin: 0; color: var(--status-danger); font-size: var(--text-caption1); }
+.flagActions { display: flex; align-items: center; gap: 12px; }
+.flagSpacer { flex: 1; }
+.flagBtn {
+  background: transparent;
+  border: none;
+  padding: 8px 4px;
+  color: var(--tint);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.flagBtn:disabled { opacity: .5; cursor: default; }
+.flagSend { color: var(--status-danger); }
+.flagPill {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 20px);
+  padding: 4px 4px 4px 10px;
+  background: var(--background-secondary);
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  color: var(--label-primary);
+  font-size: var(--text-footnote);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.flagDot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--status-danger); }
+.flagPillText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.flagStop {
+  flex: none;
+  padding: 4px 10px;
+  background: var(--status-danger);
+  border: none;
+  border-radius: 999px;
+  color: var(--label-on-tint);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* Extension overlays (extoverlay.js): a reference image and labelled boxes
    an extension posted. The layer never takes a tap, so the device stays
    usable under a reference; only the divider and the bar do. */

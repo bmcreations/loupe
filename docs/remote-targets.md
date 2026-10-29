@@ -298,6 +298,10 @@ Input is arbitrated on both servers, each for what it can see:
 - `/api/clipboard` for a peer id goes to the owner's `/api/clipboard`, and the
   owner's refusal comes back as it sent it: 409 when the owner has no session
   for the target. The hub's shared clipboard never writes a peer target.
+- The shared clipboard crosses servers through a bridge per peer, not
+  through peer targets: the hub long-polls the peer's
+  `/api/clipboard/shared` and posts its own changes there
+  (`docs/agent-api.md`). Each server writes its own targets.
 
 ### Hub code that assumes a target is local
 

@@ -32,6 +32,8 @@ type Client struct {
 	agent   string
 	session string
 	http    *http.Client
+	// noPush keeps Run from pushing flags, for tests that count requests.
+	noPush bool
 
 	mu     sync.Mutex
 	claims map[string]bool
@@ -164,6 +166,22 @@ func (c *Client) postJSON(ctx context.Context, path string, q url.Values, v any)
 	}
 	b, _, err := c.do(ctx, http.MethodPost, path, q, ct, body)
 	return b, err
+}
+
+// holds reports whether this process has claimed target.
+// is reports whether to names this process, the way the server keys
+// callers: by session when there is one, else by agent.
+func (c *Client) is(to httpapi.FlagRecipient) bool {
+	if to.Session != "" || c.session != "" {
+		return to.Session == c.session
+	}
+	return to.Agent == c.agent
+}
+
+func (c *Client) holds(target string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.claims[target]
 }
 
 // claim takes the target for this process before anything drives it. A claim

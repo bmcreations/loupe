@@ -54,6 +54,8 @@ func connect(t *testing.T, fake *fakeLoupe) (*mcp.ClientSession, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Tests compare the requests a tool sends; flagpush_test.go covers pushing.
+	c.noPush = true
 	ctx, cancel := context.WithCancel(context.Background())
 	st, ct := mcp.NewInMemoryTransports()
 	done := make(chan error, 1)

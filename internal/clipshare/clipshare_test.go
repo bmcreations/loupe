@@ -58,13 +58,16 @@ func TestPublishDropsOwnIDBack(t *testing.T) {
 	}
 }
 
-func TestPublishDropsOlder(t *testing.T) {
+// A sender whose clock is behind must not lose to the value held here: the
+// order is arrival, not the At it sent.
+func TestPublishIgnoresSenderAt(t *testing.T) {
 	s := enabled(t)
-	if _, ok := s.Publish(Value{Text: "a", Origin: "mac", At: 1000}); !ok {
-		t.Fatal("at 1000 dropped")
+	if _, ok := s.Publish(Value{Text: "a", Origin: "mac"}); !ok {
+		t.Fatal("first copy dropped")
 	}
-	if _, ok := s.Publish(Value{Text: "b", Origin: "mac", At: 999}); ok {
-		t.Fatal("at 999 accepted after 1000")
+	v, ok := s.Publish(Value{Text: "b", ID: "peer-1", At: 1, Origin: "peer:x"})
+	if !ok || v.At <= 1 {
+		t.Fatalf("publish = %+v %v, want accepted and stamped with this clock", v, ok)
 	}
 }
 
@@ -182,5 +185,113 @@ func TestSubscribeCancelStops(t *testing.T) {
 	case text := <-got:
 		t.Fatalf("cancelled subscriber got %q", text)
 	case <-time.After(30 * time.Millisecond):
+	}
+}
+
+// A caller holding a seq from before this server restarted asks for one
+// past the new count. It gets the current value rather than waiting for the
+// count to catch up.
+func TestWaitAfterFromAnEarlierProcess(t *testing.T) {
+	s := enabled(t)
+	s.Publish(Value{Text: "a", Origin: "mac"})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	v, err := s.Wait(ctx, 7)
+	if err != nil || v.Text != "a" {
+		t.Fatalf("wait after 7 = %+v %v, want a", v, err)
+	}
+}
+
+func TestWaitEnabled(t *testing.T) {
+	s := New()
+	done := make(chan error, 1)
+	go func() { done <- s.WaitEnabled(context.Background()) }()
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("returned while off: %v", err)
+	default:
+	}
+	s.SetEnabled(true)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("not woken by enable")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.SetEnabled(false)
+	if err := s.WaitEnabled(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want canceled", err)
+	}
+}
+
+func TestWhileEnabledEndsOnDisable(t *testing.T) {
+	s := enabled(t)
+	on, cancel := s.WhileEnabled(context.Background())
+	defer cancel()
+	s.Publish(Value{Text: "a", Origin: "mac"})
+	select {
+	case <-on.Done():
+		t.Fatal("ended on a publish")
+	case <-time.After(20 * time.Millisecond):
+	}
+	s.SetEnabled(false)
+	select {
+	case <-on.Done():
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("not ended by disable")
+	}
+	off, cancel2 := s.WhileEnabled(context.Background())
+	defer cancel2()
+	select {
+	case <-off.Done():
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("not done while off")
+	}
+}
+
+// A peer whose clock runs an hour fast must not hold its value against
+// every copy made here for that hour.
+func TestPublishIgnoresFutureAt(t *testing.T) {
+	s := enabled(t)
+	ahead := time.Now().Add(time.Hour).UnixMilli()
+	v, ok := s.Publish(Value{Text: "a", ID: "peer-1", At: ahead, Origin: "peer:x"})
+	if !ok || v.At >= ahead {
+		t.Fatalf("publish = %+v %v, want At from this clock", v, ok)
+	}
+	if _, ok := s.Publish(Value{Text: "b", Origin: "mac"}); !ok {
+		t.Fatal("a local copy after the fast peer's was dropped")
+	}
+}
+
+// Two values accepted in the same millisecond settle on the larger id
+// whichever arrives first, so a ring of peers does not trade them.
+func TestPublishSameAtLargerIDWins(t *testing.T) {
+	for _, order := range [][2]string{{"a-1", "b-1"}, {"b-1", "a-1"}} {
+		s := enabled(t)
+		s.now = func() int64 { return 1000 }
+		s.Publish(Value{Text: order[0], ID: order[0], Origin: "peer:x"})
+		s.Publish(Value{Text: order[1], ID: order[1], Origin: "peer:y"})
+		if v, _ := s.Current(); v.ID != "b-1" {
+			t.Fatalf("after %v current = %s, want b-1", order, v.ID)
+		}
+	}
+}
+
+// A clock that steps back does not order a new value before the current one.
+func TestPublishAtNeverGoesBack(t *testing.T) {
+	s := enabled(t)
+	now := int64(2000)
+	s.now = func() int64 { return now }
+	s.Publish(Value{Text: "a", Origin: "mac"})
+	now = 1500
+	v, ok := s.Publish(Value{Text: "b", Origin: "mac"})
+	if !ok || v.At != 2000 {
+		t.Fatalf("publish = %+v %v, want At 2000", v, ok)
 	}
 }

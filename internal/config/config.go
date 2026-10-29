@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/bmcreations/loupe/internal/scrcpy"
 )
@@ -70,6 +71,7 @@ type Config struct {
 	TLSCert             string `json:"tlsCert"`
 	TLSKey              string `json:"tlsKey"`
 	TracePath           string `json:"tracePath"`
+	T3Projects          string `json:"t3Projects"`
 }
 
 // Default is the configuration a first run gets. These match the flag defaults
@@ -147,6 +149,7 @@ func Fields() []Field {
 		{"tlsCert", AppliesRestart, "TLS certificate. Serves HTTPS directly rather than behind a proxy.", "tls-cert"},
 		{"tlsKey", AppliesRestart, "TLS private key. Required with tlsCert.", "tls-key"},
 		{"tracePath", AppliesRestart, "Where to write the per-second NDJSON metrics trace. Empty disables it.", "trace"},
+		{"t3Projects", AppliesNow, "T3 Code projects a flag can be sent to, as comma-separated paths. The flag card lists each one's open threads and offers a new thread in it. Empty offers none.", "t3-projects"},
 	}
 }
 
@@ -187,10 +190,26 @@ func (c Config) Validate() error {
 	if c.Addr == "" {
 		return fmt.Errorf("addr: must not be empty")
 	}
+	for _, p := range c.T3ProjectList() {
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("t3Projects %q: want absolute paths", p)
+		}
+	}
 	if (c.TLSCert == "") != (c.TLSKey == "") {
 		return fmt.Errorf("tlsCert and tlsKey: set both or neither")
 	}
 	return nil
+}
+
+// T3ProjectList is T3Projects split on commas, blanks dropped.
+func (c Config) T3ProjectList() []string {
+	var out []string
+	for _, p := range strings.Split(c.T3Projects, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, filepath.Clean(p))
+		}
+	}
+	return out
 }
 
 // Load reads the config at path. A missing file is not an error: it reports

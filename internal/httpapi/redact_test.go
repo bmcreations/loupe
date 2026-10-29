@@ -23,6 +23,9 @@ func TestRedactQuery(t *testing.T) {
 		{"tok%65n=secret", "token=REDACTED"},
 		{"token=a&token=b", "token=REDACTED&token=REDACTED"},
 		{"token=secret;x=1", "token=REDACTED"},
+		// A stream ticket and a pairing code are credentials too.
+		{"target=x&ticket=secret", "target=x&ticket=REDACTED"},
+		{"code=secret&target=x", "code=REDACTED&target=x"},
 	}
 	for _, c := range cases {
 		got := redactQuery(c.in)
@@ -82,5 +85,21 @@ func TestClientLogRedactsToken(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"href":"https://mini.ts.net:18456/?target=dev1\u0026token=REDACTED#peek"`) {
 		t.Errorf("trace lost the rest of href:\n%s", b)
+	}
+}
+
+// TestRedactURLCoversTheFragment: a pairing link carries its code after #,
+// and a client record's href holds the whole link.
+func TestRedactURLCoversTheFragment(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"https://h/pair?target=a#code=secret", "https://h/pair?target=a#code=REDACTED"},
+		{"https://h/pair#code=secret", "https://h/pair#code=REDACTED"},
+		{"https://h/?token=secret#x", "https://h/?token=REDACTED#x"},
+		{"https://h/", "https://h/"},
+	}
+	for _, c := range cases {
+		if got := redactURL(c.in); got != c.want {
+			t.Errorf("redactURL(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }

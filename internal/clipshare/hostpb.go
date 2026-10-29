@@ -3,7 +3,9 @@ package clipshare
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"io"
 	"os/exec"
 	"strings"
@@ -26,16 +28,33 @@ var hostPasteboardRestart = 2 * time.Second
 // its own is started again after a pause. A simcap whose -caps lacks
 // hostpasteboard is never started. It returns when ctx ends.
 //
+// While the helper is available s reports this Mac's HostID (MirroredHost),
+// so a client can tell this server's Mac from its own.
+//
 // trace gets lengths, never text.
 func RunHostPasteboard(ctx context.Context, s *Service, bin string, trace func(map[string]any)) {
 	if trace == nil {
 		trace = func(map[string]any) {}
 	}
+	id := HostID(ctx)
+	defer s.setMirroredHost("")
+	// Checked before sharing is on too, so a client that turns it on and
+	// asks at once is already told.
+	s.setMirroredHost(hostIfAvailable(ctx, bin, id))
 	for ctx.Err() == nil {
 		if !waitEnabled(ctx, s, true) {
 			return
 		}
-		if !hasHostPasteboard(ctx, bin) {
+		// Whether the helper runs is the helper's question, not the id's:
+		// the id is empty when this Mac's UUID cannot be read, and the
+		// helper still runs then.
+		available := hasHostPasteboard(ctx, bin)
+		if available {
+			s.setMirroredHost(id)
+		} else {
+			s.setMirroredHost("")
+		}
+		if !available {
 			trace(map[string]any{"kind": "clipboard", "from": "mac", "error": bin + " has no hostpasteboard mode (make simcap)"})
 			if !waitEnabled(ctx, s, false) {
 				return
@@ -52,6 +71,36 @@ func RunHostPasteboard(ctx context.Context, s *Service, bin string, trace func(m
 			return
 		}
 	}
+}
+
+func hostIfAvailable(ctx context.Context, bin, id string) string {
+	if id != "" && hasHostPasteboard(ctx, bin) {
+		return id
+	}
+	return ""
+}
+
+// HostID names this Mac without revealing its hardware UUID: the SHA-256 of
+// it under a fixed prefix, hex. Handset computes the same, so it can tell a
+// server that mirrors its own Mac's pasteboard from one that mirrors another
+// Mac's. It is empty when the UUID cannot be read.
+func HostID(ctx context.Context) string {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "IOPlatformUUID") {
+			continue
+		}
+		if f := strings.Split(line, `"`); len(f) >= 5 {
+			sum := sha256.Sum256([]byte("loupe-host:" + f[3]))
+			return hex.EncodeToString(sum[:])
+		}
+	}
+	return ""
 }
 
 // waitEnabled blocks until s.Enabled() is on, and reports false if ctx ended

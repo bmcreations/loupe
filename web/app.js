@@ -40,6 +40,7 @@ import { mount as mountKeyboard, chunkText, readStripPref } from './keyboard.js'
 import { mount as mountClipboard } from './clipboard.js';
 import { mount as mountDrop } from './drop.js';
 import { mount as mountRecord } from './record.js';
+import { mount as mountFlag, flagShortcut } from './flag.js';
 import { mount as mountTouches } from './touches.js';
 import { mount as mountCursors } from './cursor.js';
 import { mount as mountExtOverlays } from './extoverlay.js';
@@ -194,6 +195,7 @@ function makePaneEls() {
     cursorLayer: r('cursorLayer'),
     extLayer: r('extLayer'),
     inspectLayer: r('inspectLayer'),
+    flagLayer: r('flagLayer'),
     hud: r('hud'),
     overlay: r('overlay'),
     logList,
@@ -221,7 +223,7 @@ function createPaneFor(targetId, id) {
     },
     modules: {
       touches: mountTouches, cursor: mountCursors, overlays: mountExtOverlays, control: mountControl,
-      inspect: mountInspect, eventlog: mountEventLog, record: mountRecord,
+      inspect: mountInspect, eventlog: mountEventLog, record: mountRecord, flag: mountFlag,
     },
     moduleDeps: {
       doc: document,
@@ -233,6 +235,11 @@ function createPaneFor(targetId, id) {
       // device into the space above it without knowing about inspect.
       inspectSheet: document.getElementById('inspectSheet'),
       pillRec: document.getElementById('pillRec'),
+      // Flag mode takes the pane's pointer, so the zoom transform goes first.
+      // A phone's keyboard would cover the picture the person is boxing, so
+      // the note is focused only with a fine pointer.
+      beforeFlag: () => { if (zoomMode) zoomMode.exit(); },
+      focusFlagNote: () => !(window.matchMedia && matchMedia('(pointer: coarse)').matches),
       // The pill is the focused pane's, so only it paints the red dot.
       isFront: () => isFront(),
       postInput: (pp, body) => postViewerInput(body, pp),
@@ -315,6 +322,7 @@ function createPaneFor(targetId, id) {
 // agent's), its connection closes and its clone leaves the page.
 function destroyPane(p) {
   p.mods.inspect.off();
+  p.mods.flag.onTargetSwitch();
   p.mods.record.onTargetSwitch(null);
   p.close();
   p.els.root.remove();
@@ -1029,7 +1037,7 @@ function fitScreen() {
     list.forEach((p, i) => layoutScreen(p, cells[i] || null));
   }
   if (zoomMode) zoomMode.sync();
-  for (const p of list) p.mods.inspect.relayout();
+  for (const p of list) { p.mods.inspect.relayout(); p.mods.flag.relayout(); }
 }
 
 // Side by side, each pane's header sits above its device and the corners are
@@ -2134,6 +2142,7 @@ const corners = mountCorners(el.cornerNav, el.cornerMore, {
     // Inspect's boxes are drawn for the untransformed picture.
     run: () => { zoomMode.exit(); focused().mods.inspect.run(); },
   },
+  flag: { run: () => focused().mods.flag.run() },
   // Called at click time, by which point immersive below is mounted.
   fullScreen: () => immersive.set(true),
   ...(pip ? { pip: { label: () => pip.label(), run: () => pip.toggle() } } : {}),
@@ -2236,6 +2245,15 @@ panes.onChange(({ kind }) => {
   if (kind !== 'focus') fitScreen();
   syncUrl();
   drawer.repaint();
+});
+
+// Alt+Meta+F (Alt+Ctrl+F off a Mac) flags the focused pane for an agent.
+document.addEventListener('keydown', (e) => {
+  if (!flagShortcut(e)) return;
+  const t = e.target;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+  e.preventDefault();
+  focused().mods.flag.toggle();
 });
 
 // ⌃1-⌃4 (Alt elsewhere) focuses pane N while several are open. Ignored in a

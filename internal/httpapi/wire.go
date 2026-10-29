@@ -21,7 +21,7 @@ type ErrorResponse struct {
 	// ErrCodeHumanHeld.
 	RetryAfterMs int64 `json:"retryAfterMs,omitempty"`
 	// ID names the recording that caused an ErrCodeRecording 409 on a start,
-	// when it is known.
+	// when it is known, and the flag behind an ErrCodeInterrupted 409.
 	ID string `json:"id,omitempty"`
 	// Claim is the claim that caused an ErrCodeClaimed 409.
 	Claim *ClaimInfo `json:"claim,omitempty"`
@@ -74,6 +74,13 @@ const ErrCodeRunnerUnavailable = "runnerUnavailable"
 // again, and the Retry-After header says the same in whole seconds.
 const ErrCodeHumanHeld = "humanHeld"
 
+// ErrCodeInterrupted is POST /api/input's 409 when the person interrupted the
+// caller with a flag (kind "interrupt") it has not read since. ID is the
+// flag's. The device may have changed under the caller: it reads the flag
+// with GET /api/flags?id=, which lifts the refusal, and decides from the
+// screen as it is now whether what it was doing still applies.
+const ErrCodeInterrupted = "interrupted"
+
 // ErrCodeClaimed is the 409 an agent gets for input on a target another agent
 // has claimed, and for claiming or releasing one. `claim` names the holder.
 // Nothing was sent to the device. There is no retry time: the claim lasts
@@ -120,6 +127,11 @@ const ErrCodeNotSupported = "notSupported"
 // ErrCodeNoFFmpeg is GET /api/record/{id}/frames's 501 when ffmpeg is not
 // on PATH, in /opt/homebrew/bin or in /usr/local/bin.
 const ErrCodeNoFFmpeg = "noFFmpeg"
+
+// ErrCodeSharedClipboardOff is /api/clipboard/shared's 409 while this
+// server's sharedClipboard is off, including a long-poll that was waiting
+// when it was turned off.
+const ErrCodeSharedClipboardOff = "disabled"
 
 // OKResponse is the body a handler sends when there is nothing to report but
 // success -- /healthz and a successful /api/input action. Like

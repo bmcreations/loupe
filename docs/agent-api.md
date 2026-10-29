@@ -120,6 +120,9 @@ nothing reaches the device. There is no override: an agent that could
 force its way past the person would put the fight back. Reads,
 `hardwareKeyboard` and `move` are never refused, and with no session open there is no
 hold at all.
+An interrupt flag holds the target until the person sends it, and then
+refuses the interrupted agent with `code: "interrupted"` until it reads the
+flag (see Flags).
 
 The shared token cannot tell callers apart, so they say who they are. The
 viewer sends `X-Loupe-Viewer` with init's viewer id; a live id makes the
@@ -387,6 +390,48 @@ and `outcome`.
   - The phone's own clipboard UI is in `web/clipboard.js` and uses this
     route.
 
+- `GET /api/clipboard/shared?after=<seq>&waitMs=<ms>` long-polls the shared
+  clipboard (`sharedClipboard`, `docs/targets.md`, Clipboard). It answers
+  `200 {"seq","id","text","origin","at"}` once a value with a `seq` past
+  `after` is there, at once when one already is, and `204` when none arrives
+  within `waitMs` (default 25000, at most 30000). `after` absent or 0 gets
+  the current value. An `after` past every `seq` the server has given out
+  came from before it restarted and counts as 0. `seq` counts values on that
+  server only; `id` (`<instance>-<n>`) is the value's identity across
+  servers, `origin` is `target:<id>`, `mac`, `participant` or
+  `peer:<name>`, and `at` is when this server accepted the value, in its own
+  clock's Unix milliseconds.
+  - `POST /api/clipboard/shared {"text", "id", "at"}` offers text and
+    answers 204. `id` and `at` are optional and filled in. Every POST is
+    stored with origin `participant`, whatever the body says. A value is
+    dropped, still with 204, when its `id` or its text is the current one's,
+    or when it arrives in the same millisecond as the current one with a
+    smaller `id`. A sent `at` is ignored: the server stamps its own clock,
+    so values order by arrival and a peer's clock skew cannot win or lose
+    a copy. Empty text or text that isn't UTF-8 answers 400,
+    and text over 64 KiB 413.
+  - With `sharedClipboard` off both answer 409 with `code: "disabled"`, and
+    a GET already waiting when it is turned off gets that 409 too. A server
+    without the service answers 404.
+  - **A hub bridges it to each peer** through the peer's pinned client, so
+    the token only goes to a peer whose certificate verified. One loop
+    long-polls the peer and publishes what arrives as `peer:<name>` under
+    the peer's `id` and `at`; each change that didn't come from that peer is
+    posted to it. When the peer first answers, or answers after being off,
+    the hub posts its current value, so the peer catches up; after a failed
+    exchange it posts only a value accepted since the peer last answered. A peer that
+    answers 409 is asked again after 30s, one that answers 404 (an older
+    build) after 5 min, and a failed exchange after 5s; nothing is posted to
+    it meanwhile. Two servers that hold each other as peers settle, because
+    a value coming back carries the id the server already holds.
+  - Handset joins as a participant unless its server mirrors that same Mac
+    (Device > Share Clipboard, which writes `sharedClipboard` through
+    `/api/config`). `GET /api/config` carries `hostPasteboard`, a hash of the
+    server Mac's hardware UUID (`clipshare.HostID`), while the server can
+    mirror its Mac's pasteboard, and omits it otherwise; Handset hashes its
+    own the same way and compares, so a tunnel to a remote Mac's loopback
+    port still joins.
+
 - `GET /api/handoff?target=<id>&target=<id>` returns `{"url"}`, the web
   client's link for up to four targets, the first one focused: the startup
   banner's phone link, on the certificate's host, with the token. The Mac
@@ -475,7 +520,7 @@ needs no curl. It is a client of a running server, not a second server: a
 stdio MCP server (the official Go SDK) that turns each tool call into one
 request. Tools: `targets`, `ui`, `screenshot` (an image, not JSON), `point`,
 `tap`, `swipe`, `type_text`, `key`, `button`, `launch`, `open_url`, `logcat`,
-`crashes`, `crash`, `install`, `boot` and `release`. `TestEveryToolNamesARoute` checks each
+`crashes`, `crash`, `install`, `boot`, `release`, `flags` and `flag`. `TestEveryToolNamesARoute` checks each
 against `httpapi.Routes()`.
 
 - **Flags:** `-url` (default `https://localhost:18456`), `-token` and
@@ -510,6 +555,242 @@ fails with ETXTBSY, which is why the supervisor runs from `.run/`.
 cp loupe ~/.local/bin/loupe
 claude mcp add loupe -- ~/.local/bin/loupe mcp
 ```
+
+### Flags
+
+A flag is a person telling an agent "something is off on this screen". In
+the Mac app a ⌘-drag on the picture boxes an area (⌘-click flags the whole
+screen), and the note card opens beside the box on release; the Device menu
+and toolbar (⌥⌘F) arm the same drag. The web client's More menu starts one
+on the focused pane. A note is optional, and "Watch while I reproduce it"
+keeps the flag open until the person presses Stop. The card says whether
+any agent is listening. Its "Send to" menu, on every flag and interrupt,
+starts on the session holding the target and lists the listening sessions,
+"Every agent", and the T3 Code threads below.
+
+- `POST /api/flags?target=` `{note, region, watch, kind, to}`. `region` is `[left,
+  top, right, bottom]` as fractions of the picture. The server keeps the
+  screen as it was: a screenshot with the region outlined in red, the
+  interactive UI tree, the region in device pixels, and `claimedBy`, the
+  agent holding the target then. A failed capture is recorded on the flag
+  (`screenshotError`, `uiError`) rather than failing it. `to: {agent,
+  session}`, a session as `/listeners` names it, sends the flag to that
+  session alone; without it every session gets it. `to: {t3Thread}` or
+  `to: {t3Project}` sends it to T3 Code instead, and `to: {command}` or
+  `to: {webhook}` to an entry in `destinations.json` (below).
+- `POST /api/flags/end?id=` ends a watch: it adds the person's input since
+  the flag (`events`, device pixels) and a second snapshot. An interrupt's
+  end may carry `{note, region}`. A watch left
+  open ends itself after 10 minutes. An interrupt's end may also carry
+  `to`, the session picked while the person wrote. `eventsTruncated` is set when the
+  session's 256-event ring dropped some, or the session restarted.
+- `GET /api/flags` lists them without UI trees; `?after=<rev>&waitMs=`
+  long-polls for the next change; `?id=` reads one in full. `GET
+  /api/flags/shot?id=&which=start|end` is the PNG. The server keeps 32.
+- `GET /api/flags/listeners?target=` is who would hear a flag raised now:
+  each session long-polling `/api/flags` (`waitMs`), now or in the last 5s,
+  with `holds` set on the one holding the target, `claimedBy`, and
+  `holder`, that session as a `to`, listening or not. `active` lists the
+  sessions that called the agent API in the last 15 minutes without waiting
+  on flags, with `target` and `idleMs`: a flag can be sent to one, but it
+  sees it only when it checks (an interrupt still stops its next input). It
+  cannot say whether Claude Code registered the channel (trap 54), only
+  that a `loupe mcp` is connected.
+
+- `GET /api/flags/destinations` lists the T3 Code threads a flag can go to,
+  for each project in the `t3Projects` setting: `{t3: {error, projects:
+  [{path, name, error, threads: [{id, title, status, provider, model,
+  updatedAt}]}]}}`, newest first, 10 per project, finished threads
+  included. `t3` is absent when no projects are set. The listing is cached
+  for 10s and a stale one is served while it refreshes, since each project
+  costs the CLI about 0.7s. `commands` and `webhooks` list
+  `destinations.json`'s entries as `{name, label}` only, and `error` says
+  why that file was refused.
+
+**Sending to T3 Code.** T3 threads can run any provider and may never have
+touched loupe, so the server delivers the flag itself, as a message that
+stands alone. When the flag is complete (at once, or when its watch or
+interrupt ends) it writes the screenshots, UI tree and recorded input to
+`~/Library/Caches/loupe/flags/<start>-<id>/`, keeping the newest 32, and
+runs `t3 thread send <id> -` (a T3 thread gets it as its next turn; it does
+not interrupt one mid-turn) or `t3 thread start --project <path>`, with the
+note, the box, the target and those paths on stdin. The outcome lands on the
+flag as `delivery: {state: sending|sent|failed, error, thread, dir}`. The
+message leads with the note, links each file, and asks the agent to start
+its reply with the screenshot as a Markdown image: T3 shows no image a CLI
+message carries (the CLI has no attachment option), but renders one in an
+agent's reply. The CLI
+is `~/.t3-desktop/bin/t3`, which sets T3's home itself, so it works from
+launchd; `t3Projects` paths must match T3's projects exactly, and a
+`t3Project` that is not in the setting is refused. `loupe mcp` pushes no
+plain flag sent to T3. An interrupt sent to T3 still stops whoever drove the
+device, as an interrupt with no `to` would: the T3 thread did not move the
+device and can't satisfy the gate, so the driver re-checks the screen.
+
+**Sending to a program or a webhook.** `destinations.json`, beside the
+settings file, names programs a flag can run and webhooks it can post to.
+It is a file of its own, not a setting: any token holder can rewrite the
+settings over `PUT /api/config`, and a program there would run as you. The
+server reads it on each use and never writes it, and refuses it when group
+or others may write it, or another user owns it.
+
+```json
+{
+  "commands": [
+    {"name": "claude", "label": "Claude Code (new run)",
+     "program": "/Users/me/.local/bin/claude", "args": ["-p"],
+     "dir": "/Users/me/dev/app", "timeoutSec": 1800},
+    {"name": "codex", "label": "Codex (new run)",
+     "program": "/opt/homebrew/bin/codex", "args": ["exec", "-"],
+     "dir": "/Users/me/dev/app"},
+    {"name": "claude-live", "label": "Claude Code (in Terminal)",
+     "program": "/Users/me/.local/bin/claude", "args": ["{text}"],
+     "dir": "/Users/me/dev/app", "terminal": "Terminal"}
+  ],
+  "webhooks": [
+    {"name": "triage", "url": "https://hooks.example.com/flag",
+     "headers": {"Authorization": "Bearer …"}}
+  ]
+}
+```
+
+A command's `program` and `dir` are absolute paths; it runs without a shell,
+with the flag's message on stdin (the same text a T3 thread gets, less the
+request for an image in the reply) and the environment of the server minus
+every `LOUPE_` variable, plus its `env`. Arguments may hold `{id}`,
+`{target}`, `{dir}`, `{message}` (the message as a file), `{start}`,
+`{end}`, `{ui}`, `{events}` and `{text}` (the message itself, which starts
+with `> ` or `The person`); never the note alone, which could pass for an
+option. With `terminal` set to an app name, the run opens in a new window of
+that app instead, so the person can watch it and answer it: Loupe writes it
+as `run.command` in the flag's directory, opens that, and records `Opened in
+<app>` as delivered. The program then has the window's input, so pass the
+message with `{text}`. It runs in the flag's directory unless `dir` says otherwise, for up
+to `timeoutSec` (default 600, at most 3600), and `delivery` stays `sending`
+until it exits, then carries the end of its output as `output`. A webhook
+is POSTed `{flag, message, start, end}` with the screenshots as base64,
+since the receiver usually can't reach this server; `https` only, or plain
+`http` to localhost, and redirects are not followed. A command or webhook
+counts as a T3 thread does for interrupts and for `loupe mcp`.
+
+Flags are the person's signal, like the clipboard: neither claims nor the
+human hold gate them, and reading one claims nothing.
+
+**An interrupt** (`kind: "interrupt"`) stops an agent mid-task. The Mac app
+sends one on a ⇧⌘-drag, or from "Stop agent & flag" on the driving banner.
+It is posted when the person starts, before they write anything, so the
+agent hears at once, and it stays open like a watch. The posting viewer
+(`X-Loupe-Viewer`) holds the target with no window until the end, capped at
+10 minutes. The end takes the note and region, and the hold then runs out
+over the usual window. From the post until the holder reads the ended flag
+(`GET /api/flags?id=` with its headers, or the `flag` tool), its input
+answers 409 `code: "interrupted"` with the flag's `id`; pointing (`move`) is
+not refused. When nobody held the target, every agent is refused until one
+reads it. An interrupt with `to` stops that session instead, whoever holds
+the target. Since an interrupt is posted before the person picks, a `to` on
+its end moves the stop onto that session, and `loupe mcp` tells every other
+session it pushed the interrupt to that it may go on (`state=released`). Reading mid-interrupt lifts nothing, since the end screen is
+what the agent must look at: whether its plan still applies is its call,
+made from the device as the person left it. A newer interrupt on the
+target replaces the older one. A read carrying `X-Loupe-Viewer` is a
+person's app, such as the Mac app following a delivery, and lifts nothing.
+
+**`loupe mcp` pushes flags into a Claude Code session** through channels
+(a research preview, `code.claude.com/docs/en/channels-reference.md`). It
+long-polls `/api/flags` and sends each new flag, and each watch that ends,
+as a `notifications/claude/channel` message; the model sees a `<channel
+source="loupe" target=... flag_id=... state=open|watching|interrupt|ended
+kind=interrupt claimed_by=... held_by_you=true to_you=true>` tag and is
+told, in the server's instructions, to act when `to_you` or `held_by_you` is
+set, or nobody holds the target. `claimed_by` alone can't say that: every
+Claude Code session's agent name is `claude`. A flag with `to` is pushed
+only to that session, marked `to_you`; every other flag goes to every
+connected `loupe mcp`. Flags already on the server when it starts are not sent. Without
+channels the same flags are there through the `flags` tool (`wait_seconds`
+to wait) and `flag`, which returns the record and both screenshots.
+
+Channels need the server in a project `.mcp.json` and the session started
+with the development flag:
+
+```sh
+claude --dangerously-load-development-channels server:loupe
+```
+
+The go-sdk has no call for a notification it does not define, so
+`channelTransport` keeps the connection the SDK serves on and writes the
+JSON-RPC notification to it. See trap 54 for the protocol version.
+
+### Pairing and sessions
+
+A paired device holds a session instead of the master token, so one device
+can be signed out without re-keying every other. Sessions are added beside
+the master token, so the master token, the `loupe_token` cookie and `?token=`
+still work exactly as before.
+
+- `POST /api/pairings {"target": [...], "label", "canPair"}` mints a
+  one-time code, `XXXX-XXXX-XXXX` from a 32-letter alphabet with no `0 O 1 I`,
+  good for 5 minutes. 201 `{"id", "code", "expiresAt"}`. Only the master
+  token or a session paired with `canPair` may call it (403 otherwise), and
+  the caller decides whether the redeemed session gets `canPair`. The code
+  records who minted it as `parent`: a session id, or `master`.
+- `GET /api/pairings` lists pending codes without the code itself;
+  `DELETE /api/pairings/{id}` withdraws one. Same 403 rule.
+- `POST /api/pair {"code", "kind": "browser"|"bearer"|"peer", "label"}` is
+  the one write route that takes no credential. `browser` answers 204 and
+  sets `loupe_session`; `bearer` and `peer` answer 201
+  `{"id", "token", "expiresAt"}` with an `lsn_` token shown once. Dashes,
+  spaces and case in the code are ignored. An unknown, expired, spent or
+  orphaned code is the same 401. Failures are limited to 5 a minute per
+  remote address, 429 past that. There is no cap across addresses, so junk
+  from elsewhere cannot keep pairing shut for everyone. A `browser`
+  exchange runs the Origin check, so a page elsewhere cannot pair a
+  visitor's browser into its own session.
+- `GET /api/auth` answers any caller with `{"method":
+  "master"|"session"|"none", "session", "pairing", "canPair"}`. A server
+  older than this answers 404, which is how a client tells them apart.
+  `pairing` is false when `sessions.json` could not be read at startup;
+  every pairing route then answers 404 and only the master token works.
+- `GET /api/sessions` lists sessions without their hashes: every session for
+  the master token, and for a session only itself and the sessions it
+  paired. The caller's own row has `"current": true`. `DELETE /api/sessions/{id}` revokes one;
+  `DELETE /api/sessions?others=1` revokes every session with the master
+  token, and with a session only the ones it paired. A session may revoke
+  only itself and the sessions it paired, down the line, and gets 403 for
+  any other, so a stolen phone session cannot sign out every other device.
+  Both answer `{"revoked": [ids]}`.
+
+**Revoking cascades.** A revoke also revokes every session paired through
+a code the revoked one minted, and so on down, and drops its pending codes.
+A code whose minter is no longer a live `canPair` session will not redeem.
+Without that, a stolen `canPair` session could pair a second device and
+survive its own revocation. A revoke does not yet close a stream already
+open (spec Task 4).
+
+**Sessions slide.** One expires 30 days after its last use. Use is noted in
+memory and written to disk at most every 5 minutes per session. Revoked
+rows stay 7 days so `loupe sessions` can show them, then go.
+
+**`sessions.json` sits beside `config.json`** (by default
+`~/Library/Application Support/loupe/`; a spare server with `-config` keeps
+its own), 0600, written whole through a temp file and a
+rename. It holds SHA-256 hashes of tokens and codes, never the secrets, so
+a lookup is a map index on the hash and needs no constant-time compare. A
+file that does not parse is left alone and pairing is off until it is
+fixed, rather than overwritten and signing every device out.
+
+**From the shell**, with the master token from the token file as `loupe mcp`
+reads it:
+
+```sh
+loupe pair -label "phone"                 # prints the code and its expiry
+loupe pair -can-pair -label "desktop"     # the paired device may pair others
+loupe pair -bearer -label "mcp on ci"     # mints and redeems; prints only the lsn_ token on stdout
+loupe sessions                            # table of sessions
+loupe sessions revoke <id>                # one, and its descendants
+loupe sessions revoke -all
+```
+
+Each takes `-url` (default `https://localhost:18456`) and `-token`.
 
 ### Recording
 

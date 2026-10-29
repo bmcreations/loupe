@@ -42,6 +42,10 @@ func (s *Server) SetToken(t string) { s.token = t }
 // is same-site and its requests carry the cookie. Bearer and ?token= need no
 // check, because a page that can present the token was not forged by someone
 // who lacks it.
+//
+// A paired device presents a session instead (pairing.go): an lsn_ token as
+// Bearer, or the loupe_session cookie, which gets the same Origin check. The
+// handler finds which credential it was on the request's context (credOf).
 func (s *Server) authed(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Every response, because the token rides in the first URL a phone
@@ -49,28 +53,51 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		// the page links to.
 		w.Header().Set("Referrer-Policy", "no-referrer")
 
-		if s.token == "" || r.URL.Path == "/healthz" || isHomeScreenAsset(r.URL.Path) {
+		// -no-auth: every caller holds what the master token would give,
+		// pairing included.
+		if s.token == "" {
+			next.ServeHTTP(w, withCred(r, credential{method: credMaster}))
+			return
+		}
+		if r.URL.Path == "/healthz" || isHomeScreenAsset(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		if s.tokenMatches(bearer(r)) {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withCred(r, credential{method: credMaster}))
+			return
+		}
+		// A session sent as Bearer: a Handset install, a peer hub, a remote
+		// agent paired with `loupe pair -bearer`. It carries the master
+		// token's authority (the pairing spec's "Not in this spec": scopes).
+		if sess := s.sessionFromBearer(r); sess != nil {
+			next.ServeHTTP(w, withCred(r, credential{method: credSession, session: sess}))
 			return
 		}
 
 		q := r.URL.Query().Get("token")
 		if s.tokenMatches(cookieToken(r)) && !s.tokenMatches(q) {
 			if !sameOrigin(r) {
-				writeJSON(w, http.StatusForbidden, ErrorResponse{
-					Error: "loupe: the cookie was sent from another origin (" +
-						r.Header.Get("Origin") + "). Open this server's own page, " +
-						"or send Authorization: Bearer <token>.",
-				})
+				forbidCrossOriginCookie(w, r)
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withCred(r, credential{method: credMaster}))
 			return
+		}
+		// A browser paired with a code. Not when ?token= came along: that
+		// branch below sets the master cookie and strips the query, as it
+		// always has.
+		if !s.tokenMatches(q) {
+			if sess := s.sessionFromCookie(r); sess != nil {
+				if !sameOrigin(r) {
+					forbidCrossOriginCookie(w, r)
+					return
+				}
+				s.refreshSessionCookie(w, r, sess.ID)
+				next.ServeHTTP(w, withCred(r, credential{method: credSession, session: sess}))
+				return
+			}
 		}
 
 		if s.tokenMatches(q) {
@@ -107,7 +134,14 @@ func (s *Server) authed(next http.Handler) http.Handler {
 				http.Redirect(w, r, stripped.RequestURI(), http.StatusSeeOther)
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withCred(r, credential{method: credMaster}))
+			return
+		}
+
+		// The code exchange and the auth probe answer callers with no
+		// credential; everything else stops here.
+		if isOpenAuthPath(r.URL.Path) {
+			next.ServeHTTP(w, withCred(r, credential{method: credNone}))
 			return
 		}
 
@@ -115,6 +149,14 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		http.Error(w, "loupe: a token is required. Open the link the server "+
 			"printed at startup, or send Authorization: Bearer <token>.",
 			http.StatusUnauthorized)
+	})
+}
+
+func forbidCrossOriginCookie(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusForbidden, ErrorResponse{
+		Error: "loupe: the cookie was sent from another origin (" +
+			r.Header.Get("Origin") + "). Open this server's own page, " +
+			"or send Authorization: Bearer <token>.",
 	})
 }
 
@@ -202,7 +244,32 @@ func cookieToken(r *http.Request) string {
 	return c.Value
 }
 
-// redactQuery returns a raw query string with every token value replaced by
+// secretParams are the query and fragment keys whose values are
+// credentials: the master token, a stream ticket, and a pairing code (which
+// a pairing link carries in its fragment).
+var secretParams = []string{"token", "ticket", "code"}
+
+func isSecretParam(k string) bool {
+	for _, p := range secretParams {
+		if k == p {
+			return true
+		}
+	}
+	return false
+}
+
+// holdsSecretParam is a cheap test for whether a string might carry one of
+// secretParams, before it is parsed as a URL.
+func holdsSecretParam(s string) bool {
+	for _, p := range secretParams {
+		if strings.Contains(s, p+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// redactQuery returns a raw query string with every secret value replaced by
 // REDACTED, for writing a URL anywhere that outlives the request: the trace
 // and the logs are files on disk, and the token in them would be as good as
 // the one in the token file. The rest of the query is kept byte for byte.
@@ -216,24 +283,24 @@ func redactQuery(raw string) string {
 		if uk, err := url.QueryUnescape(k); err == nil {
 			k = uk
 		}
-		if k == "token" {
-			parts[i] = "token=REDACTED"
+		if isSecretParam(k) {
+			parts[i] = k + "=REDACTED"
 		}
 	}
 	return strings.Join(parts, "&")
 }
 
 // redactURL is redactQuery for a whole URL string, as a client sends one in a
-// record: only the query between ? and # is touched.
+// record: the query between ? and #, and the fragment, which is where a
+// pairing link carries its code.
 func redactURL(u string) string {
-	base, rest, ok := strings.Cut(u, "?")
-	if !ok {
-		return u
+	rest, frag, hasFrag := strings.Cut(u, "#")
+	out := rest
+	if base, q, ok := strings.Cut(rest, "?"); ok {
+		out = base + "?" + redactQuery(q)
 	}
-	q, frag, hasFrag := strings.Cut(rest, "#")
-	out := base + "?" + redactQuery(q)
 	if hasFrag {
-		out += "#" + frag
+		out += "#" + redactQuery(frag)
 	}
 	return out
 }

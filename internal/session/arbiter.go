@@ -78,6 +78,10 @@ type Arbiter struct {
 	lastHuman time.Time
 	// down is each pointer a viewer has down, and when it last moved.
 	down map[pointerKey]time.Time
+	// pinnedUntil, when set, holds the target past the window whatever the
+	// viewer does, until Unpin or this time: a person interrupting an agent
+	// is writing to it, not touching the device.
+	pinnedUntil time.Time
 
 	agent     string
 	agentName string
@@ -123,6 +127,27 @@ func (a *Arbiter) TakeOver(viewer uint64, now time.Time) []ControlChange {
 		changes = append(changes, a.agentIs(AgentWaiting, a.agentName, now)...)
 	}
 	return changes
+}
+
+// Pin holds the target for viewer until Unpin, or until until at the latest,
+// and shows a driving agent waiting at once, as TakeOver does.
+func (a *Arbiter) Pin(viewer uint64, until, now time.Time) []ControlChange {
+	changes := a.TakeOver(viewer, now)
+	a.pinnedUntil = until
+	return changes
+}
+
+// Unpin ends a pin. The hold then runs out as after any input, a window from
+// now, so an agent does not act the instant the person lets go.
+func (a *Arbiter) Unpin(now time.Time) []ControlChange {
+	if a.pinnedUntil.IsZero() {
+		return a.Tick(now)
+	}
+	a.pinnedUntil = time.Time{}
+	if a.holder != 0 {
+		a.lastHuman = now
+	}
+	return a.Tick(now)
 }
 
 func (a *Arbiter) take(viewer uint64, now time.Time) []ControlChange {
@@ -255,6 +280,9 @@ func (a *Arbiter) State() ControlState {
 // the last input, or later if a pointer is still down and not yet stuck.
 func (a *Arbiter) releaseAt() time.Time {
 	at := a.lastHuman.Add(a.hold)
+	if a.pinnedUntil.After(at) {
+		at = a.pinnedUntil
+	}
 	for _, t := range a.down {
 		if s := t.Add(stuckPointer); s.After(at) {
 			at = s
@@ -268,6 +296,9 @@ func (a *Arbiter) releaseAt() time.Time {
 // hold could end if the finger lifted this instant.
 func (a *Arbiter) freeAt(now time.Time) time.Time {
 	at := a.lastHuman.Add(a.hold)
+	if a.pinnedUntil.After(at) {
+		at = a.pinnedUntil
+	}
 	for _, t := range a.down {
 		if now.Before(t.Add(stuckPointer)) {
 			if w := now.Add(a.hold); w.After(at) {
@@ -283,5 +314,6 @@ func (a *Arbiter) free(now time.Time) ControlChange {
 	c := ControlChange{State: "free", Viewer: a.holder, HeldMs: now.Sub(a.heldSince).Milliseconds()}
 	a.holder = 0
 	a.down = map[pointerKey]time.Time{}
+	a.pinnedUntil = time.Time{}
 	return c
 }

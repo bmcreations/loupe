@@ -8,6 +8,12 @@ GUI   := gui/$(shell id -u)
 .PHONY: build composeagent simcap xcrunner test vet fmt run synthetic clean dist \
 	agent-install agent-uninstall agent-restart agent-status agent-log
 
+# A checkout can add its own targets in private.mk, which is not part of this
+# repo. One that sets SIMCAP_FROM_SOURCE builds simcap itself in place of the
+# download below.
+.DEFAULT_GOAL := build
+-include private.mk
+
 build:
 	go build $(GOFLAGS) -o $(BINARY) ./cmd/loupe
 
@@ -38,6 +44,7 @@ SIMCAP_URL ?= https://github.com/bmcreations/loupe/releases/latest/download/simc
 # unless its leaf certificate names this team.
 SIMCAP_TEAM ?= 2X56L589EV
 
+ifndef SIMCAP_FROM_SOURCE
 simcap:
 	mkdir -p .build && rm -rf .build/simcap .build/simcap-dl
 	curl -fsSL -o .build/simcap.zip $(SIMCAP_URL)
@@ -45,6 +52,7 @@ simcap:
 	codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "$(SIMCAP_TEAM)"' .build/simcap-dl/simcap
 	mv .build/simcap-dl/simcap .build/simcap
 	rm -rf .build/simcap-dl .build/simcap.zip
+endif
 
 # The XCUITest runner that applies a physical iPhone's touches below iOS 27,
 # signed with TEAM, a development team ID from Xcode's Accounts. Built once

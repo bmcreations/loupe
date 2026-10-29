@@ -28,6 +28,12 @@ jobs:
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
+      # The private repo layers its own paths on top of this one and checks
+      # that none of its strings reach the shared files.
+      - name: private layer guard
+        if: hashFiles('tools/layer/guard.sh') != ''
+        run: tools/layer/guard.sh tree
+
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)

@@ -60,6 +60,21 @@ func (s *Session) ViewerTakeOver(viewer uint64) error {
 	return nil
 }
 
+// PinHold holds the target for viewer until UnpinHold, or until until at the
+// latest. See Arbiter.Pin.
+func (s *Session) PinHold(viewer uint64, until time.Time) error {
+	if !s.HasViewer(viewer) {
+		return fmt.Errorf("pin: viewer %d is not attached", viewer)
+	}
+	s.control(func(a *Arbiter, now time.Time) []ControlChange { return a.Pin(viewer, until, now) })
+	return nil
+}
+
+// UnpinHold ends a PinHold, leaving the usual window after it.
+func (s *Session) UnpinHold() {
+	s.control(func(a *Arbiter, now time.Time) []ControlChange { return a.Unpin(now) })
+}
+
 // AgentInput asks whether an agent may act now. When it may not, retryAfter
 // is how long the hold has left and holder is the viewer holding it.
 func (s *Session) AgentInput(name string) (ok bool, retryAfter time.Duration, holder uint64) {

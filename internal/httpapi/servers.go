@@ -88,6 +88,7 @@ func (s *Server) syncPeers() {
 		}
 	}
 	s.mgr.SetPeerRows(out)
+	s.syncClipBridges()
 }
 
 func peerRowID(server, ownerID string) string { return server + "/" + ownerID }
