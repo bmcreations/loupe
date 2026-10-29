@@ -1019,9 +1019,13 @@ func (s *Server) agentTarget(w http.ResponseWriter, r *http.Request) (target.Tar
 	// Any call from a claim's holder renews it, reads included. A peer
 	// target's claim is the owner's, and the call forwarded to it carries the
 	// same headers, so it renews there.
+	agent, session := agentName(r.Header.Get(HeaderAgent)), agentName(r.Header.Get(HeaderSession))
 	if _, peer := t.(*target.PeerTarget); !peer {
-		s.claims.seen(t.ID(), agentName(r.Header.Get(HeaderAgent)), agentName(r.Header.Get(HeaderSession)))
+		s.claims.seen(t.ID(), agent, session)
 	}
+	// So the person can send a flag to a session that drives over HTTP
+	// and never waits on flags.
+	s.flags.saw(agent, session, t.ID())
 	return t, true
 }
 

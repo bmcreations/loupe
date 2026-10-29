@@ -21,7 +21,7 @@ type ErrorResponse struct {
 	// ErrCodeHumanHeld.
 	RetryAfterMs int64 `json:"retryAfterMs,omitempty"`
 	// ID names the recording that caused an ErrCodeRecording 409 on a start,
-	// when it is known.
+	// when it is known, and the flag behind an ErrCodeInterrupted 409.
 	ID string `json:"id,omitempty"`
 	// Claim is the claim that caused an ErrCodeClaimed 409.
 	Claim *ClaimInfo `json:"claim,omitempty"`
@@ -73,6 +73,13 @@ const ErrCodeRunnerUnavailable = "runnerUnavailable"
 // the device. RetryAfterMs says when the hold lapses if nobody touches it
 // again, and the Retry-After header says the same in whole seconds.
 const ErrCodeHumanHeld = "humanHeld"
+
+// ErrCodeInterrupted is POST /api/input's 409 when the person interrupted the
+// caller with a flag (kind "interrupt") it has not read since. ID is the
+// flag's. The device may have changed under the caller: it reads the flag
+// with GET /api/flags?id=, which lifts the refusal, and decides from the
+// screen as it is now whether what it was doing still applies.
+const ErrCodeInterrupted = "interrupted"
 
 // ErrCodeClaimed is the 409 an agent gets for input on a target another agent
 // has claimed, and for claiming or releasing one. `claim` names the holder.

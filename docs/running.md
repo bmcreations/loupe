@@ -18,6 +18,7 @@ the file beats the default.** The file is described under Configuration below.
 | `-token` | cache file | Shared token every request must present |
 | `-no-auth` | `false` | Serve with no token at all; anyone who can reach the port can drive any device |
 | `-trace` | | Write per-second JSON-lines metrics here |
+| `-t3-projects` | | Comma-separated T3 Code project paths a flag can be sent to (setting `t3Projects`, applies at once) |
 | `-max-size` | `1080` | Longest video edge. The biggest lever on both encode cost and bandwidth |
 | `-max-fps` | `60` | Capture rate cap |
 | `-bitrate` | `4000000` | Bits per second; a ceiling, not a fixed rate |

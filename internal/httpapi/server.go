@@ -21,6 +21,7 @@ import (
 	"github.com/bmcreations/loupe/internal/peer"
 	"github.com/bmcreations/loupe/internal/record"
 	"github.com/bmcreations/loupe/internal/session"
+	"github.com/bmcreations/loupe/internal/t3"
 	"github.com/bmcreations/loupe/internal/trace"
 	"github.com/bmcreations/loupe/internal/wsx"
 	"github.com/quic-go/webtransport-go"
@@ -35,6 +36,16 @@ type Server struct {
 	claims *claimBook
 	// exts is the registry /api/ext/ passes through to (extension.go).
 	exts *extensionRegistry
+	// flags holds what people flagged for agents (flags.go).
+	flags *flagStore
+	// findT3 locates the T3 CLI; nil uses t3.Find. Tests swap in a fake.
+	findT3 func() (t3.CLI, error)
+	// flagDir is where flags sent to T3 are written; empty is the user
+	// cache dir's loupe/flags.
+	flagDir string
+	// destPath is destinations.json; empty offers no commands or webhooks.
+	destPath string
+	t3cache  t3Cache
 
 	// handoffURL is the link /api/handoff builds on (handoff.go).
 	handoffURL string
@@ -127,6 +138,7 @@ func NewServer(mgr *Manager, web fs.FS, tracer *trace.Writer) *Server {
 	s := &Server{mgr: mgr, web: web, trace: tracer}
 	s.claims = newClaimBook(tracer.Record)
 	s.exts = newExtensionRegistry()
+	s.flags = newFlagStore()
 	mgr.SetTrace(tracer)
 	s.build, s.indexHTML, s.appJS = stampIndex(web)
 	return s
@@ -149,7 +161,7 @@ func NewServer(mgr *Manager, web fs.FS, tracer *trace.Writer) *Server {
 // Stamping gap (review round 5, finding 5): the rewrite loop below only
 // touches app.js's own body. toast.js is not imported by app.js at all --
 // corners.js, appcard.js, devicesettings.js and inspect.js each import it
-// directly, and so do keyboard.js, clipboard.js, streamconfig.js, record.js and drop.js -- so its specifier inside THOSE files is never rewritten, and a
+// directly, and so do keyboard.js, clipboard.js, streamconfig.js, record.js, drop.js and flag.js -- so its specifier inside THOSE files is never rewritten, and a
 // browser fetches it at the bare, unversioned /toast.js. That is only safe
 // because toast.js is stateless and it is the only module in this shape
 // today. If app.js ever adds `import './toast.js'` of its own, this loop
@@ -159,7 +171,7 @@ func NewServer(mgr *Manager, web fs.FS, tracer *trace.Writer) *Server {
 // every embedded module's own imports, not just app.js's -- out of scope
 // here; TestEveryClientModuleIsStamped only checks that this list is
 // complete, not that every file naming a listed module gets stamped.
-var clientModules = []string{"jitter.js", "transport.js", "pane.js", "panes.js", "paneheader.js", "orientation.js", "layout.js", "sheet.js", "handedness.js", "appearance.js", "health.js", "pill.js", "drawer.js", "targets.js", "corners.js", "fold.js", "appcard.js", "devicesettings.js", "inspect.js", "toast.js", "eventlog.js", "livecheck.js", "immersive.js", "doubletap.js", "keyboard.js", "clipboard.js", "touches.js", "control.js", "streamconfig.js", "connstats.js", "states.js", "newdevice.js", "helpsheets.js", "record.js", "pip.js", "peek.js", "drop.js", "rotate.js", "panels.js", "cursor.js", "servers.js", "extoverlay.js", "zoom.js"}
+var clientModules = []string{"jitter.js", "transport.js", "pane.js", "panes.js", "paneheader.js", "orientation.js", "layout.js", "sheet.js", "handedness.js", "appearance.js", "health.js", "pill.js", "drawer.js", "targets.js", "corners.js", "fold.js", "appcard.js", "devicesettings.js", "inspect.js", "toast.js", "eventlog.js", "livecheck.js", "immersive.js", "doubletap.js", "keyboard.js", "clipboard.js", "touches.js", "control.js", "streamconfig.js", "connstats.js", "states.js", "newdevice.js", "helpsheets.js", "record.js", "pip.js", "peek.js", "drop.js", "rotate.js", "panels.js", "cursor.js", "servers.js", "extoverlay.js", "zoom.js", "flag.js"}
 
 func stampIndex(web fs.FS) (build string, page, app []byte) {
 	h := sha256.New()
@@ -270,6 +282,11 @@ var routes = []route{
 	{"/api/settings", []string{http.MethodGet, http.MethodPut}, (*Server).handleSettings, ""},
 	{"/api/clipboard", []string{http.MethodGet, http.MethodPost}, (*Server).handleClipboard, ""},
 	{"/api/clipboard/shared", []string{http.MethodGet, http.MethodPost}, (*Server).handleSharedClipboard, ""},
+	{"/api/flags", []string{http.MethodGet, http.MethodPost}, (*Server).handleFlags, ""},
+	{"/api/flags/end", []string{http.MethodPost}, (*Server).handleFlagEnd, ""},
+	{"/api/flags/listeners", []string{http.MethodGet}, (*Server).handleFlagListeners, ""},
+	{"/api/flags/destinations", []string{http.MethodGet}, (*Server).handleFlagDestinations, ""},
+	{"/api/flags/shot", []string{http.MethodGet}, (*Server).handleFlagShot, ""},
 	{"/api/avds", []string{http.MethodPost}, (*Server).handleCreateAVD, ""},
 	{"/api/avds/profiles", []string{http.MethodGet}, (*Server).handleAVDProfiles, ""},
 	{"/api/devices/options", []string{http.MethodGet}, (*Server).handleDeviceOptions, ""},

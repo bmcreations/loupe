@@ -479,6 +479,7 @@ var routeExemptions = map[string]string{
 	"/api/screenshot":     "returns a PNG, not JSON",
 	"/api/frame/asset":    "returns skin art (webp/png), not JSON",
 	"/api/overlays/image": "returns an overlay's picture as PNG, not JSON",
+	"/api/flags/shot":     "returns a flag's screenshot as PNG, not JSON",
 	"/api/ext/":           "passes through to a registered extension, whose responses loupe does not read",
 	"/api/logcat":         "returns logcat's threadtime text, not JSON",
 	"/api/crashes/":       "returns one .ips report as it was written, two JSON documents read as text",

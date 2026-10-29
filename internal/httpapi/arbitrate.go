@@ -149,6 +149,19 @@ func (s *Server) mayAct(r *http.Request, targetID, action string, c inputCaller)
 			s.trace.Record(rec)
 			return refused
 		}
+		if id, stopped := s.flags.interrupted(targetID, callerKey(c.agent, c.session)); stopped && held(action) {
+			rec := map[string]any{
+				"kind": "agent", "target": targetID, "action": action,
+				"ua": r.UserAgent(), "refused": ErrCodeInterrupted, "flag": id,
+			}
+			c.annotate(rec)
+			s.trace.Record(rec)
+			return &ErrorResponse{
+				Error: fmt.Sprintf("the person interrupted you with flag %d; read it (GET /api/flags?id=%d, or the flag tool) and check the screen before acting again", id, id),
+				Code:  ErrCodeInterrupted,
+				ID:    strconv.FormatUint(id, 10),
+			}
+		}
 	}
 	sess, ok := s.mgr.Session(targetID)
 	if !ok {

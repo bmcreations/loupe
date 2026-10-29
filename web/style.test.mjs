@@ -91,7 +91,7 @@ test('a swipe row stays opaque while pressed', () => {
 // a rule that still names one styles no pane at all.
 test('no rule selects a pane part by id', () => {
   const ids = ['screenWrap', 'screen', 'frameArt', 'frameMask', 'frameCutout', 'frameCutoutPath',
-    'touchLayer', 'cursorLayer', 'inspectLayer', 'statsOverlay'];
+    'touchLayer', 'cursorLayer', 'inspectLayer', 'flagLayer', 'statsOverlay'];
   for (const id of ids) {
     assert.doesNotMatch(css, new RegExp(`#${id}(?![\\w-])`), `#${id} is a pane part`);
   }

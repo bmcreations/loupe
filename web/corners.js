@@ -108,6 +108,7 @@ const ICONS = {
   rotate: '<path d="M3 12a9 9 0 1 1 2.6 6.4"/><path d="M3 21v-6h6"/>',
   inspect: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.3-4.3"/>',
   fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  flag: '<path d="M6 21V4"/><path d="M6 5h11l-2.5 4L17 13H6"/>',
   record: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4" fill="currentColor"/>',
   peek: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
   pip: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>',
@@ -174,6 +175,8 @@ function svgIcon(name) {
 //     "Paste to device" and "Copy from device" show while offered(), re-read
 //     each time the menu opens; both actions run inside the tap, which is
 //     what lets Safari reach the clipboard.
+//   flag -- optional {run()}, from flag.js. "Flag for agent" enters flag mode
+//     on the focused pane.
 //   record -- optional {label(), toggle(), onChange(fn)}, from record.js.
 //     "Record" after Screenshot, relabelled "Stop Recording" through
 //     onChange while this page's recording runs.
@@ -430,6 +433,11 @@ export function mount(nav, more, deps) {
     // this only needs to surface it as a toast, not report it a second time.
     Promise.resolve().then(deps.screenshot).catch((err) => fail(err, 'more', null));
   });
+  if (deps.flag) {
+    addMenuItem(actions, 'flag', 'Flag for agent', () => {
+      try { deps.flag.run(); } catch (err) { fail(err, 'more', 'flag-error'); }
+    });
+  }
   if (deps.record) {
     const recordItem = addMenuItem(actions, 'record', deps.record.label(), () => {
       Promise.resolve().then(deps.record.toggle).catch((err) => fail(err, 'more', 'record-error'));

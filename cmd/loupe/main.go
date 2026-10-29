@@ -218,6 +218,7 @@ func main() {
 		shareClipFlag = flag.Bool("shared-clipboard", def.SharedClipboard, "share one clipboard across every open target and this Mac's pasteboard")
 		emuWindowFlag = flag.Bool("emulator-window", def.EmulatorWindow, "open the emulator's window when booting an AVD; off runs it headless with no audio")
 		tracePath     = flag.String("trace", "", "write a JSON-lines trace of per-second stream metrics to this file")
+		t3Projects    = flag.String("t3-projects", "", "comma-separated T3 Code project paths whose threads a flag can be sent to")
 		tlsCert       = flag.String("tls-cert", "", "TLS certificate; serve HTTPS directly instead of behind a proxy")
 		tlsKey        = flag.String("tls-key", "", "TLS private key, required with -tls-cert")
 		insecureHTTP  = flag.Bool("insecure-http", false, "serve plain HTTP on an address other machines can reach; without it, plain HTTP is loopback only")
@@ -295,6 +296,9 @@ func main() {
 	}
 	if !pinned["tracePath"] {
 		*tracePath = cfg.TracePath
+	}
+	if !pinned["t3Projects"] {
+		*t3Projects = cfg.T3Projects
 	}
 
 	useTLS := *tlsCert != "" && *tlsKey != ""
@@ -571,6 +575,7 @@ func main() {
 		TLSCert:             *tlsCert,
 		TLSKey:              *tlsKey,
 		TracePath:           *tracePath,
+		T3Projects:          *t3Projects,
 	}
 
 	api := httpapi.NewServer(mgr, web.FS, tracer)
@@ -585,6 +590,9 @@ func main() {
 	if err := api.SetSessionsPath(filepath.Join(filepath.Dir(cfgPath), "sessions.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: sessions unreadable, pairing off and only the master token works: %v\n", err)
 	}
+	// Programs and webhooks a flag can go to. A file beside the config, not a
+	// field in it: PUT /api/config would let any token holder name a program.
+	api.SetDestinationsPath(filepath.Join(filepath.Dir(cfgPath), "destinations.json"))
 	// The peers' tokens live here, so it is a file beside hands-off and not a
 	// config field. The trace gets a peer's name and URL, never its token.
 	peers, err := peer.NewRegistry(peer.NewStore(filepath.Join(filepath.Dir(cfgPath), "servers.json")), tracer.Record)

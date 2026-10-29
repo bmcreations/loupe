@@ -75,6 +75,18 @@
     "GET /api/extensions": {
       "$ref": "#/$defs/httpapi.ExtensionsResponse"
     },
+    "GET /api/flags": {
+      "$ref": "#/$defs/httpapi.FlagsResponse"
+    },
+    "GET /api/flags one": {
+      "$ref": "#/$defs/httpapi.Flag"
+    },
+    "GET /api/flags/destinations": {
+      "$ref": "#/$defs/httpapi.FlagDestinationsResponse"
+    },
+    "GET /api/flags/listeners": {
+      "$ref": "#/$defs/httpapi.FlagListenersResponse"
+    },
     "GET /api/frame": {
       "$ref": "#/$defs/target.DeviceFrame"
     },
@@ -182,6 +194,18 @@
     },
     "POST /api/extensions request": {
       "$ref": "#/$defs/httpapi.ExtensionRequest"
+    },
+    "POST /api/flags 200": {
+      "$ref": "#/$defs/httpapi.Flag"
+    },
+    "POST /api/flags request": {
+      "$ref": "#/$defs/httpapi.FlagRequest"
+    },
+    "POST /api/flags/end 200": {
+      "$ref": "#/$defs/httpapi.Flag"
+    },
+    "POST /api/flags/end request": {
+      "$ref": "#/$defs/httpapi.FlagEndRequest"
     },
     "POST /api/input 200": {
       "$ref": "#/$defs/httpapi.OKResponse"
@@ -293,6 +317,9 @@
         },
         "simulatorSlim": {
           "type": "boolean"
+        },
+        "t3Projects": {
+          "type": "string"
         },
         "tlsCert": {
           "type": "string"
@@ -853,6 +880,391 @@
       },
       "required": [
         "extensions"
+      ],
+      "type": "object"
+    },
+    "httpapi.Flag": {
+      "properties": {
+        "claimedBy": {
+          "type": "string"
+        },
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagDelivery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/httpapi.FlagEvent"
+          },
+          "type": "array"
+        },
+        "eventsTruncated": {
+          "type": "boolean"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rev": {
+          "type": "integer"
+        },
+        "start": {
+          "$ref": "#/$defs/httpapi.FlagSnapshot"
+        },
+        "target": {
+          "type": "string"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRecipient"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "watching": {
+          "type": "boolean"
+        },
+        "width": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "target",
+        "rev",
+        "watching",
+        "start"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagDelivery": {
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "thread": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagDestinationsResponse": {
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/httpapi.NamedDestination"
+          },
+          "type": "array"
+        },
+        "error": {
+          "type": "string"
+        },
+        "t3": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.T3Destinations"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "webhooks": {
+          "items": {
+            "$ref": "#/$defs/httpapi.NamedDestination"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagEndRequest": {
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "region": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRecipient"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagEvent": {
+      "properties": {
+        "button": {
+          "type": "string"
+        },
+        "from": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "keycode": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "t": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "to": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "t",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagListener": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "holds": {
+          "type": "boolean"
+        },
+        "idleMs": {
+          "type": "integer"
+        },
+        "session": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagListenersResponse": {
+      "properties": {
+        "active": {
+          "items": {
+            "$ref": "#/$defs/httpapi.FlagListener"
+          },
+          "type": "array"
+        },
+        "claimedBy": {
+          "type": "string"
+        },
+        "holder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRecipient"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "listeners": {
+          "items": {
+            "$ref": "#/$defs/httpapi.FlagListener"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "listeners",
+        "active"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagRecipient": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "t3Project": {
+          "type": "string"
+        },
+        "t3Thread": {
+          "type": "string"
+        },
+        "webhook": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagRect": {
+      "properties": {
+        "height": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagRequest": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "region": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagRecipient"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "watch": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "httpapi.FlagSnapshot": {
+      "properties": {
+        "screenshot": {
+          "type": "string"
+        },
+        "screenshotError": {
+          "type": "string"
+        },
+        "t": {
+          "type": "integer"
+        },
+        "ui": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/target.Node"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "uiError": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t"
+      ],
+      "type": "object"
+    },
+    "httpapi.FlagsResponse": {
+      "properties": {
+        "flags": {
+          "items": {
+            "$ref": "#/$defs/httpapi.Flag"
+          },
+          "type": "array"
+        },
+        "rev": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rev",
+        "flags"
       ],
       "type": "object"
     },
@@ -1937,6 +2349,21 @@
       ],
       "type": "object"
     },
+    "httpapi.NamedDestination": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label"
+      ],
+      "type": "object"
+    },
     "httpapi.OKResponse": {
       "properties": {
         "ok": {
@@ -2491,6 +2918,77 @@
       },
       "required": [
         "text"
+      ],
+      "type": "object"
+    },
+    "httpapi.T3Destinations": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "projects": {
+          "items": {
+            "$ref": "#/$defs/httpapi.T3ProjectInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "projects"
+      ],
+      "type": "object"
+    },
+    "httpapi.T3ProjectInfo": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "threads": {
+          "items": {
+            "$ref": "#/$defs/httpapi.T3ThreadInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "path",
+        "name",
+        "threads"
+      ],
+      "type": "object"
+    },
+    "httpapi.T3ThreadInfo": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "updatedAt"
       ],
       "type": "object"
     },

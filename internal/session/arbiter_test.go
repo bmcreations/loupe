@@ -284,3 +284,45 @@ func TestTakingOverLeavesAnIdleAgentIdle(t *testing.T) {
 		t.Errorf("agent = %q, want idle", st.Agent)
 	}
 }
+
+func TestAPinHoldsPastTheWindowUntilUnpinned(t *testing.T) {
+	a := NewArbiter(5 * time.Second)
+	a.AgentActed("claude", at(0))
+	changes := a.Pin(7, at(600_000), at(100))
+	if st := a.State(); !st.Held || st.Holder != 7 || st.Agent != AgentWaiting {
+		t.Fatalf("after Pin, State = %+v (changes %+v); want held by 7, agent waiting", st, changes)
+	}
+	if c := a.Tick(at(60_000)); !a.State().Held {
+		t.Fatalf("Tick a minute in freed a pinned hold: %+v", c)
+	}
+	ok, retry, _ := a.Agent("claude", at(60_000))
+	if ok || retry != 540*time.Second {
+		t.Fatalf("Agent while pinned = %v, %v; want refused until the cap, 540s", ok, retry)
+	}
+	a.Unpin(at(61_000))
+	if !a.State().Held {
+		t.Fatal("Unpin freed at once; want the window after it")
+	}
+	if ok, _, _ := a.Agent("claude", at(63_000)); ok {
+		t.Fatal("agent allowed 2s after Unpin, inside the window")
+	}
+	if ok, _, _ := a.Agent("claude", at(66_000)); !ok {
+		t.Fatal("agent refused once the window after Unpin ran out")
+	}
+}
+
+func TestAPinRunsOutAtItsCap(t *testing.T) {
+	a := NewArbiter(5 * time.Second)
+	a.Pin(7, at(30_000), at(0))
+	if d := a.Deadline(); !d.Equal(at(30_000)) {
+		t.Fatalf("Deadline = %v, want the cap", d)
+	}
+	if c := a.Tick(at(30_000)); len(c) != 1 || c[0].State != "free" {
+		t.Fatalf("Tick at the cap = %+v, want one free", c)
+	}
+	// A later hold is an ordinary one: the pin went with the hold.
+	a.Human(7, at(31_000))
+	if c := a.Tick(at(36_000)); len(c) != 1 {
+		t.Fatalf("a hold after the pin ran out did not end with its window: %+v", c)
+	}
+}

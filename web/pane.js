@@ -9,12 +9,12 @@
 //
 // deps:
 //   id, targetId
-//   els: { root, canvas, overlay, touchLayer, cursorLayer, extLayer, inspectLayer,
+//   els: { root, canvas, overlay, touchLayer, cursorLayer, extLayer, inspectLayer, flagLayer,
 //          logList, logBadge, m: {fps, dec, rtt, jit, q, drop, buf, trans, shed, rate} }
 //   lib: { connectTransport, ArrivalJitter, JitterBuffer, createRotator, closedExhausted, MSG_ROTATE,
 //          secondRtt, mountOverlay, reconnectingState, shutDownState, connectingState,
 //          afterClose, afterResume, endedFromClose }
-//   modules: { touches, cursor, overlays, control, inspect, eventlog, record }, each that module's mount.
+//   modules: { touches, cursor, overlays, control, inspect, eventlog, record, flag }, each that module's mount.
 //     The pane mounts each once, with getters bound to itself; pane.mods holds what they return.
 //   moduleDeps: the page things those mounts need:
 //     doc, fetch, toast, inspectSheet, pillRec, storage
@@ -23,6 +23,7 @@
 //     takeOver(pane)                  sends MsgTakeOver on the pane (control); throws when it cannot
 //     onHeldByOther(pane, on)         optional; another viewer started or stopped holding the pane's device
 //     onInspectToggle(pane, on)       inspect turned on or off
+//     beforeFlag(pane), focusFlagNote()  flag mode: leave zoom first; whether to focus the note
 //     logIsOpen()                     whether the event log's page is the one shown
 //   createDecoder(init) -> { configure, decode(chunkInit), close, state, decodeQueueSize }
 //   raf(fn), cancelRaf(handle), now(), setTimeout, clearTimeout
@@ -1075,6 +1076,7 @@ export function createPane(deps) {
       if (closed) return;
       // Stops this page's own recording on the old target, never an agent's.
       mods.record.onTargetSwitch(next);
+      mods.flag.onTargetSwitch();
       targetId = next;
       health = undefined;
       healthReason = '';
@@ -1136,6 +1138,18 @@ export function createPane(deps) {
       // Rendering into logList is wasted unless its page is the one shown.
       isOpen: () => !!(mdeps.logIsOpen && mdeps.logIsOpen()),
       badgeEl: el.logBadge,
+    }),
+    flag: mount.flag(el.flagLayer, {
+      doc: mdeps.doc,
+      host: el.root,
+      targetId: () => pane.targetId,
+      pictureRect: () => el.canvas.getBoundingClientRect(),
+      fetch: mdeps.fetch,
+      headers: () => pane.viewerHeaders(),
+      beforeEnter: () => { if (mdeps.beforeFlag) mdeps.beforeFlag(pane); },
+      focusNote: () => !mdeps.focusFlagNote || mdeps.focusFlagNote(),
+      toast: mdeps.toast,
+      report,
     }),
     record: mount.record({
       doc: mdeps.doc,

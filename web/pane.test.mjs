@@ -51,7 +51,7 @@ function fakeMount(name, log) {
 }
 function fakeModules(log, real = {}) {
   const mods = {};
-  for (const n of ['touches', 'cursor', 'overlays', 'control', 'inspect', 'eventlog', 'record']) mods[n] = real[n] || fakeMount(n, log);
+  for (const n of ['touches', 'cursor', 'overlays', 'control', 'inspect', 'eventlog', 'record', 'flag']) mods[n] = real[n] || fakeMount(n, log);
   return mods;
 }
 
@@ -349,11 +349,11 @@ await test('switchTarget resets the per-pane modules', async () => {
   await live(h, pane);
   log.length = 0;
   pane.switchTarget('sim:A');
-  for (const call of ['record.onTargetSwitch', 'inspect.off', 'touches.clear', 'cursor.clear', 'overlays.clear', 'control.clear']) {
+  for (const call of ['record.onTargetSwitch', 'flag.onTargetSwitch', 'inspect.off', 'touches.clear', 'cursor.clear', 'overlays.clear', 'control.clear']) {
     assert.equal(log.filter((c) => c === call).length, 1, call);
   }
   // reconnect's order: the recording stops first, then the overlays clear.
-  assert.deepEqual(log, ['record.onTargetSwitch', 'inspect.off', 'touches.clear', 'cursor.clear', 'overlays.clear', 'control.clear']);
+  assert.deepEqual(log, ['record.onTargetSwitch', 'flag.onTargetSwitch', 'inspect.off', 'touches.clear', 'cursor.clear', 'overlays.clear', 'control.clear']);
   assert.ok(pane.mods.record && pane.mods.eventlog, 'mods exposes each module');
 });
 
