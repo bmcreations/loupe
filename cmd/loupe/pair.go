@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/bmcreations/loupe/internal/httpapi"
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 // adminClient talks to a running server with the master token, the way
@@ -26,6 +27,9 @@ type adminClient struct {
 	base  *url.URL
 	token string
 	http  *http.Client
+	// certName is the first DNS name on the server's certificate, from the
+	// last answer: the name a device off this machine reaches it by.
+	certName string
 }
 
 func newAdminClient(rawURL, tokenFlag string) (*adminClient, error) {
@@ -69,6 +73,9 @@ func (c *adminClient) do(method, path string, body, out any) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 && len(resp.TLS.PeerCertificates[0].DNSNames) > 0 {
+		c.certName = resp.TLS.PeerCertificates[0].DNSNames[0]
+	}
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, "/api/") && !bytes.Contains(raw, []byte(`"error"`)) {
 		return errors.New("this server does not support pairing; update it")
@@ -105,6 +112,8 @@ func runPair(args []string) int {
 		label   = fs.String("label", "", "a name for the paired device, shown in `loupe sessions`")
 		canPair = fs.Bool("can-pair", false, "let the paired device mint pairing codes of its own")
 		bearerF = fs.Bool("bearer", false, "redeem the code here and print a bearer session token instead")
+		hostF   = fs.String("host", "", "the name a phone reaches the server by, for the link (default: the name on its certificate)")
+		pngF    = fs.String("png", "", "also write the link's QR code to this PNG file")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -131,10 +140,48 @@ func runPair(args []string) int {
 		fmt.Println(sess.Token)
 		return 0
 	}
+	host := *hostF
+	if host == "" {
+		host = c.certName
+	}
+	if host == "" || strings.HasPrefix(host, "*.") {
+		host = c.base.Hostname()
+	}
+	port := c.base.Port()
+	if port == "" {
+		port = "443"
+	}
+	// The QR uses the app's scheme, so Camera opens Handset; the text link
+	// is the same one over https, for pasting.
+	scanned := pairLink(handsetScheme, host, port, targets, code.Code)
+	fmt.Printf("link: %s\n", pairLink("https", host, port, targets, code.Code))
+	if qr, err := bannerQR(scanned); err == nil {
+		fmt.Print(qr)
+	}
+	if *pngF != "" {
+		if err := qrcode.WriteFile(scanned, qrcode.Medium, 512, *pngF); err != nil {
+			fmt.Fprintln(os.Stderr, "loupe pair: writing the QR:", err)
+			return 1
+		}
+		fmt.Printf("qr: %s\n", *pngF)
+	}
 	fmt.Printf("code: %s\n", code.Code)
 	fmt.Printf("expires: %s (in %s); it works once\n", code.ExpiresAt.Local().Format(time.Kitchen), time.Until(code.ExpiresAt).Round(time.Second))
 	fmt.Printf("redeem: POST %s/api/pair {\"code\": \"%s\", \"kind\": \"browser\"|\"bearer\"|\"peer\"}\n", c.base, code.Code)
 	return 0
+}
+
+// handsetScheme is the URL scheme Handset registers for pairing links.
+const handsetScheme = "loupe-handset"
+
+// pairLink is the link Handset pairs from: the server, any targets to open,
+// and the code in the fragment, which never reaches a server log.
+func pairLink(scheme, host, port string, targets []string, code string) string {
+	u := url.URL{Scheme: scheme, Host: net.JoinHostPort(host, port), Path: "/pair", Fragment: "code=" + code}
+	if len(targets) > 0 {
+		u.RawQuery = url.Values{"target": targets}.Encode()
+	}
+	return u.String()
 }
 
 // runSessions is `loupe sessions`: list them, or revoke one or all.
