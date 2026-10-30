@@ -256,6 +256,98 @@ and `outcome`.
   dispatched in the built-in browser against a throwaway simulator lit the
   outline and answered "Added to Photos" in 914ms; a real drag from Finder
   has not been tried.
+- `POST /api/camera?target=<id>` points the device's back camera at the
+  request body, a PNG or JPEG, raw; `DELETE` gives the camera back. Both
+  answer 200 `{target, ok, applies, tookMs}`, POST with the image's `width`
+  and `height` too, and `applies` says when an app sees it. AVDs and iOS simulators only: physical devices,
+  `emulator-` serials and synthetic answer 501. Anything that is not a PNG
+  or JPEG, or is over 8192px a side, is 400; over 32 MiB is 413. The image
+  is staged as PNG under `~/Library/Caches/loupe/camera/`, one per target,
+  and a JPEG is re-encoded: the emulator reads the file's type from its
+  extension, and JPEG bytes in a `.png` showed its magenta error frame. Not
+  arbitrated, as `/api/media` is not. Traced as `kind:"agent"`,
+  `action:"camera"` with `method`, `applies`, `width`, `height` and `outcome`.
+
+  **AVDs.** The emulator only takes an image as a boot flag,
+  `-camera-back imagefile:<path>`; the console (`virtualscene-image` swaps a
+  poster in the 3D scene, not the frame) and the gRPC API have nothing that
+  replaces the frame on a running emulator. So loupe passes the flag on any
+  boot it starts while an image is staged, and the emulator reads the file
+  each time an app opens the camera. `applies` is `cameraOpen` when the
+  running emulator has the flag: a preview already showing keeps the old
+  image until the app closes and reopens the camera (Home, then launch).
+  It is `boot` when it does not, or is not running: shut it down and boot
+  it through loupe. A short image sequence is one POST and one camera
+  reopen per image. `DELETE` on an AVD running with the flag stages black,
+  since a missing file is the magenta error frame, and the next boot drops
+  the flag. A snapshot saved with the flag does not load without it, and
+  the reverse ("The emulator hardware cannot load snapshot: loupe-warm"),
+  so turning the camera image on or off costs one cold boot, 14 to 15s on
+  `loupe_camera` against 3.4s from the snapshot; loupe saves `loupe-warm`
+  again after it, and a new image at the same path loads warm. The stock
+  camera shows the image upright and cropped to fill. On `loupe_camera`
+  (Pixel 6, API 36) a QR, then a swap and a clear, each showed in the
+  stock camera app after a reopen.
+
+  **iOS simulators.** The simulator has no camera: `AVCaptureDevice`
+  answers nil for every type, simctl has no camera verb, and neither
+  Simulator.app nor CoreSimulator carries a camera backend (Xcode 27.1).
+  Loupe builds a shim (`internal/target/loupecam/loupecam.m`) with `xcrun
+  clang` on the first POST, in about 4s, and from then on `launch` (the
+  `/api/input` action and the MCP tool) starts the app with it in
+  `DYLD_INSERT_LIBRARIES` and the staged file in `LOUPE_CAMERA_FILE`,
+  **relaunching it** if it is running without them. A launch of an app
+  that already has the shim only brings it to the front. The shim answers
+  one back camera; keeps `AVCaptureSession`'s inputs, outputs and running
+  state itself; hands every `AVCaptureVideoDataOutput` delegate the image
+  30 times a second in the format its `videoSettings` ask for (420v by
+  default, 420f or BGRA); reports QR codes found by CIDetector to an
+  `AVCaptureMetadataOutput`; and draws the image in each
+  `AVCaptureVideoPreviewLayer` with its `videoGravity`. It polls the file
+  four times a second, so `applies` is `live` while an app this server
+  launched with it runs, and `launch` until one does. `DELETE` removes the
+  file: apps with the shim see black, and later launches are plain ones.
+  Known differences from a phone: frames come at the image's own size,
+  not `activeFormat`'s 1920x1080; `videoRotationAngle` is kept but not
+  applied; metadata is QR only, and asking for another type throws as a
+  phone does for an unsupported one; there is no photo or movie output.
+  An app that needs something the shim does not fake can read
+  `LOUPE_CAMERA_FILE` itself in a debug build, which is the app-side
+  contract: when the variable names a file, feed the scanner from it and
+  skip `AVCaptureDevice`. Re-read it when its modification date moves, as
+  the shim does, to follow swaps. A sketch, not exercised in any app:
+
+  ```swift
+  #if DEBUG
+  /// Frames from the image loupe stages, for a build loupe launched.
+  final class LoupeCameraFrames {
+      let url: URL
+      init?() {
+          guard let path = ProcessInfo.processInfo.environment["LOUPE_CAMERA_FILE"] else { return nil }
+          url = URL(fileURLWithPath: path)
+      }
+      /// The current image, or nil when it is cleared: treat as a covered lens.
+      func image() -> CGImage? {
+          guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+          return CGImageSourceCreateImageAtIndex(src, 0, nil)
+      }
+  }
+  #endif
+  ```
+
+  The scanner calls `image()` on a timer and hands it to the same decode
+  step its `AVCaptureVideoDataOutput` delegate feeds, converted to the
+  pixel buffer format that step expects. On a throwaway iPhone 17
+  simulator (iOS 27.1), a test app built on Flipcash's capture setup
+  (back wide camera, video data output, QR metadata output, preview layer)
+  got 420v frames, decoded the QR, and saw a swap to a 1280x960 JPEG and a
+  clear within a second, without a relaunch.
+
+  **Physical iPhones.** Nothing: a signed app on a device cannot be made to
+  load a library, and loupe has no way to put a file where the app reads.
+  The supported path is an app-side hook: a debug build that, when a file
+  it knows of exists, feeds its capture pipeline from that file instead of
+  `AVCaptureDevice`. Loupe does not deliver that file yet.
 - `POST /api/devices/shutdown?target=<id>` stops an AVD or simulator and
   answers 200 with its `TargetInfo`; `DELETE /api/devices?target=<id>` stops it
   if running, deletes it and answers 204. The target must be an `avd:` or
@@ -520,7 +612,7 @@ needs no curl. It is a client of a running server, not a second server: a
 stdio MCP server (the official Go SDK) that turns each tool call into one
 request. Tools: `targets`, `ui`, `screenshot` (an image, not JSON), `point`,
 `tap`, `swipe`, `type_text`, `key`, `button`, `launch`, `open_url`, `logcat`,
-`crashes`, `crash`, `install`, `boot`, `release`, `flags` and `flag`. `TestEveryToolNamesARoute` checks each
+`crashes`, `crash`, `install`, `camera`, `boot`, `release`, `flags` and `flag`. `TestEveryToolNamesARoute` checks each
 against `httpapi.Routes()`.
 
 - **Flags:** `-url` (default `https://localhost:18456`), `-token` and

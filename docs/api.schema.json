@@ -1,5 +1,8 @@
 {
   "$defs": {
+    "DELETE /api/camera 200": {
+      "$ref": "#/$defs/httpapi.CameraResponse"
+    },
     "DELETE /api/claims 409": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
@@ -140,6 +143,9 @@
     },
     "POST /api/avds request": {
       "$ref": "#/$defs/httpapi.CreateAVDRequest"
+    },
+    "POST /api/camera 200": {
+      "$ref": "#/$defs/httpapi.CameraResponse"
     },
     "POST /api/claims 200": {
       "$ref": "#/$defs/httpapi.ClaimInfo"
@@ -476,6 +482,35 @@
         "method",
         "pairing",
         "canPair"
+      ],
+      "type": "object"
+    },
+    "httpapi.CameraResponse": {
+      "properties": {
+        "applies": {
+          "type": "string"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "target": {
+          "type": "string"
+        },
+        "tookMs": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target",
+        "ok",
+        "applies",
+        "tookMs"
       ],
       "type": "object"
     },

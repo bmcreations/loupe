@@ -1558,6 +1558,16 @@ refer to `docs/architecture.md`, `docs/targets.md`, `docs/ios.md` and
     Claude Code itself: if its tools vanish from `/mcp`, the cap broke
     negotiation, so revert it and document the env var instead.
 
+55. **An AVD that booted from `loupe-warm` in 3s cold-boots once after a
+    camera image is set or cleared.** The snapshot records
+    `hw.camera.back`, and the emulator refuses one saved under another
+    camera ("The emulator hardware cannot load snapshot: loupe-warm"). The
+    flag `/api/camera` adds or drops changes it, so the first boot after is
+    cold, 14 to 15s on `loupe_camera`, and loupe saves `loupe-warm` again
+    after it; the boot after that is warm. A new image at the same path does
+    not count. Don't pass the flag on every boot to avoid this: an AVD with
+    no image staged would lose its own camera.
+
 ## Open observation: a 4.87s held sample in a Pixel_10 recording
 
 Not a numbered trap: the cause is not known. A recording of Pixel_10 from
