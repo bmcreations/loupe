@@ -333,7 +333,7 @@ and `outcome`.
       let url: URL
       init?() {
           guard let path = ProcessInfo.processInfo.environment["LOUPE_CAMERA_FILE"] else { return nil }
-          url = URL(fileURLWithPath: path)
+          url = URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
       }
       /// The current image, or nil when it is cleared: treat as a covered lens.
       func image() -> CGImage? {
