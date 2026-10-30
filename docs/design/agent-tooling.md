@@ -3,7 +3,7 @@
 Written 2026-10-22 after comparing loupe's agent API with Quern (quern.dev), a
 local MCP server for driving iOS and Android devices from an agent. Since
 then the MCP server (`loupe mcp`) and simulator crash reports
-(`/api/crashes`) have been built; `docs/agent-api.md` describes both. It
+(`/api/crashes`) have been built; `docs/mcp.md` and `docs/agent-api.md` describe them. It
 records four gaps, what closing each would take on this Mac,
 and an order to close them in, so the order can be argued with before any code
 is written.

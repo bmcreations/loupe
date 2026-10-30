@@ -1,8 +1,9 @@
 # Running loupe
 
-Flags, the settings file, the stats overlay and the tests. How the server is
-deployed under launchd, TLS and auth are in `docs/architecture.md` under
-Running it.
+Flags, the settings file, the stats overlay and the tests. For a first run,
+start with `docs/getting-started.md`. How the server is deployed under
+launchd, TLS and auth are in `docs/architecture.md` under Running it, and
+what auth guarantees is in `docs/security.md`.
 
 ## Flags
 

@@ -331,7 +331,7 @@ first-load URL or a `/wt` URL never leaves as a `Referer`.
 
 **A paired device presents a session instead of the token**
 (`internal/pairing`, `internal/httpapi/pairing.go`; routes in
-`docs/agent-api.md`, Pairing and sessions). `authed` also accepts an `lsn_`
+`docs/security.md`, Pairing and sessions). `authed` also accepts an `lsn_`
 token as `Authorization: Bearer` and the `loupe_session` cookie. The
 session cookie goes through the same Origin check as the master cookie; it
 is `HttpOnly`, `SameSite=Strict`, `Secure` over TLS, and its 30-day
