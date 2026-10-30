@@ -22,7 +22,10 @@ import (
 // internal/mcpserver run in process, so the CLI and `loupe mcp` share one
 // table of tools, schemas and claim handling, and TestEveryToolNamesARoute
 // covers both. args are the tool's fields taken by position, in order; a
-// trailing "..." takes the rest. Any other field is a --name value flag.
+// trailing "..." takes the rest, and a trailing "?" marks fields that may all
+// be left out together (a tap by --text has no point). Any other field is a
+// --name value flag. A field that is an array of objects takes JSON: inline,
+// - for stdin, or @path.
 type cliCommand struct {
 	name, tool string
 	args       []string
@@ -33,13 +36,14 @@ var cliCommands = []cliCommand{
 	{"ui", "ui", []string{"target"}},
 	{"screenshot", "screenshot", []string{"target"}},
 	{"point", "point", []string{"target", "x", "y"}},
-	{"tap", "tap", []string{"target", "x", "y"}},
+	{"tap", "tap", []string{"target", "x?", "y?"}},
 	{"swipe", "swipe", []string{"target", "x", "y", "x2", "y2"}},
 	{"type", "type_text", []string{"target", "text"}},
 	{"key", "key", []string{"target", "keycode"}},
 	{"button", "button", []string{"target", "button"}},
 	{"launch", "launch", []string{"target", "package"}},
 	{"open", "open_url", []string{"target", "url"}},
+	{"sequence", "sequence", []string{"target", "steps"}},
 	{"logcat", "logcat", []string{"target"}},
 	{"crashes", "crashes", []string{"target"}},
 	{"crash", "crash", []string{"target", "id"}},
@@ -259,7 +263,31 @@ func parseCLIArgs(cmd cliCommand, tool *mcp.Tool, argv []string, g *cliGlobals) 
 			return nil, err
 		}
 	}
+	// Optional fields are left out only together: one given means all are.
+	required := 0
+	for _, field := range cmd.args {
+		if !strings.HasSuffix(field, "?") {
+			required++
+		}
+	}
+	skipOptional := len(pos) <= required
+	objects := objectArrays(tool)
 	for i, field := range cmd.args {
+		field, optional := strings.CutSuffix(field, "?")
+		if optional && skipOptional {
+			continue
+		}
+		if objects[field] {
+			if i >= len(pos) {
+				return nil, fmt.Errorf("missing <%s>", field)
+			}
+			v, err := readJSONArg(field, pos[i])
+			if err != nil {
+				return nil, err
+			}
+			in[field] = v
+			continue
+		}
 		if rest, ok := strings.CutSuffix(field, "..."); ok {
 			for _, v := range pos[min(i, len(pos)):] {
 				if err := setField(in, rest, props[rest], v); err != nil {
@@ -283,6 +311,41 @@ func parseCLIArgs(cmd cliCommand, tool *mcp.Tool, argv []string, g *cliGlobals) 
 		return nil, fmt.Errorf("unexpected argument %q", pos[len(cmd.args)])
 	}
 	return in, nil
+}
+
+// objectArrays names a tool's fields that are arrays of objects, which a
+// shell word can only carry as JSON.
+func objectArrays(tool *mcp.Tool) map[string]bool {
+	out := map[string]bool{}
+	for name, p := range schemaProperties(tool) {
+		if items, ok := p["items"].(map[string]any); ok && schemaType(p) == "array" && schemaType(items) == "object" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// readJSONArg decodes a JSON argument given inline, as - for stdin, or as
+// @path for a file.
+func readJSONArg(name, val string) (any, error) {
+	b := []byte(val)
+	switch {
+	case val == "-":
+		var err error
+		if b, err = io.ReadAll(os.Stdin); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+	case strings.HasPrefix(val, "@"):
+		var err error
+		if b, err = os.ReadFile(val[1:]); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return nil, fmt.Errorf("%s: want JSON, inline, - for stdin or @path: %v", name, err)
+	}
+	return v, nil
 }
 
 func variadic(cmd cliCommand) bool {
@@ -387,11 +450,15 @@ func usageLine(cmd cliCommand, tool *mcp.Tool) string {
 	var b strings.Builder
 	b.WriteString("usage: loupe " + cmd.name)
 	for _, a := range cmd.args {
+		if name, ok := strings.CutSuffix(a, "?"); ok {
+			b.WriteString(" [<" + name + ">]")
+			continue
+		}
 		b.WriteString(" <" + a + ">")
 	}
 	positional := map[string]bool{}
 	for _, a := range cmd.args {
-		positional[strings.TrimSuffix(a, "...")] = true
+		positional[strings.TrimSuffix(strings.TrimSuffix(a, "..."), "?")] = true
 	}
 	var opts []string
 	for name := range schemaProps(tool) {

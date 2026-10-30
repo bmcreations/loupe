@@ -101,7 +101,9 @@ var endpoints = []endpoint{
 	{"GET /api/frame", dirResponse, target.DeviceFrame{}},
 	{"GET /api/events", dirResponse, session.EventPage{}},
 	{"POST /api/input request", dirRequest, httpapi.InputRequest{}},
-	{"POST /api/input 200", dirResponse, httpapi.OKResponse{}},
+	{"POST /api/input 200", dirResponse, httpapi.InputResponse{}},
+	{"POST /api/sequence request", dirRequest, httpapi.SequenceRequest{}},
+	{"POST /api/sequence 200", dirResponse, httpapi.SequenceResponse{}},
 	{"POST /api/install 200", dirResponse, httpapi.InstallResponse{}},
 	{"POST /api/install 422", dirResponse, httpapi.InstallResponse{}},
 	{"POST /api/media 200", dirResponse, httpapi.MediaResponse{}},
@@ -532,6 +534,23 @@ func inputActionSchemas(g *generator) ([]any, error) {
 			"required":             append([]string{"action"}, required...),
 			"additionalProperties": true,
 		})
+		// An action that can find its point by a match gets a second
+		// variant requiring the match instead. A body with both the match
+		// and the fields it replaces satisfies both variants, which oneOf
+		// rejects, as validateInputRequest does.
+		if alt, ok := httpapi.InputMatchFields[action]; ok {
+			for _, field := range alt {
+				if _, ok := props[field]; !ok {
+					return nil, fmt.Errorf("apischema: InputMatchFields[%q] names %q, which InputRequest has no field for", action, field)
+				}
+			}
+			variants = append(variants, map[string]any{
+				"type":                 "object",
+				"properties":           variantProps,
+				"required":             append([]string{"action"}, alt...),
+				"additionalProperties": true,
+			})
+		}
 	}
 	return variants, nil
 }

@@ -6,6 +6,7 @@
 loupe targets
 loupe ui avd:Pixel_10 --interactive
 loupe tap avd:Pixel_10 540 1200
+loupe tap avd:Pixel_10 --text "Sign in"
 loupe type avd:Pixel_10 "hello"
 loupe screenshot avd:Pixel_10 -o shot.png
 loupe release avd:Pixel_10
@@ -29,13 +30,15 @@ not have.
 | `targets` | `targets` | |
 | `ui` | `ui` | target |
 | `screenshot` | `screenshot` | target |
-| `point`, `tap` | `point`, `tap` | target x y |
+| `point` | `point` | target x y |
+| `tap` | `tap` | target [x y] |
 | `swipe` | `swipe` | target x y x2 y2 |
 | `type` | `type_text` | target text |
 | `key` | `key` | target keycode |
 | `button` | `button` | target button |
 | `launch` | `launch` | target package |
 | `open` | `open_url` | target url |
+| `sequence` | `sequence` | target steps |
 | `logcat`, `crashes` | `logcat`, `crashes` | target |
 | `crash` | `crash` | target id |
 | `install` | `install` | target path... |
@@ -48,6 +51,19 @@ Any other field is a flag: `-ms 300` on `swipe`, `--interactive` on `ui`,
 `-launch` on `install`. Values are converted by the type in the tool's
 schema. A negative number is an argument, not a flag, and `--` ends flags,
 for text that starts with a dash.
+
+`tap` takes a point, or names a node with `--text`, `--id` or `--desc`
+(plus `--contains`, `--index`, `--waitMs`) and leaves the point out. Giving
+`x` without `y` is still an error.
+
+`sequence` takes its steps as one JSON array of `/api/input` bodies, inline,
+`-` for stdin, or `@path` for a file:
+
+```sh
+loupe sequence avd:Pixel_10 @signin.json
+echo '[{"action":"tap","match":{"text":"Email"}},{"action":"text","text":"a@b.co"}]' |
+  loupe sequence avd:Pixel_10 -
+```
 
 `screenshot` writes the PNG to `-o`, or to stdout when stdout is a pipe. On
 a terminal without `-o` it refuses rather than print binary.

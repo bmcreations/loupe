@@ -43,6 +43,7 @@ var toolRoutes = []toolRoute{
 	{"button", http.MethodPost, "/api/input"},
 	{"launch", http.MethodPost, "/api/input"},
 	{"open_url", http.MethodPost, "/api/input"},
+	{"sequence", http.MethodPost, "/api/sequence"},
 	{"logcat", http.MethodGet, "/api/logcat"},
 	{"crashes", http.MethodGet, "/api/crashes"},
 	{"crash", http.MethodGet, "/api/crashes/"},
@@ -64,10 +65,63 @@ type uiIn struct {
 	Interactive bool `json:"interactive,omitempty" jsonschema:"drop layout containers and nodes covered by something else"`
 }
 
-type tapIn struct {
+type pointIn struct {
 	Targeted
 	X int `json:"x" jsonschema:"device pixels, as /api/ui's center reports them"`
 	Y int `json:"y" jsonschema:"device pixels"`
+}
+
+// tapIn takes a point, or a node named by its id, text or desc.
+type tapIn struct {
+	Targeted
+	X        *int   `json:"x,omitempty" jsonschema:"device pixels, as /api/ui's center reports them; leave out when naming a node"`
+	Y        *int   `json:"y,omitempty" jsonschema:"device pixels"`
+	Text     string `json:"text,omitempty" jsonschema:"tap the node with this text (a button's label on Android and iOS)"`
+	ID       string `json:"id,omitempty" jsonschema:"tap the node with this resource-id or accessibility identifier; a bare Android name matches any package"`
+	Desc     string `json:"desc,omitempty" jsonschema:"tap the node with this content description, often an icon button's only label"`
+	Contains bool   `json:"contains,omitempty" jsonschema:"match text and desc as case-insensitive substrings"`
+	Index    *int   `json:"index,omitempty" jsonschema:"which of several matches, in tree order from 0; without it more than one match is an error listing them"`
+	WaitMs   int    `json:"waitMs,omitempty" jsonschema:"keep looking for the node this long, up to 20000"`
+}
+
+func (in tapIn) request() httpapi.InputRequest {
+	if in.Text != "" || in.ID != "" || in.Desc != "" {
+		return httpapi.InputRequest{Action: "tap", Match: &target.Match{
+			ID: in.ID, Text: in.Text, Desc: in.Desc, Contains: in.Contains, Index: in.Index, WaitMs: in.WaitMs,
+		}}
+	}
+	req := httpapi.InputRequest{Action: "tap"}
+	if in.X != nil {
+		req.X = *in.X
+	}
+	if in.Y != nil {
+		req.Y = *in.Y
+	}
+	return req
+}
+
+// stepIn is one step of a sequence: a POST /api/input body. Its numbers are
+// pointers so a 0 is sent rather than dropped, which the server would read
+// as a missing field.
+type stepIn struct {
+	Action   string        `json:"action" jsonschema:"tap, swipe, text, key, button, launch, openURL, move or wait"`
+	X        *int          `json:"x,omitempty" jsonschema:"device pixels: tap, swipe start, move"`
+	Y        *int          `json:"y,omitempty" jsonschema:"device pixels"`
+	X2       *int          `json:"x2,omitempty" jsonschema:"swipe end, device pixels"`
+	Y2       *int          `json:"y2,omitempty" jsonschema:"swipe end, device pixels"`
+	Ms       *int          `json:"ms,omitempty" jsonschema:"swipe duration, or how long a wait without a match pauses (up to 20000)"`
+	Text     string        `json:"text,omitempty" jsonschema:"text to type"`
+	Keycode  *int          `json:"keycode,omitempty" jsonschema:"an Android KeyEvent keycode"`
+	Button   string        `json:"button,omitempty"`
+	Package  string        `json:"package,omitempty" jsonschema:"launch: Android package or iOS bundle ID"`
+	Activity string        `json:"activity,omitempty"`
+	URL      string        `json:"url,omitempty" jsonschema:"openURL: the URL"`
+	Match    *target.Match `json:"match,omitempty" jsonschema:"tap or wait: the node by id, text or desc instead of x and y; a wait with a match waits for the node to appear, 10s unless waitMs says otherwise"`
+}
+
+type sequenceIn struct {
+	Targeted
+	Steps []stepIn `json:"steps" jsonschema:"up to 50 steps, run in order; the first that fails stops the rest"`
 }
 
 type swipeIn struct {
@@ -172,12 +226,12 @@ func addTools(s *mcp.Server, c *Client) {
 	const driving = " Claims the target for this session first, so another agent cannot drive it at the same time; refused while a person is using it."
 
 	addInput(s, c, "point", "Move this agent's cursor to a point in device pixels, without touching the device, so a person watching sees what you are about to act on. tap and swipe already point first; call this to show a target while you work something out. Claims the target like the other input tools, but is not refused while a person is using it.",
-		func(in tapIn) (string, httpapi.InputRequest) {
+		func(in pointIn) (string, httpapi.InputRequest) {
 			return in.Target, httpapi.InputRequest{Action: "move", X: in.X, Y: in.Y}
 		})
-	addInput(s, c, "tap", "Tap a point in device pixels."+driving,
+	addInput(s, c, "tap", "Tap a point in device pixels, or a node named by text, id or desc: the server finds it in the view hierarchy, taps its center and answers with the node it hit. A name that matches several nodes is an error listing them; pass index to pick one."+driving,
 		func(in tapIn) (string, httpapi.InputRequest) {
-			return in.Target, httpapi.InputRequest{Action: "tap", X: in.X, Y: in.Y}
+			return in.Target, in.request()
 		})
 	addInput(s, c, "swipe", "Drag from one point to another, in device pixels."+driving,
 		func(in swipeIn) (string, httpapi.InputRequest) {
@@ -303,6 +357,17 @@ func addTools(s *mcp.Server, c *Client) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "sequence",
+		Description: "Run several inputs in one call, so a known flow (fill a form, tap through a dialog) costs one round trip instead of one per step. Each step is an input tool's body with its action named: tap (x,y or match), swipe, text, key, button, launch, openURL, move, and wait (ms, or match to wait for a node). Steps run in order and the cursor moves to each touch first; the first step that fails stops the rest, and the answer names it and holds every step's result. Read the screen again before a step whose node depends on what an earlier step opened, or use a wait with a match." + driving,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sequenceIn) (*mcp.CallToolResult, any, error) {
+		return jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
+			return c.postJSON(ctx, "/api/sequence", url.Values{"target": {in.Target}}, struct {
+				Steps []stepIn `json:"steps"`
+			}{in.Steps})
+		}))
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "boot",
 		Description: "Boot a shut-down AVD or iOS simulator without opening a stream, and return its row once it is up. Already running returns at once.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in Targeted) (*mcp.CallToolResult, any, error) {
@@ -329,16 +394,37 @@ func addInput[In any](s *mcp.Server, c *Client, name, desc string, build func(In
 			t, req := build(in)
 			q := url.Values{"target": {t}}
 			return jsonResult(c.drive(ctx, t, func() (json.RawMessage, error) {
-				if pointsFirst(req.Action) {
+				// A tap naming a node has no point yet; the server points
+				// once it has found one.
+				if pointsFirst(req.Action) && req.Match == nil {
 					// The cursor starts its trip while the action is on its
 					// way, so it reaches the point about when the touch
 					// lands. Only the viewers' cursor depends on it, so a
 					// failed move is not the action's failure.
-					_, _ = c.postJSON(ctx, "/api/input", q, httpapi.InputRequest{Action: "move", X: req.X, Y: req.Y})
+					_, _ = c.postJSON(ctx, "/api/input", q, inputBody(httpapi.InputRequest{Action: "move", X: req.X, Y: req.Y}))
 				}
-				return c.postJSON(ctx, "/api/input", q, req)
+				return c.postJSON(ctx, "/api/input", q, inputBody(req))
 			}))
 		})
+}
+
+// inputBody encodes req with every coordinate its action requires, 0
+// included. InputRequest's omitempty drops a 0, and the server refuses a
+// tap at x 0 as one with no x at all. A tap naming a node sends no point.
+func inputBody(req httpapi.InputRequest) map[string]any {
+	b, _ := json.Marshal(req)
+	var body map[string]any
+	_ = json.Unmarshal(b, &body)
+	if req.Match != nil {
+		return body
+	}
+	coords := map[string]int{"x": req.X, "y": req.Y, "x2": req.X2, "y2": req.Y2}
+	for _, field := range httpapi.InputRequiredFields[req.Action] {
+		if v, ok := coords[field]; ok {
+			body[field] = v
+		}
+	}
+	return body
 }
 
 // pointsFirst reports whether an input tool moves the agent's cursor to its

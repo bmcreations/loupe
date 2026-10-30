@@ -749,6 +749,11 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   pointer-events: none;
   will-change: transform, opacity;
 }
+.agentCursor.parked { opacity: 0.6; }
+.agentCursor.parked .agentArrow { animation: agent-parked 1.6s ease-in-out infinite; transform-origin: 1px 1px; }
+@keyframes agent-parked {
+  50% { transform: scale(0.85); }
+}
 .agentCursor.gone { opacity: 0; }
 .agentArrow {
   position: absolute;
@@ -792,6 +797,7 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
 @media (prefers-reduced-motion: reduce) {
   .agentCursor { transition: opacity 300ms !important; }
   .agentRipple { animation: none; opacity: 0; }
+  .agentCursor.parked .agentArrow { animation: none; }
 }
 
 .inspectBox {

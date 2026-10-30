@@ -1,5 +1,7 @@
 package httpapi
 
+import "github.com/bmcreations/loupe/internal/target"
+
 // ErrorResponse is the body every JSON error response on this API shares:
 // one string naming what went wrong. It replaces what used to be an ad hoc
 // map[string]string{"error": ...} built fresh at each call site -- the two
@@ -28,6 +30,10 @@ type ErrorResponse struct {
 	// Fingerprint is the certificate an ErrCodeConfirmFingerprint 409 asks
 	// to have confirmed, as hex SHA-256 of its DER.
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// Candidates are the nodes behind an ErrCodeAmbiguous 409, without
+	// their children, or an ErrCodeNoMatch 404's when an index ran past
+	// them.
+	Candidates []*target.Node `json:"candidates,omitempty"`
 }
 
 // ErrCodeHubHeld is POST /api/input's 409 when Device Hub holds an iOS
@@ -41,6 +47,14 @@ const ErrCodeHubHeld = "hubHeld"
 // pointer is stuck down (docs/internals/traps.md, trap 50). The error carries the
 // dispatcher's reason. Nothing moved on the screen.
 const ErrCodeTouchRejected = "touchRejected"
+
+// ErrCodeNoMatch is POST /api/input's 404 when a tap's match names no node
+// on the screen, after waiting waitMs for one. Nothing was touched.
+const ErrCodeNoMatch = "noMatch"
+
+// ErrCodeAmbiguous is POST /api/input's 409 when a tap's match names more
+// than one node and no index. Candidates lists them; nothing was touched.
+const ErrCodeAmbiguous = "ambiguous"
 
 // ErrCodePhoneUnreachable is POST /api/input's 503 when a physical iPhone did
 // not accept the input: CoreDevice refused it before anything was sent, the

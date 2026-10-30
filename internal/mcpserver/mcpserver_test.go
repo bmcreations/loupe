@@ -203,6 +203,19 @@ func TestATapPointsAtItsSpotBeforeTouching(t *testing.T) {
 	}
 }
 
+// The tool has no point to send a move to; the server points once it has
+// found the node.
+func TestATapByTextSendsTheMatchAndDoesNotPoint(t *testing.T) {
+	got := inputBodies(t, "tap", map[string]any{"target": "e", "text": "Sign in", "index": 0, "waitMs": 2000})
+	if len(got) != 1 || got[0].Action != "tap" || got[0].Match == nil {
+		t.Fatalf("bodies %+v, want one tap carrying a match", got)
+	}
+	m := got[0].Match
+	if m.Text != "Sign in" || m.Index == nil || *m.Index != 0 || m.WaitMs != 2000 {
+		t.Errorf("match %+v, want text, index 0 and waitMs carried over", m)
+	}
+}
+
 func TestASwipePointsAtItsStartBeforeTouching(t *testing.T) {
 	got := inputBodies(t, "swipe", map[string]any{"target": "e", "x": 100, "y": 900, "x2": 100, "y2": 200})
 	if len(got) != 2 || got[0].Action != "move" || got[0].X != 100 || got[0].Y != 900 || got[1].Action != "swipe" {
@@ -380,5 +393,86 @@ func TestReleaseIsNeverForced(t *testing.T) {
 	// Released by the tool, so exit has nothing left to release.
 	if dels != 1 {
 		t.Errorf("%d releases: %v", dels, fake.requests())
+	}
+}
+
+// The steps reach the server as the model wrote them: a step at x:0 keeps
+// its 0, which an InputRequest would drop and the server would refuse.
+func TestSequenceSendsItsStepsWithEveryNumber(t *testing.T) {
+	var mu sync.Mutex
+	var path, body string
+	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/sequence" {
+			return false
+		}
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		path, body = r.URL.Path+"?"+r.URL.RawQuery, string(b)
+		mu.Unlock()
+		w.Write([]byte(`{"ok":true,"steps":[]}`))
+		return true
+	}}
+	cs, stop := connect(t, fake)
+	res := call(t, cs, "sequence", map[string]any{"target": "e", "steps": []any{
+		map[string]any{"action": "tap", "x": 0, "y": 0},
+		map[string]any{"action": "wait", "match": map[string]any{"text": "X"}},
+	}})
+	stop()
+	if res.IsError {
+		t.Fatalf("sequence: %s", text(res))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := `{"steps":[{"action":"tap","x":0,"y":0},{"action":"wait","match":{"text":"X"}}]}`
+	if path != "/api/sequence?target=e" || body != want {
+		t.Fatalf("sent %s %s; want /api/sequence?target=e %s", path, body, want)
+	}
+}
+
+// A point on the screen's edge is 0, and the server refuses a tap whose x
+// is missing; InputRequest's omitempty would drop it.
+func TestAPointAtZeroKeepsItsZero(t *testing.T) {
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		want []string
+	}{
+		{"tap", map[string]any{"target": "e", "x": 0, "y": 0}, []string{"x", "y"}},
+		{"point", map[string]any{"target": "e", "x": 0, "y": 5}, []string{"x", "y"}},
+		{"swipe", map[string]any{"target": "e", "x": 0, "y": 900, "x2": 0, "y2": 0}, []string{"x", "y", "x2", "y2"}},
+	} {
+		var mu sync.Mutex
+		var bodies []map[string]json.RawMessage
+		fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+			if r.URL.Path == "/api/input" {
+				var b map[string]json.RawMessage
+				json.NewDecoder(r.Body).Decode(&b)
+				mu.Lock()
+				bodies = append(bodies, b)
+				mu.Unlock()
+			}
+			return false
+		}}
+		cs, stop := connect(t, fake)
+		if res := call(t, cs, tc.tool, tc.args); res.IsError {
+			t.Fatalf("%s: %s", tc.tool, text(res))
+		}
+		stop()
+		if len(bodies) == 0 {
+			t.Fatalf("%s sent no /api/input body", tc.tool)
+		}
+		for _, b := range bodies {
+			var action string
+			json.Unmarshal(b["action"], &action)
+			fields := tc.want
+			if action == "move" {
+				fields = []string{"x", "y"}
+			}
+			for _, f := range fields {
+				if _, ok := b[f]; !ok {
+					t.Errorf("%s: %s body has no %q: %v", tc.tool, action, f, b)
+				}
+			}
+		}
 	}
 }

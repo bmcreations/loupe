@@ -23,7 +23,7 @@ Any other MCP client takes the same command: `~/.local/bin/loupe mcp`, with
 needs no curl. It is a client of a running server, not a second server: a
 stdio MCP server (the official Go SDK) that turns each tool call into one
 request. Tools: `targets`, `ui`, `screenshot` (an image, not JSON), `point`,
-`tap`, `swipe`, `type_text`, `key`, `button`, `launch`, `open_url`, `logcat`,
+`tap`, `swipe`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`, `logcat`,
 `crashes`, `crash`, `install`, `camera`, `boot`, `release`, `flags` and `flag`. `TestEveryToolNamesARoute` checks each
 against `httpapi.Routes()`.
 
@@ -50,6 +50,9 @@ PNG in 219ms, then `button` home claimed the target, `launch` Settings in
 client released it. With another agent's claim on the target, `button` and
 `launch` came back as tool errors naming `claimedBy` and the holder, and
 that claim was still there after the client exited.
+
+`sequence` sends its steps with every number kept, so a step at `x: 0` is
+not dropped the way an `InputRequest` encoding would drop it.
 
 Point an MCP config at a copy of the binary, not at `./loupe`: a client
 holds the executable open for its whole session, and `make build` then

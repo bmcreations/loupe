@@ -95,10 +95,10 @@ func agentName(v string) string {
 
 // arbitrated reports whether an action is subject to the human hold. A
 // hardware keyboard switch moves nothing on the screen, so an agent may
-// prepare one while a person is at the phone. reclaim restarts SpringBoard
-// under them, so it is held like any touch.
+// prepare one while a person is at the phone. A wait only reads the screen.
+// reclaim restarts SpringBoard under them, so it is held like any touch.
 func arbitrated(action string) bool {
-	return action != "hardwareKeyboard"
+	return action != "hardwareKeyboard" && action != "wait"
 }
 
 // held reports whether an arbitrated action also waits out the human hold

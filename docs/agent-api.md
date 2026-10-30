@@ -47,7 +47,43 @@ human watches the same session.
   a person watching sees where the agent is about to act. It is live only,
   kept out of the event log and `/api/events`, passes the human hold and
   leaves the banner alone, but another agent's claim still refuses it.
-  `loupe mcp`'s `tap` and `swipe` send one before they touch.
+  `loupe mcp`'s `tap` and `swipe` send one before they touch. Once an
+  agent has been quiet for 2.5s its cursor parks: it dims and pulses where
+  it last acted for 20s more before it fades (`PARK_MS` in
+  `web/cursor.js`). An agent thinks for seconds between calls, and a
+  cursor that vanished each time would read as one that had left.
+
+  A `tap` can name a node instead of a point:
+  `{"action":"tap","match":{"text":"Sign in"}}`. `match` takes `id`,
+  `text` and `desc`, and a node has to satisfy every field given. `id` is
+  a resource-id on Android or an accessibility identifier on iOS, and a
+  bare Android name (`send`) matches any package's `:id/send`. `text` and
+  `desc` match exactly, or as case-insensitive substrings with
+  `"contains": true`. On a simulator a button's label is its `text`. The
+  server dumps the hierarchy, taps the node's `center`, sends the cursor
+  there first, and answers `{"ok":true,"matched":{...}}` with the node it
+  hit, without its children. Nodes with no area and nodes simcap marks
+  `occluded` never match, and a match with the same bounds as one already
+  found counts once, since uiautomator stacks a Compose node and its host
+  at one rectangle with the same label. More than one match is 409
+  `ambiguous` with `candidates` and nothing touched; `"index": n` picks
+  one in tree order. No match is 404 `noMatch`. `"waitMs"` (at most
+  20000) dumps again every 250ms until the node appears, which replaces
+  a sleep-and-retry after a navigation. The lookup runs before
+  arbitration, as a launch's name check does, so a missing node is a 404
+  even while a person holds the target. A body with both `match` and
+  `x`/`y` is a 400. Every match tap costs a full dump, about 2.3s on
+  emulator-5554 per the `/api/ui` timing above; the tree is not cached,
+  because a center read before an app scrolled by itself would land on
+  a neighbour. `loupe mcp`'s `tap` takes the same fields as `text`, `id`,
+  `desc`, `contains`, `index` and `waitMs`.
+
+  `wait` touches nothing. `{"action":"wait","ms":1500}` pauses (at most
+  20000), and `{"action":"wait","match":{"text":"Inbox"}}` dumps until the
+  node appears and answers with it, looking for 10s unless the match sets
+  `waitMs`. It is answered before arbitration and kept out of the event
+  log, like a match lookup, so a person holding the target does not refuse
+  it. In a sequence it holds the next step until a screen has loaded.
   On Android a tap or swipe the input dispatcher threw away answers 409
   `code: "touchRejected"` with its reason, since `input` exits 0 either way
   (trap 50).
@@ -113,6 +149,25 @@ human watches the same session.
   scheme was 422 in 0.18-0.37s. A `token=secret` query on every URL was in
   neither the trace nor the server log.
 
+- `POST /api/sequence?target=<id>` runs several `/api/input` bodies in
+  order: `{"steps":[{"action":"tap","match":{"text":"Email"}},
+  {"action":"text","text":"a@b.co"},{"action":"tap","match":{"text":"Sign
+  in"}},{"action":"wait","match":{"text":"Inbox"}}]}`. An agent pays one
+  round trip for the flow instead of one model turn per step, and its
+  cursor moves from step to step with no pause for thought between. Each
+  step goes through `handleInput` itself with the sequence's query and
+  headers, so it is validated, arbitrated, logged and traced as if sent
+  alone, and a person who takes the device back partway stops the
+  sequence at the next step. Before a coordinate `tap` or `swipe` the
+  runner sends a `move`, as `loupe mcp` does for one tap. The first step
+  that answers anything but 200 stops the rest: the response has that
+  step's status, `"failed": <index>`, its `error` (prefixed `step N:`) and
+  `code` at the top level so a caller that keys on `humanHeld` or
+  `claimedBy` finds them where a single input puts them, and `steps` with
+  each step's `status` and `body` up to and including it. All 200 is
+  `{"ok":true,"steps":[...]}`. 1 to 50 steps (`MaxSequenceSteps`). A step
+  whose node only exists after an earlier step should look for it with a
+  `wait` and a `match`, or with `waitMs` on its own `match`.
 - `GET /api/screenshot` returns one PNG of the framebuffer, at the device's own
   resolution and with no session open. 266ms on emulator-5554 (1080x2424),
   444ms on an Acme One (1200x2670). `Screenshotter` is optional the way

@@ -1,7 +1,7 @@
 // Tests for agent cursors' pure parts. Run: node web/cursor.test.mjs
 import assert from 'node:assert/strict';
 
-const { cursorMove, agentColor, agentLabel, PALETTE, glideMs, easeInOut, arcPoint, GLIDE_MIN_MS, GLIDE_MAX_MS, mount } = await import('./cursor.js');
+const { cursorMove, agentColor, agentLabel, PALETTE, glideMs, easeInOut, arcPoint, GLIDE_MIN_MS, GLIDE_MAX_MS, IDLE_MS, PARK_MS, FADE_MS, mount } = await import('./cursor.js');
 
 let failures = 0;
 function test(name, fn) {
@@ -92,11 +92,15 @@ function rig() {
   let t = 0;
   let frames = [];
   const timers = [];
-  const el = () => ({
+  const el = () => { const e = ({
     className: '', style: { setProperty() {} }, innerHTML: '', children: [],
-    classList: { add() {}, remove() {} },
-    appendChild(c) { this.children.push(c); }, remove() {},
-  });
+    classes: new Set(),
+    classList: {
+      add(...c) { c.forEach((x) => this.owner.classes.add(x)); },
+      remove(...c) { c.forEach((x) => this.owner.classes.delete(x)); },
+    },
+    appendChild(c) { this.children.push(c); }, remove() { this.removed = true; },
+  }); e.classList.owner = e; return e; };
   const layer = Object.assign(el(), {
     ownerDocument: { createElement: el },
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 }),
@@ -117,7 +121,20 @@ function rig() {
     const run = frames; frames = [];
     run.forEach((f) => f());
   };
-  return { m, pos, advance, timers, cursor };
+  // fire runs every timer due by the clock, in order, including ones
+  // they set.
+  const fire = (ms) => {
+    const end = t + ms;
+    for (;;) {
+      const due = timers.filter((x) => !x.done && x.at <= end).sort((a, b) => a.at - b.at)[0];
+      if (!due) break;
+      t = Math.max(t, due.at);
+      due.done = true;
+      due.fn();
+    }
+    t = end;
+  };
+  return { m, pos, advance, timers, cursor, fire };
 }
 
 test('a move travels the cursor over time and lands on the point', () => {
@@ -141,6 +158,27 @@ test('a move does not ripple; a tap on the same point ripples at once', () => {
   assert.equal(now.length, 1, 'the ripple is due with no glide');
   now[0].fn();
   assert.ok(r.cursor().children.some((c) => c.className === 'agentRipple'));
+});
+
+test('a quiet cursor parks, then fades only after PARK_MS', () => {
+  const r = rig();
+  r.m.onEvent({ source: 'agent', agent: 'a', kind: 'tap', from: [0.5, 0.5] });
+  r.fire(IDLE_MS);
+  assert.ok(r.cursor().classes.has('parked'), 'parked after IDLE_MS');
+  assert.ok(!r.cursor().classes.has('gone'));
+  r.fire(PARK_MS - 1);
+  assert.ok(!r.cursor().classes.has('gone'), 'still parked just before PARK_MS');
+  r.fire(1 + FADE_MS);
+  assert.ok(r.cursor().classes.has('gone') && r.cursor().removed, 'faded and removed');
+});
+
+test('an action wakes a parked cursor where it is', () => {
+  const r = rig();
+  r.m.onEvent({ source: 'agent', agent: 'a', kind: 'tap', from: [0.5, 0.5] });
+  r.fire(IDLE_MS + 5000);
+  assert.ok(r.cursor().classes.has('parked'));
+  r.m.onEvent({ source: 'agent', agent: 'a', kind: 'move', from: [0.2, 0.2] });
+  assert.ok(!r.cursor().classes.has('parked'), 'lit again');
 });
 
 if (failures) { console.log(`\n${failures} failing`); process.exit(1); }

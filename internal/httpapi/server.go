@@ -261,6 +261,7 @@ var routes = []route{
 	{"/wt", []string{http.MethodGet, http.MethodConnect}, (*Server).handleWebTransport, ""},
 	{"/api/ui", []string{http.MethodGet}, (*Server).handleUI, ""},
 	{"/api/input", []string{http.MethodPost}, (*Server).handleInput, "POST only"},
+	{"/api/sequence", []string{http.MethodPost}, (*Server).handleSequence, "POST only"},
 	{"/api/screenshot", []string{http.MethodGet}, (*Server).handleScreenshot, ""},
 	{"/api/record", []string{http.MethodGet, http.MethodPost}, (*Server).handleRecord, ""},
 	{"/api/record/", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRecordItem, ""},

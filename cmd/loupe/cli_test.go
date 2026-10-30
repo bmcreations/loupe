@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -58,7 +59,7 @@ func TestEveryToolHasACommand(t *testing.T) {
 		byTool[c.tool] = c
 		props := schemaProps(tl)
 		for _, a := range c.args {
-			if _, ok := props[strings.TrimSuffix(a, "...")]; !ok {
+			if _, ok := props[strings.TrimSuffix(strings.TrimSuffix(a, "..."), "?")]; !ok {
 				t.Errorf("command %s: positional %q is not a field of %s", c.name, a, c.tool)
 			}
 		}
@@ -95,6 +96,8 @@ func TestParseCLIArgs(t *testing.T) {
 		{"type", []string{"avd:P", "--", "-hello"}, `map[target:avd:P text:-hello]`},
 		{"tap", []string{"-server", "https://x", "avd:P", "-5", "7"}, `map[target:avd:P x:-5 y:7]`},
 		{"flags", nil, `map[]`},
+		{"tap", []string{"avd:P", "--text", "Sign in"}, `map[target:avd:P text:Sign in]`},
+		{"tap", []string{"avd:P", "-desc", "Back", "-index", "1"}, `map[desc:Back index:1 target:avd:P]`},
 	}
 	for _, tc := range cases {
 		cmd, _ := findCLICommand(tc.cmd)
@@ -106,6 +109,17 @@ func TestParseCLIArgs(t *testing.T) {
 		}
 		if got := fmtMap(in); got != tc.want {
 			t.Errorf("%s %v = %s, want %s", tc.cmd, tc.argv, got, tc.want)
+		}
+	}
+	seq, _ := findCLICommand("sequence")
+	in, err := parseCLIArgs(seq, tools["sequence"], []string{"avd:P", `[{"action":"tap","x":0,"y":0}]`}, &cliGlobals{})
+	if b, _ := json.Marshal(in); err != nil || string(b) != `{"steps":[{"action":"tap","x":0,"y":0}],"target":"avd:P"}` {
+		t.Errorf("sequence = %s, %v; want the steps decoded as JSON", b, err)
+	}
+	for _, bad := range [][]string{{"avd:P"}, {"avd:P", "[{"}, {"avd:P", "@/nonexistent/steps.json"}} {
+		var g cliGlobals
+		if _, err := parseCLIArgs(seq, tools["sequence"], bad, &g); err == nil {
+			t.Errorf("sequence %v: no error", bad)
 		}
 	}
 	for _, bad := range [][]string{{"avd:P", "1"}, {"avd:P", "x", "2"}, {"avd:P", "1", "2", "3"}, {"avd:P", "1", "2", "-nope", "1"}} {
