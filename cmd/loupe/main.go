@@ -611,6 +611,11 @@ func main() {
 	if err := api.SetHandsOffPath(filepath.Join(filepath.Dir(cfgPath), "handsoff.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: hands-off list unreadable, starting empty: %v\n", err)
 	}
+	// Claims beside it, in their own file: hands-off is only what the person
+	// marked. Saved so a restart does not hand an agent's device to another.
+	if err := api.SetClaimsPath(filepath.Join(filepath.Dir(cfgPath), "claims.json")); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: claims unreadable, starting with none: %v\n", err)
+	}
 	// Paired devices' sessions and pending codes, hashed. Beside hands-off
 	// for the same reason: a spare server keeps its own.
 	if err := api.SetSessionsPath(filepath.Join(filepath.Dir(cfgPath), "sessions.json")); err != nil {

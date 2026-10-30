@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,12 +25,13 @@ import (
 // Claude session cannot tap through the middle of the first one's test. It is
 // a lease: every call the holder makes renews it, and claimLease after the
 // last one it lapses on its own, so a session that ended without releasing
-// does not lock the device until the server restarts. Claims live in memory
-// and a restart drops them.
+// does not lock the device for good. Claims are written to their own file,
+// because every `make build` restarts the server and an agent mid-test should
+// not lose its device to that.
 //
 // Hands-off is the person saying "no agent on this one". It refuses every
-// agent, the holder of a claim included, and it is written to disk, because
-// every `make build` restarts the server.
+// agent, the holder of a claim included, and it is written to disk for the
+// same reason.
 //
 // Neither ever refuses a person at a viewer. Like the human hold, this is
 // coordination between callers that name themselves honestly, not a security
@@ -52,6 +54,11 @@ const drivingShown = 10 * time.Second
 // claimLinkMax bounds the link a claim carries, which is drawn in the picker.
 const claimLinkMax = 512
 
+// claimSaveEvery bounds how often a renewal alone rewrites the file. A claim
+// restored after a restart can be this much older than it was, which the
+// lease absorbs.
+const claimSaveEvery = time.Minute
+
 // ClaimInfo is a claim as /api/targets, /api/claims and a claimedBy 409 show
 // it. Agent and Session are what the holder sent; Link, when present, is an
 // https URL the holder says leads back to it.
@@ -69,6 +76,18 @@ type ClaimInfo struct {
 type claim struct {
 	agent, session, link string
 	since, seen          time.Time
+	// saved is the seen last written to the file.
+	saved time.Time
+}
+
+// savedClaim is a claim as the file holds it.
+type savedClaim struct {
+	Target  string    `json:"target"`
+	Agent   string    `json:"agent,omitempty"`
+	Session string    `json:"session,omitempty"`
+	Link    string    `json:"link,omitempty"`
+	Since   time.Time `json:"since"`
+	Seen    time.Time `json:"seen"`
 }
 
 // key is who holds the claim: the session when one was named, else the agent.
@@ -100,8 +119,10 @@ type claimBook struct {
 	claims   map[string]*claim
 	handsOff map[string]bool
 	driving  map[string]driver
-	// path is the hands-off file. Empty keeps the set in memory only.
-	path string
+	// path is the hands-off file and claimsPath the claims file. Empty
+	// keeps that one in memory only. They are apart so the hands-off file
+	// says only what the person marked, and nothing an agent did.
+	path, claimsPath string
 }
 
 func newClaimBook(record func(map[string]any)) *claimBook {
@@ -120,18 +141,11 @@ func (b *claimBook) load(path string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.path = path
-	raw, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
 	var f struct {
 		HandsOff []string `json:"handsOff"`
 	}
-	if err := json.Unmarshal(raw, &f); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+	if err := readJSONFile(path, &f); err != nil {
+		return err
 	}
 	for _, id := range f.HandsOff {
 		b.handsOff[id] = true
@@ -139,7 +153,65 @@ func (b *claimBook) load(path string) error {
 	return nil
 }
 
-// save writes the hands-off set atomically. Called with mu held.
+// loadClaims reads the claims from path and keeps writing them there. A
+// missing file is no claims, and a claim that lapsed while the server was
+// down is not restored.
+func (b *claimBook) loadClaims(path string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.claimsPath = path
+	var f struct {
+		Claims []savedClaim `json:"claims"`
+	}
+	if err := readJSONFile(path, &f); err != nil {
+		return err
+	}
+	now := b.now()
+	for _, sc := range f.Claims {
+		if sc.Target == "" || callerKey(sc.Agent, sc.Session) == "" || now.Sub(sc.Seen) >= claimLease {
+			continue
+		}
+		b.claims[sc.Target] = &claim{
+			agent: sc.Agent, session: sc.Session, link: sc.Link,
+			since: sc.Since, seen: sc.Seen, saved: sc.Seen,
+		}
+		b.trace(map[string]any{"action": "claimRestored", "target": sc.Target, "agent": sc.Agent, "session": sc.Session, "idleMs": now.Sub(sc.Seen).Milliseconds()})
+	}
+	return nil
+}
+
+// readJSONFile decodes path into v. A missing file leaves v as it is.
+func readJSONFile(path string, v any) error {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(raw, v); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
+}
+
+// writeJSONFile writes v to path atomically.
+func writeJSONFile(path string, v any) error {
+	raw, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// save writes the hands-off set. Called with mu held.
 func (b *claimBook) save() error {
 	if b.path == "" {
 		return nil
@@ -149,18 +221,28 @@ func (b *claimBook) save() error {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
-	raw, err := json.MarshalIndent(map[string]any{"handsOff": ids}, "", "  ")
-	if err != nil {
-		return err
+	return writeJSONFile(b.path, map[string]any{"handsOff": ids})
+}
+
+// saveClaims writes the claims after one changed. A claim that cannot be
+// saved still holds in memory; the failure is traced, since the caller that
+// changed it has nothing to do about it. Called with mu held.
+func (b *claimBook) saveClaims() {
+	if b.claimsPath == "" {
+		return
 	}
-	if err := os.MkdirAll(filepath.Dir(b.path), 0o700); err != nil {
-		return err
+	claims := make([]savedClaim, 0, len(b.claims))
+	for id, c := range b.claims {
+		claims = append(claims, savedClaim{
+			Target: id, Agent: c.agent, Session: c.session, Link: c.link,
+			Since: c.since, Seen: c.seen,
+		})
+		c.saved = c.seen
 	}
-	tmp := b.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
+	slices.SortFunc(claims, func(a, b savedClaim) int { return strings.Compare(a.Target, b.Target) })
+	if err := writeJSONFile(b.claimsPath, map[string]any{"claims": claims}); err != nil {
+		b.trace(map[string]any{"action": "claimSaveFailed", "error": err.Error()})
 	}
-	return os.Rename(tmp, b.path)
 }
 
 // live returns the target's claim, dropping it first if it has lapsed.
@@ -209,15 +291,20 @@ func (b *claimBook) take(id, agent, session, link string) (*ClaimInfo, *ClaimInf
 		if c.key() != key {
 			return nil, b.info(id, c)
 		}
+		changed := c.agent != agent || (link != "" && link != c.link)
 		c.agent, c.seen = agent, now
 		if link != "" {
 			c.link = link
+		}
+		if changed || now.Sub(c.saved) >= claimSaveEvery {
+			b.saveClaims()
 		}
 		return b.info(id, c), nil
 	}
 	c := &claim{agent: agent, session: session, link: link, since: now, seen: now}
 	b.claims[id] = c
 	b.trace(map[string]any{"action": "claim", "target": id, "agent": agent, "session": session})
+	b.saveClaims()
 	return b.info(id, c), nil
 }
 
@@ -236,6 +323,7 @@ func (b *claimBook) release(id, agent, session string, force bool) *ClaimInfo {
 	}
 	delete(b.claims, id)
 	b.trace(map[string]any{"action": "release", "target": id, "agent": c.agent, "session": c.session, "forced": force && c.key() != callerKey(agent, session)})
+	b.saveClaims()
 	return nil
 }
 
@@ -253,6 +341,9 @@ func (b *claimBook) seen(id, agent, session string) {
 	defer b.mu.Unlock()
 	if c := b.live(id); c != nil && c.key() == key {
 		c.seen = b.now()
+		if c.seen.Sub(c.saved) >= claimSaveEvery {
+			b.saveClaims()
+		}
 	}
 }
 
@@ -472,6 +563,9 @@ func (s *Server) handleHandsOff(w http.ResponseWriter, r *http.Request) {
 
 // SetHandsOffPath loads the hands-off set from path and keeps it there.
 func (s *Server) SetHandsOffPath(path string) error { return s.claims.load(path) }
+
+// SetClaimsPath loads the claims from path and keeps them there.
+func (s *Server) SetClaimsPath(path string) error { return s.claims.loadClaims(path) }
 
 func cmpOr(v, fallback string) string {
 	if v == "" {

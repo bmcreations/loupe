@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -230,6 +231,52 @@ func TestHandsOffSurvivesARestart(t *testing.T) {
 	again.decorate(rows)
 	if !rows[0].HandsOff || rows[1].HandsOff {
 		t.Fatalf("after reload: %+v", rows)
+	}
+}
+
+// A claim survives a restart with its holder, link and lease; one that lapsed
+// while the server was down, or was released, does not come back.
+func TestClaimsSurviveARestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claims.json")
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	b := newClaimBook(nil)
+	b.now = clock
+	if err := b.load(filepath.Join(dir, "handsoff.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.loadClaims(path); err != nil {
+		t.Fatal(err)
+	}
+	b.take("dev1", "claude", "s1", "https://example.com/s1")
+	b.take("dev2", "claude", "s2", "")
+	b.take("dev3", "claude", "s3", "")
+	b.release("dev3", "claude", "s3", false)
+	// dev1 is renewed past claimSaveEvery, which writes the newer seen; dev2
+	// is not, so its saved seen is from the take.
+	now = now.Add(claimLease - time.Minute)
+	b.seen("dev1", "claude", "s1")
+	now = now.Add(time.Minute + time.Second)
+
+	again := newClaimBook(nil)
+	again.now = clock
+	if err := again.loadClaims(path); err != nil {
+		t.Fatal(err)
+	}
+	got := again.list()
+	if len(got) != 1 || got[0].Target != "dev1" || got[0].Session != "s1" || got[0].Link != "https://example.com/s1" {
+		t.Fatalf("restored = %+v", got)
+	}
+	if e := again.refusal("dev1", "claude", "s2"); e == nil || e.Code != ErrCodeClaimed {
+		t.Fatalf("another session on the restored claim: %+v", e)
+	}
+	if e := again.refusal("dev1", "claude", "s1"); e != nil {
+		t.Fatalf("holder on the restored claim: %+v", e)
+	}
+	// The hands-off file says only what the person marked.
+	if _, err := os.Stat(filepath.Join(dir, "handsoff.json")); !os.IsNotExist(err) {
+		t.Fatalf("claims touched the hands-off file: %v", err)
 	}
 }
 
