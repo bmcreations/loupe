@@ -139,6 +139,11 @@ type Simulator struct {
 	pbWatcher  bool
 	liveResize bool
 
+	// pbImage is whether simcap's -caps lists pasteboardimage, nil until
+	// it has answered (simdrop.go). Guarded by pbImageMu.
+	pbImageMu sync.Mutex
+	pbImage   *bool
+
 	// pbSet is the text a viewer last set on the pasteboard, so the watcher
 	// does not hand it straight back to them as a copy on the simulator.
 	pbSet atomic.Pointer[string]

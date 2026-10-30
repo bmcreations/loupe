@@ -125,7 +125,11 @@ human watches the same session.
   through `shellQuote`; a URL nothing resolves prints "unable to resolve
   Intent" and exits 1, which answers 422 `noHandler`. On a simulator it is
   `simctl openurl`, which exits 115 (LSApplicationWorkspaceErrorDomain)
-  for the same case, also 422 `noHandler`. A physical iPhone answers 501:
+  for the same case, also 422 `noHandler`. simctl never checks universal
+  links, so an http or https URL an installed app claims goes to that app
+  first, through the `simopen` helper, and `started` is its bundle ID (see
+  "Universal links on a simulator" in `docs/ios.md`). A URL no app claims,
+  or one the helper could not open, goes to `simctl openurl` as before. A physical iPhone answers 501:
   devicectl opens a URL only as the payload of launching a named app.
   `CheckURL` runs before arbitration, as `launch`'s name check does: a
   scheme is required, no host (`mailto:` has none), no whitespace or
@@ -229,8 +233,9 @@ human watches the same session.
   the front in 284ms plus 1.5s through a spare server on emulator-5554.
 - `POST /api/media?target=<id>` adds the request body, a photo or a video,
   to the device's library, so it shows in Photos or Google Photos, and
-  answers 200 `{target, ok, name, kind, bytes, tookMs}`. Dropping a file into
-  an app is not possible: nothing carries a drag through adb or HID. The type
+  answers 200 `{target, ok, name, kind, bytes, tookMs}`. Nothing carries a
+  drag through adb or HID; a picture goes into a simulator's text field by
+  paste, through `/api/drop`. The type
   comes from the file's leading bytes (PNG, JPEG, GIF, WebP, HEIC, MP4, MOV),
   never the name; anything else is 400 before it is pushed. 1 GiB cap (413).
   Not arbitrated, as `/api/install` is not: it changes no screen. On Android
@@ -248,6 +253,31 @@ human watches the same session.
   dispatched in the built-in browser against a throwaway simulator lit the
   outline and answered "Added to Photos" in 914ms; a real drag from Finder
   has not been tried.
+- `POST /api/drop?target=<id>&x=<px>&y=<px>` pastes the request body, an
+  image, into the text field at x, y in device pixels, as `/api/input`
+  takes them, and answers 200 `{target, ok, tookMs}`. It is how a picture
+  dropped from the Mac onto a field gets there. The type comes from the
+  leading bytes as on `/api/media`: PNG, JPEG, GIF, WebP or HEIC, anything
+  else (a video included) 400; over 50 MiB 413; a missing or non-integer
+  x or y 400. iOS simulators only; every other target is 501 with
+  `code:"unsupported"`. The image is set on the simulator's pasteboard, the
+  point is tapped twice to raise the edit menu, and its Paste is tapped;
+  when no Paste appears, after one long press too, it is 422 with
+  `code:"noPaste"`: the point is not a field that takes an image, and a
+  client falls back to `/api/media`. The field's value is read before and
+  after Paste; when it has not changed 1.5s later the menu is raised again
+  and Paste tapped once more, and a second miss is 422 with
+  `code:"pasteFailed"`. A field that exposes no value is taken on trust. A
+  simcap whose `-caps` lacks `pasteboardimage` is 501 with
+  `code:"simcapOutdated"` before anything is tapped; `make simcap` fixes
+  it. It is input: claims, hands-off and the human hold apply as to a tap,
+  and `X-Loupe-Viewer` makes it a person's. Viewers see it as an agent's
+  tap: the cursor moves to x, y first, and a `tap` event there follows,
+  with `err` when it failed. Traced as `kind:"agent"`, `action:"drop"`,
+  with the caller, `x`, `y`, `ext`, `bytes`, `longPressed`, `retried`,
+  `verified`, `published` (a session was there to see it), `tookMs` and
+  `outcome`; never the image. MCP tool `drop` takes a path on disk.
+  The mechanism and its gotchas are under Clipboard in `docs/targets.md`.
 - `POST /api/camera?target=<id>` points the device's back camera at the
   request body, a PNG or JPEG, raw; `DELETE` gives the camera back. Both
   answer 200 `{target, ok, applies, tookMs}`, POST with the image's `width`

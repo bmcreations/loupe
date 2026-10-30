@@ -1611,6 +1611,33 @@ Section names such as Device frames or Adaptive bitrate refer to
     `minWindowFrameRate` did not catch it: the suppressed frames count as
     produced, so the burst lifted the window to 8.4fps.
 
+58. **`openURL` on a simulator opens Safari for a universal link an
+    installed app claims.** The simulator log reads "CoreSimulatorBridge:
+    Opening URL (…) with com.apple.mobilesafari": `simctl openurl` never
+    checks universal links. `Simulator.OpenURL` now works out the claiming
+    app itself and opens it with the `simopen` helper (`docs/ios.md`,
+    "Universal links on a simulator"); the trace's `started` names that
+    app. If an https URL reaches Safari again without `started`, the
+    lookup found nothing or the helper failed: the server log names which,
+    with the URL cut to its host. Do not try to ask iOS instead:
+    `LSAppLink getAppLinksWithURL:` from a spawned process returns no
+    links, because swcd's XPC is invalidated for it, and `openURL:` through
+    `LSApplicationWorkspace` still picks Safari. A helper without the
+    `launchapplications` entitlements in `__TEXT,__entitlements` gets
+    "Request is not trusted" from FrontBoard.
+
+59. **`/api/media` on a slim simulator fails with "Multiple errors were
+    returned; see stderr".** simslim's list disables `com.apple.assetsd`,
+    which serves `com.apple.photos.service`, so `simctl addmedia` gets
+    PHPhotosErrorDomain 3301 and the simulator log reads "PhotoKit XPC
+    proxy is invalid … Connection init failed at lookup". loupe's list
+    leaves assetsd out, and a slim boot re-enables any label an older list
+    disabled and this one dropped. A simulator already booted heals at its
+    next boot, or now with `simctl spawn <udid> launchctl enable
+    system/com.apple.assetsd` then `launchctl bootstrap system
+    <runtimeRoot>/System/Library/LaunchDaemons/com.apple.assetsd.plist`.
+    The error now carries simctl's "Failed to import" line, not the last.
+
 ## Open observation: a 4.87s held sample in a Pixel_10 recording
 
 Not a numbered trap: the cause is not known. A recording of Pixel_10 from

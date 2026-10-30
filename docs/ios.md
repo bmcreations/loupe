@@ -61,6 +61,9 @@ memory setting, not a smoothness one.
   or booted from Xcode, keeps whatever it last booted with. The file survives
   `simctl erase`, not `simctl clone`.
 - iOS 18.5 and newer read it. Older runtimes are left alone.
+- `com.apple.assetsd` stays on though simslim disables it: it is the Photos
+  library, and `/api/media` needs it (traps.md, 59). A slim boot re-enables a
+  label loupe disabled before and no longer lists.
 - `loupe-slim.txt` beside it lists the labels loupe disabled. Turning the
   setting off enables only those at the next boot, so overrides set another
   way, simslim's included, stay. With the setting off and no marker, loupe
@@ -230,6 +233,54 @@ using it, and the viewer asks before sending
 `/api/input {"action":"reclaim"}`. Each reclaim is traced as
 `kind:"agent"`, `action:"reclaimed"`, with `tookMs` and `reopened`, so a
 ten-second press has its reason beside it.
+
+**Universal links on a simulator go to the app that claims them.**
+`simctl openurl` hands every https URL to Safari: the simulator log reads
+"CoreSimulatorBridge: Opening URL (…) with com.apple.mobilesafari" even for
+a link an installed app claims. iOS decides that in swcd, and a process
+spawned with `simctl spawn` cannot ask it: `LSAppLink getAppLinksWithURL:`
+returns no links, since swcd's XPC is invalidated for it, private
+`com.apple.private.swc.*` entitlements or not, and `LSApplicationWorkspace
+openURL:withOptions:error:` still opens Safari. So loupe works the claim
+out itself (`internal/target/universallink.go`):
+
+- `simctl listapps` names the user-installed apps. Each one's entitlements
+  are read from its main executable's `__TEXT,__entitlements` section,
+  where a simulator build keeps them; its code signature holds none. An app
+  whose `com.apple.developer.associated-domains` has `applinks:<host>`, or
+  `applinks:*.<domain>` for a subdomain, is a candidate. A `?mode=` suffix
+  is ignored.
+- The host's apple-app-site-association comes from Apple's CDN,
+  `https://app-site-association.cdn-apple.com/a/v1/<host>`, where iOS gets
+  it, then `https://<host>/.well-known/apple-app-site-association`. It is
+  cached five minutes, a failure thirty seconds.
+- The file is read for the app's `application-identifier`: `components`
+  (`/`, `?`, `#`, `exclude`, `caseSensitive`; `*` matches any run,
+  slashes included, `?` one character; first match wins) and the older
+  `paths`, with `NOT `.
+
+The app found gets the URL from `simopen`
+(`internal/target/simopen/simopen.m`), built once per source and SDK into
+the camera cache dir and run with `simctl spawn <udid> simopen <url>
+<bundle>`. It makes an `NSUserActivity` of type
+`NSUserActivityTypeBrowsingWeb` with `webpageURL` set and passes it to
+`-[LSApplicationWorkspace
+openUserActivity:usingApplicationRecord:configuration:completionHandler:]`,
+which is how the app gets a tapped universal link. FrontBoard answers
+"Request is not trusted" unless the binary carries
+`com.apple.frontboard.launchapplications` and
+`com.apple.springboard.launchapplications`, embedded with `-sectcreate
+__TEXT __entitlements` and signed ad hoc. The helper prints an error's
+domain and code, never the URL or an `NSError` description, which can
+quote it.
+
+Nothing claiming the URL, a file that cannot be fetched, or a helper that
+fails all fall back to `simctl openurl`. On the Flipcash simulator through
+a spare server, `https://app.flipcash.com/chat/<id>` brought Flipcash to
+the front in 0.54s (4.9s the first time, which built the helper), and
+SpringBoard logged the open request as coming from `simopen`;
+`/blog`, which the file excludes, went to Safari in 0.33s, and
+`flipcash://open` to Flipcash in 0.15s through simctl.
 
 **The phone's keyboard replaces the simulator's through a hardware keyboard.**
 Typing HID keys does not hide the on-screen keyboard: with "ab" typed into

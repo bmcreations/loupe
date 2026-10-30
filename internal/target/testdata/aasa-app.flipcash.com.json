@@ -1,0 +1,285 @@
+{
+ "applinks": {
+  "apps": [],
+  "details": [
+   {
+    "appIDs": [
+     "SC677X4LH6.com.flipcash.ios",
+     "SC677X4LH6.com.flipcash.app.ios"
+    ],
+    "components": [
+     {
+      "/": "/login",
+      "#": "/e=?*",
+      "comment": "Support for login"
+     },
+     {
+      "/": "/cash/*",
+      "comment": "Support for sends"
+     },
+     {
+      "/": "/c/*",
+      "comment": "Support for sends"
+     },
+     {
+      "/": "/pool/*",
+      "comment": "Support for pools"
+     },
+     {
+      "/": "/p/*",
+      "comment": "Support for pools"
+     },
+     {
+      "/": "/verify/*",
+      "comment": "Support for email verification"
+     },
+     {
+      "/": "/wallet/*",
+      "comment": "Support for wallet connections"
+     },
+     {
+      "/": "/token/*",
+      "comment": "Support for currency info screens"
+     },
+     {
+      "/": "/chat/invite",
+      "#": "?*",
+      "comment": "Support for group invite links"
+     },
+     {
+      "/": "/chat/invite",
+      "exclude": true,
+      "caseSensitive": false,
+      "comment": "An invite link without its secret"
+     },
+     {
+      "/": "/chat/*",
+      "comment": "Support for chats"
+     },
+     {
+      "/": "/tip/*",
+      "comment": "Support for tips"
+     },
+     {
+      "/": "/",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/app",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/app/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/api",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/api/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/assets",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/assets/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/fonts",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/fonts/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/icons",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/icons/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/js",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/js/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/.well-known",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/.well-known/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/favicon.ico",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/robots.txt",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/sitemap.xml",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/*/metadata.json",
+      "exclude": true,
+      "caseSensitive": false,
+      "comment": "Blockchain mint metadata"
+     },
+     {
+      "/": "/v1/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/1/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/_/*",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/1",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/_",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/c",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/cash",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/chat",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/invite",
+      "exclude": true,
+      "caseSensitive": false,
+      "comment": "Where invite links used to live; reserved, so not a username"
+     },
+     {
+      "/": "/p",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/pool",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/tip",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/token",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/v1",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/verify",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/wallet",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/blog",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/currencycreator",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/download",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/privacy",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/support",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/terms",
+      "exclude": true,
+      "caseSensitive": false
+     },
+     {
+      "/": "/*",
+      "caseSensitive": false,
+      "comment": "Support for tips by username or user ID"
+     }
+    ]
+   }
+  ]
+ },
+ "webcredentials": {
+  "apps": [
+   "SC677X4LH6.com.flipcash.ios",
+   "SC677X4LH6.com.flipcash.app.ios"
+  ]
+ }
+}

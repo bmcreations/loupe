@@ -43,6 +43,7 @@ not have.
 | `crash` | `crash` | target id |
 | `install` | `install` | target path... |
 | `camera` | `camera` | target path |
+| `drop` | `drop` | target x y path |
 | `boot`, `release` | `boot`, `release` | target |
 | `flags` | `flags` | |
 | `flag` | `flag` | id |

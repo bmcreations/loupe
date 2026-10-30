@@ -18,7 +18,9 @@ import (
 // this" on that route.
 type URLOpener interface {
 	// OpenURL opens u. The result's Activity is the component Android
-	// reports as started, and empty on a simulator, which does not say.
+	// reports as started; on a simulator it is the bundle ID of the app
+	// that took a universal link, and empty otherwise, since simctl does
+	// not say.
 	OpenURL(ctx context.Context, u string) (*LaunchResult, error)
 
 	// CheckURL is OpenURL's check alone, with no I/O, so a malformed URL
@@ -144,10 +146,16 @@ func openURLAndroid(ctx context.Context, sh shellFunc, u string) (*LaunchResult,
 }
 
 // OpenURL opens u with `simctl openurl`. It gets u as its own exec
-// argument, with no shell between.
+// argument, with no shell between. simctl gives every https URL to
+// Safari, so an http or https URL an installed app claims as a universal
+// link goes to that app through the simopen helper first, and the result
+// names it. See openUniversalLink.
 func (s *Simulator) OpenURL(ctx context.Context, u string) (*LaunchResult, error) {
 	if err := CheckURL(u); err != nil {
 		return nil, err
+	}
+	if bundle, ok := s.openUniversalLink(ctx, u); ok {
+		return &LaunchResult{Activity: bundle}, nil
 	}
 	out, err := exec.CommandContext(ctx, "xcrun", "simctl", "openurl", s.UDID(), u).CombinedOutput()
 	if err != nil {

@@ -95,7 +95,7 @@ func (s *Simulator) AddMedia(ctx context.Context, path, name string, kind MediaK
 		if msg == "" {
 			return fmt.Errorf("simctl addmedia: %w", err)
 		}
-		return fmt.Errorf("simctl addmedia: %w: %s", err, lastLine(msg))
+		return fmt.Errorf("simctl addmedia: %w: %s", err, addMediaReason(msg))
 	}
 	return nil
 }
@@ -117,3 +117,18 @@ var (
 	_ MediaAdder = (*Simulator)(nil)
 	_ MediaAdder = (*Emulator)(nil)
 )
+
+// addMediaReason picks simctl addmedia's own failure line. Its last line is
+// CoreSimulator's "Multiple errors were returned; see stderr", which says
+// nothing; the "Failed to import" line above it carries the Photos error.
+func addMediaReason(out string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, "Failed to import") {
+			if i := strings.Index(l, "error "); i >= 0 {
+				return l[i+len("error "):]
+			}
+			return l
+		}
+	}
+	return lastLine(out)
+}

@@ -267,6 +267,7 @@ var routes = []route{
 	{"/api/record/", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRecordItem, ""},
 	{"/api/install", []string{http.MethodPost}, (*Server).handleInstall, ""},
 	{"/api/media", []string{http.MethodPost}, (*Server).handleMedia, ""},
+	{"/api/drop", []string{http.MethodPost}, (*Server).handleDrop, ""},
 	{"/api/camera", []string{http.MethodPost, http.MethodDelete}, (*Server).handleCamera, ""},
 	{"/api/logcat", []string{http.MethodGet}, (*Server).handleLogcat, ""},
 	{"/api/crashes", []string{http.MethodGet}, (*Server).handleCrashes, ""},

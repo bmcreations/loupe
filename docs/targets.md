@@ -507,6 +507,33 @@ another process put on the pasteboard, and Home Screen Search refused a
 Cmd+V with "Paste requires user authorization". Typing needs no permission,
 so text with a character that has no key fails before anything is sent.
 
+**An image is pasted through the edit menu** (`POST /api/drop`). simcap's
+`pbsetimg <base64 path>` writes the file as an NSImage to a private
+NSPasteboard, which AppKit stores as TIFF, and sets that snapshot on
+`com.apple.UIKit.pboard.general`; the bytes stay in the file, not on the
+input line. The server then taps the point to focus the field, taps it again
+700ms later (sooner is a double tap, which selects a word), and polls the
+tree for a node with text `Paste` for 1.5s; with none it long-presses 800ms
+and polls again. Paste is tapped once two reads 150ms apart agree on where it
+is: the menu moves after it appears, and on `dev.spike.target` its Paste was
+read at 165,569 and then at 195,516. The field (the focused node, else the
+deepest node under the point) is read from the tree Paste was found in and
+polled for 1.5s after the tap; a changed value (an image adds U+FFFC) is
+`verified:true`. An unchanged one raises the menu again, long-pressing if it
+is gone, and taps Paste once more; a second miss is `pasteFailed`. A field
+with no value either side is taken on trust, `verified:false`. The edit
+menu's Paste is a secure control and puts up no "Allow Paste"; Cmd+V would. Gotchas: CoreDevice's pasteboard calls time out
+after 5s when made on the main thread, so simcap makes them off it with
+`dispatchMain()` on main; and the change watch sees an image as an empty
+text change, so the server marks `""` as its own set and the viewer is not
+offered it as a copy. On `dev.spike.target` a 300x300 PNG went into its
+TextArea, verified, in 2527ms, and a drop on its static label answered
+`noPaste` after the long press, in 5010ms. For 1.2-2.5s after `simctl
+launch` the app's tree answers "has no frame", and taps sent then are lost,
+so a drop waits up to 5s for the tree to read before its first tap. Straight
+after a launch, four of five drops went in after the long press in 4.2-4.9s
+and one answered `noPaste`, nothing pasted.
+
 **Safari reaches the clipboard only inside a tap.** The offer is a banner to
 tap, not a silent copy, and "Copy from device" writes a `ClipboardItem` from
 a promise, the form Safari accepts after an await. "Paste to device" calls
