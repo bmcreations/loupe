@@ -224,6 +224,11 @@ type IOSDevice struct {
 	// runner is its connection, made on the first touch below iOS 27.
 	xcrunner string
 	runner   *xcRunner
+
+	// cams is what loupe knows about each app it gave the camera shim, by
+	// bundle ID. Guarded by camMu.
+	camMu sync.Mutex
+	cams  map[string]*phoneCam
 }
 
 // NewIOSDevice returns a target for info.
@@ -362,6 +367,12 @@ func (d *IOSDevice) Describe(context.Context) (Description, error) {
 func (d *IOSDevice) Launch(ctx context.Context, bundle, activity string) (*LaunchResult, error) {
 	if err := d.CheckLaunch(bundle, activity); err != nil {
 		return nil, err
+	}
+	if handled, err := d.cameraLaunch(ctx, bundle); handled {
+		if err != nil {
+			return nil, err
+		}
+		return &LaunchResult{}, nil
 	}
 	out, err := exec.CommandContext(ctx, "xcrun", "devicectl", "device", "process", "launch",
 		"--device", d.device(), bundle).CombinedOutput()

@@ -270,6 +270,7 @@ func (e *Emulator) ensureBooted(ctx context.Context) (*ADBTarget, error) {
 	if wipe {
 		args = append(args, "-wipe-data")
 	}
+	args = append(args, emulatorCameraArgs(e.cfg.AVD)...)
 	cmd := exec.Command(e.cfg.EmulatorPath, args...)
 	// The emulator's output is the only place it says whether the snapshot
 	// loaded. A file, not a pipe: the emulator outlives this process, and a

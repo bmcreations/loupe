@@ -454,6 +454,9 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		// retry; agentTimeout would end it with a bare context error first.
 		timeout = max(timeout, target.IOSInputDeadline())
 	}
+	if lb, ok := t.(target.LaunchBudgeter); ok && req.Action == "launch" {
+		timeout = max(timeout, lb.LaunchBudget())
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	// An Actuator method takes only a context, so a peer target reads who is
@@ -1264,7 +1267,11 @@ func (s *Server) launchInstalled(r *http.Request, t target.Target, pkg, pkgErr s
 		out.Error, out.Code, out.RetryAfterMs = refused.Error, refused.Code, refused.RetryAfterMs
 		return out
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), launchTimeout)
+	timeout := launchTimeout
+	if lb, ok := t.(target.LaunchBudgeter); ok {
+		timeout = max(timeout, lb.LaunchBudget())
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	res, err := ln.Launch(ctx, pkg, "")
 	s.traceInputWith(r, t.ID(), "launch", c, err, launchTrace(pkg, "", res, began))
@@ -1618,6 +1625,8 @@ func launchErrCode(err error) (code string, status int, ok bool) {
 		return ErrCodeNoSuchActivity, http.StatusNotFound, true
 	case errors.Is(err, target.ErrNoURLHandler):
 		return ErrCodeNoURLHandler, http.StatusUnprocessableEntity, true
+	case errors.Is(err, target.ErrNotDevSigned), errors.Is(err, target.ErrShimNotLoaded):
+		return ErrCodeNoCameraShim, http.StatusUnprocessableEntity, true
 	}
 	return "", 0, false
 }

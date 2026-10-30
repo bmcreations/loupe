@@ -86,7 +86,10 @@ curl -H "Authorization: Bearer $(cat ~/Library/Caches/loupe/token)" \
 ```
 
 `/api/ui` returns the accessibility tree with a precomputed `center` for each
-node, and `/api/input` taps and types in the same device pixels. `loupe mcp`
+node, and `/api/input` taps and types in the same device pixels.
+`POST /api/camera` points an AVD's, iOS simulator's or physical iPhone's back
+camera at a PNG or JPEG (on an iPhone, development-signed apps only), so a scanner can be tested without holding a phone up to a screen;
+`DELETE` gives the camera back. `loupe mcp`
 exposes the same routes as an MCP server on stdio. `docs/agent-api.md` lists
 every route, and how claims stop an agent and a person fighting over one
 screen.

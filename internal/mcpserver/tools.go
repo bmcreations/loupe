@@ -47,6 +47,7 @@ var toolRoutes = []toolRoute{
 	{"crashes", http.MethodGet, "/api/crashes"},
 	{"crash", http.MethodGet, "/api/crashes/"},
 	{"install", http.MethodPost, "/api/install"},
+	{"camera", http.MethodPost, "/api/camera"},
 	{"boot", http.MethodPost, "/api/devices/boot"},
 	{"release", http.MethodDelete, "/api/claims"},
 	{"flags", http.MethodGet, "/api/flags"},
@@ -129,6 +130,12 @@ type installIn struct {
 	Paths     []string `json:"paths" jsonschema:"APK files on the Mac running loupe mcp: one APK, or a base and its splits"`
 	AllowTest bool     `json:"allowTest,omitempty" jsonschema:"allow an APK marked testOnly, as Android Studio's Run builds are"`
 	Launch    bool     `json:"launch,omitempty" jsonschema:"open the app once it is installed"`
+}
+
+type cameraIn struct {
+	Targeted
+	Path  string `json:"path,omitempty" jsonschema:"a PNG or JPEG on the Mac running loupe mcp"`
+	Clear bool   `json:"clear,omitempty" jsonschema:"give the camera back instead of setting an image"`
 }
 
 // addTools registers every tool in toolRoutes on s.
@@ -273,6 +280,26 @@ func addTools(s *mcp.Server, c *Client) {
 		}
 		q.Set("launch", "1")
 		return jsonResult(c.drive(ctx, in.Target, send))
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "camera",
+		Description: "Point an AVD's, iOS simulator's or physical iPhone's back camera at a PNG or JPEG read from this Mac's disk, or give the camera back with clear. On an iPhone only development-signed apps signed by a team this Mac has an Apple Development identity for can take it. The answer's applies says when an app sees it: cameraOpen (AVD, next time an app opens the camera), boot (AVD, after it is booted again through loupe), live (iOS app already running with loupe's camera shim), launch (iOS, after the app is launched through loupe, which relaunches it).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in cameraIn) (*mcp.CallToolResult, any, error) {
+		q := url.Values{"target": {in.Target}}
+		if in.Clear {
+			b, _, err := c.do(ctx, http.MethodDelete, "/api/camera", q, "", nil)
+			return jsonResult(b, err)
+		}
+		if in.Path == "" {
+			return errResult(fmt.Errorf("path: an image, or clear")), nil, nil
+		}
+		body, err := os.ReadFile(in.Path)
+		if err != nil {
+			return errResult(err), nil, nil
+		}
+		b, _, err := c.do(ctx, http.MethodPost, "/api/camera", q, "application/octet-stream", bytes.NewReader(body))
+		return jsonResult(b, err)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
