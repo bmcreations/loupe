@@ -119,6 +119,14 @@ const (
 	// encoder; a healthy run reads 0.
 	starvedAwaitFraction = 0.50
 
+	// The starved and undercarried gates also need their waits spread over
+	// time: the share of the window's active time that held a wait must
+	// reach the same fraction as the frame share. At a steady frame rate the
+	// two agree. On a near-idle screen they do not, because a burst of
+	// frames behind one late keyframe outnumbers the trickle around it. The
+	// Flipcash simulator on 30 October read awaitFrac 0.62 at 2fps with the
+	// waits in 2 of 11 seconds, and the starved gate cut 4 Mbps to 256 kbps.
+
 	// undercarriedGoodputFraction and undercarriedAwaitFraction mark the gap
 	// between the shed and starved gates: a link carrying under half of what
 	// the encoder is set to, while the viewer waits on keyframes for a
@@ -264,7 +272,9 @@ type BitrateReport struct {
 	// is measured over this, not over WindowMs: the two diverge exactly when
 	// the screen goes idle, which is when the difference costs the most.
 	ActiveMs int64
-	Changes  int
+	// AwaitMs is how much of ActiveMs held a keyframe wait.
+	AwaitMs int64
+	Changes int
 	// Live is set when the change was applied to the running encoder rather
 	// than by relaunching it.
 	Live bool
@@ -300,6 +310,8 @@ type BitrateAdapter struct {
 	// produces nothing for as long as nobody touches it (trap 20).
 	lastSample time.Time
 	active     time.Duration
+	// awaiting is how much of active held a keyframe wait.
+	awaiting time.Duration
 }
 
 // NewBitrateAdapter returns an adapter that will never exceed configured, for
@@ -337,6 +349,9 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	if s.Frames > 0 && !a.lastSample.IsZero() {
 		if dt := now.Sub(a.lastSample); dt > 0 {
 			a.active += dt
+			if s.AwaitKey > 0 {
+				a.awaiting += dt
+			}
 		}
 	}
 	a.lastSample = now
@@ -371,7 +386,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	shedFrac := float64(a.acc.Shed) / float64(a.acc.Frames)
 	awaitFrac := float64(a.acc.AwaitKey) / float64(a.acc.Frames)
 
-	if awaitFrac >= starvedAwaitFraction {
+	if awaitFrac >= starvedAwaitFraction && a.awaitTimeFrac() >= starvedAwaitFraction {
 		// Aim at the measured goodput, with a halving as the ceiling on the
 		// step rather than the step itself.
 		//
@@ -426,7 +441,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 		return a.commit(now, next, GateDown)
 	}
 
-	if awaitFrac >= undercarriedAwaitFraction {
+	if awaitFrac >= undercarriedAwaitFraction && a.awaitTimeFrac() >= undercarriedAwaitFraction {
 		if goodput := a.goodput(); goodput > 0 &&
 			float64(goodput) < float64(a.current)*undercarriedGoodputFraction {
 			// Aim at what the link carried, as the other two gates do. It is
@@ -478,6 +493,7 @@ func (a *BitrateAdapter) report(now time.Time, gate BitrateGate) BitrateReport {
 		rep.AwaitFrac = float64(rep.AwaitKey) / float64(rep.Frames)
 	}
 	rep.ActiveMs = a.active.Milliseconds()
+	rep.AwaitMs = a.awaiting.Milliseconds()
 	rep.GoodputBps = a.goodput()
 	return rep
 }
@@ -536,7 +552,16 @@ func (a *BitrateAdapter) reset(now time.Time) {
 	a.windowStart = now
 	a.lastSample = now
 	a.active = 0
+	a.awaiting = 0
 	a.acc = BitrateSample{}
+}
+
+// awaitTimeFrac is the share of active time that held a keyframe wait.
+func (a *BitrateAdapter) awaitTimeFrac() float64 {
+	if a.active <= 0 {
+		return 0
+	}
+	return a.awaiting.Seconds() / a.active.Seconds()
 }
 
 // goodput is the rate the link carried over the time the encoder was producing,
