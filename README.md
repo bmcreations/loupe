@@ -54,6 +54,8 @@ targets already need: adb, the Android emulator, Xcode.
   after the composable that drew it, with its source line.
 - `loupe mcp` serves the same routes as MCP tools, so an agent such as
   Claude Code needs no curl.
+- The same tools are shell commands: `loupe tap avd:Pixel_10 540 1200`,
+  `loupe screenshot <target> -o shot.png`. See [docs/cli.md](docs/cli.md).
 - An agent claims a device before it drives it. Your own input holds
   agents off, and you can mark a device hands off entirely. Viewers see the
   agent's cursor before it taps.
@@ -135,6 +137,7 @@ work since has been on the transport.
 | [targets.md](docs/targets.md) | AVDs, Android devices, the phone keyboard, the clipboard, device frames |
 | [ios.md](docs/ios.md) | iOS simulators, and physical iPhones in preview |
 | [agent-api.md](docs/agent-api.md) | Every `/api/*` route, claims and the human hold |
+| [cli.md](docs/cli.md) | `loupe tap`, `loupe ui` and the other commands |
 | [mcp.md](docs/mcp.md) | `loupe mcp` and pushing flags into Claude Code |
 | [security.md](docs/security.md) | The token, TLS, pairing and sessions |
 | [traps.md](docs/traps.md) | Search it for the symptom you see before debugging |

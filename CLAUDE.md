@@ -29,6 +29,7 @@ Read the doc before touching its area. None of these load automatically.
 - `docs/running.md`: every flag, the stats overlay, tests.
 - `docs/agent-api.md`: every device route under `/api/*`, claims and the
   human hold.
+- `docs/cli.md`: `loupe <command>`, the MCP tools as shell commands.
 - `docs/mcp.md`: `loupe mcp`, its tools, flags pushed over channels.
 - `docs/flags.md`: flags, watches, interrupts, T3 Code and other destinations.
 - `docs/recording.md`: `/api/record` and the MP4 writer.
