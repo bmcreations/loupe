@@ -37,7 +37,12 @@ The top-level `README.md` says what loupe does. Start with
 | [architecture.md](architecture.md) | Package layout, transports, deployment under launchd, auth, configuration, adaptive bitrate, telemetry, known gaps |
 | [protocol.md](protocol.md) | The session wire protocol between the server and its viewers |
 | [remote-targets.md](remote-targets.md) | Streaming targets attached to another machine; peer servers are built |
-| [traps.md](traps.md) | Every trap already hit, symptom first. Search it for the symptom you see |
+
+## Working on loupe
+
+| Doc | What's in it |
+| --- | --- |
+| [internals/traps.md](internals/traps.md) | Problems hit while building loupe and what the code does about each, symptom first. Code comments cite them by number |
 
 ## Design notes
 

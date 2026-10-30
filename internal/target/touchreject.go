@@ -9,7 +9,7 @@ import (
 
 // ErrTouchRejected is a touch `input` sent and Android's input dispatcher
 // threw away. `input` exits 0 regardless, so without reading the log a tap
-// that did nothing reads as one that landed (docs/traps.md, trap 50).
+// that did nothing reads as one that landed (docs/internals/traps.md, trap 50).
 var ErrTouchRejected = errors.New("the device rejected the touch")
 
 // touchLogMarker separates `input`'s own output from the log read after it.

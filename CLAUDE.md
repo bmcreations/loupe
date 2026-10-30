@@ -35,7 +35,7 @@ Read the doc before touching its area. None of these load automatically.
 - `docs/security.md`: what auth guarantees and doesn't, pairing and sessions.
 - `docs/getting-started.md`: the walkthrough from a clone to a phone,
   the service and an agent.
-- `docs/traps.md`: the traps list, symptom first. Grep it for the symptom you see,
+- `docs/internals/traps.md`: the traps list, symptom first. Grep it for the symptom you see,
   and read the entry before changing code a trap names.
 - `docs/protocol.md`: session wire protocol.
 - `docs/extensions.md`: the v0 contract for extensions: registering, the

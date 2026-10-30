@@ -38,7 +38,7 @@ const ErrCodeHubHeld = "hubHeld"
 
 // ErrCodeTouchRejected is POST /api/input's 409 when a tap or swipe reached
 // the device and Android's input dispatcher threw it away, usually because a
-// pointer is stuck down (docs/traps.md, trap 50). The error carries the
+// pointer is stuck down (docs/internals/traps.md, trap 50). The error carries the
 // dispatcher's reason. Nothing moved on the screen.
 const ErrCodeTouchRejected = "touchRejected"
 
