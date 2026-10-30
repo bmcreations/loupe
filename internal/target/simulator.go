@@ -142,6 +142,12 @@ type Simulator struct {
 	// pbSet is the text a viewer last set on the pasteboard, so the watcher
 	// does not hand it straight back to them as a copy on the simulator.
 	pbSet atomic.Pointer[string]
+
+	// shimmed is the pid of each app this server launched with the camera
+	// shim, by bundle ID, so a launch only relaunches an app that does not
+	// have it. Guarded by shimMu.
+	shimMu  sync.Mutex
+	shimmed map[string]int
 }
 
 // NewSimulator returns a target for info, streamed by the simcap binary at

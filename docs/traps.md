@@ -1558,6 +1558,27 @@ refer to `docs/architecture.md`, `docs/targets.md`, `docs/ios.md`,
     Claude Code itself: if its tools vanish from `/mcp`, the cap broke
     negotiation, so revert it and document the env var instead.
 
+55. **An AVD that booted from `loupe-warm` in 3s cold-boots once after a
+    camera image is set or cleared.** The snapshot records
+    `hw.camera.back`, and the emulator refuses one saved under another
+    camera ("The emulator hardware cannot load snapshot: loupe-warm"). The
+    flag `/api/camera` adds or drops changes it, so the first boot after is
+    cold, 14 to 15s on `loupe_camera`, and loupe saves `loupe-warm` again
+    after it; the boot after that is warm. A new image at the same path does
+    not count. Don't pass the flag on every boot to avoid this: an AVD with
+    no image staged would lose its own camera.
+
+56. **An AVD's camera shows the left part of the injected image, and a
+    centered code sits on the frame's right edge or off it.** That is the
+    emulator's `imagefile` camera with the back sensor at 90 degrees: it
+    center-crops to the sensor's 4:3, then the app gets only the left 3:4
+    of that crop. A 1920x1080 grid showed x 240-1050; a 1080x1920 one x
+    0-610. `emulatorCameraImage` (`internal/target/camera_emulator.go`)
+    stages the image fitted into that left 3:4 of a 1280x960 canvas
+    instead. If an image looks off center again, post a labeled grid and
+    read which cells show before changing the layout; an AVD whose
+    `hw.camera.back.orientation` is not 90 is staged as sent.
+
 ## Open observation: a 4.87s held sample in a Pixel_10 recording
 
 Not a numbered trap: the cause is not known. A recording of Pixel_10 from

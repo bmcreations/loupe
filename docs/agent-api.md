@@ -77,7 +77,11 @@ human watches the same session.
   error for a missing bundle names no cause, so a failed launch asks
   `simctl get_app_container`, which exits 2 for an app that is not there,
   and answers 404 `notInstalled` as Android does. Any other exit leaves
-  the launch's own error, a 502.
+  the launch's own error, a 502. With a camera image staged (see
+  `/api/camera`), a phone app the camera shim did not load into (not
+  development-signed, or no local identity for its team) is 422
+  `noCameraShim`, and a shim that could not be built or signed is the
+  502, its error starting "camera shim:".
 
   `openURL` (`{"url": ...}`) hands a URL to whatever the device has
   registered for it: a deep link, a universal link or an https page. On
@@ -189,6 +193,139 @@ human watches the same session.
   dispatched in the built-in browser against a throwaway simulator lit the
   outline and answered "Added to Photos" in 914ms; a real drag from Finder
   has not been tried.
+- `POST /api/camera?target=<id>` points the device's back camera at the
+  request body, a PNG or JPEG, raw; `DELETE` gives the camera back. Both
+  answer 200 `{target, ok, applies, tookMs}`, POST with the image's `width`
+  and `height` too, and `applies` says when an app sees it. AVDs, iOS simulators and
+  physical iPhones; Android devices, `emulator-` serials and synthetic
+  answer 501. Anything that is not a PNG
+  or JPEG, or is over 8192px a side, is 400; over 32 MiB is 413. The image
+  is staged as PNG under `~/Library/Caches/loupe/camera/`, one per target,
+  and a JPEG is re-encoded: the emulator reads the file's type from its
+  extension, and JPEG bytes in a `.png` showed its magenta error frame. Not
+  arbitrated, as `/api/media` is not. Traced as `kind:"agent"`,
+  `action:"camera"` with `method`, `applies`, `width`, `height` and `outcome`.
+
+  **AVDs.** The emulator only takes an image as a boot flag,
+  `-camera-back imagefile:<path>`; the console (`virtualscene-image` swaps a
+  poster in the 3D scene, not the frame) and the gRPC API have nothing that
+  replaces the frame on a running emulator. So loupe passes the flag on any
+  boot it starts while an image is staged, and the emulator reads the file
+  each time an app opens the camera. `applies` is `cameraOpen` when the
+  running emulator has the flag: a preview already showing keeps the old
+  image until the app closes and reopens the camera (Home, then launch).
+  It is `boot` when it does not, or is not running: shut it down and boot
+  it through loupe. A short image sequence is one POST and one camera
+  reopen per image. `DELETE` on an AVD running with the flag stages black,
+  since a missing file is the magenta error frame, and the next boot drops
+  the flag. A snapshot saved with the flag does not load without it, and
+  the reverse ("The emulator hardware cannot load snapshot: loupe-warm"),
+  so turning the camera image on or off costs one cold boot, 14 to 15s on
+  `loupe_camera` against 3.4s from the snapshot; loupe saves `loupe-warm`
+  again after it, and a new image at the same path loads warm. Left to
+  itself the emulator shows the image off center: with the back sensor at
+  90 degrees (the default, and every AVD here) it center-crops to the
+  sensor's 4:3, then gives the app only the left 3:4 of that crop. A
+  1920x1080 grid showed x 240-1050 and nothing right of center; Flipcash's
+  Scan tab showed the left half of an image. So loupe stages a 1280x960
+  canvas with the image fitted whole into its left 3:4 on white, and the
+  app sees the whole image, centered and upright (stock camera and Flipcash
+  on `Pixel_7a_API_36`, emulator 37.2.12). Other `hw.camera.back.orientation`
+  values are staged as sent, unmeasured. On `loupe_camera`
+  (Pixel 6, API 36) a QR, then a swap and a clear, each showed in the
+  stock camera app after a reopen.
+
+  **iOS simulators.** The simulator has no camera: `AVCaptureDevice`
+  answers nil for every type, simctl has no camera verb, and neither
+  Simulator.app nor CoreSimulator carries a camera backend (Xcode 27.1).
+  Loupe builds a shim (`internal/target/loupecam/loupecam.m`) with `xcrun
+  clang` on the first POST, in about 4s, and from then on `launch` (the
+  `/api/input` action and the MCP tool) starts the app with it in
+  `DYLD_INSERT_LIBRARIES` and the staged file in `LOUPE_CAMERA_FILE`,
+  **relaunching it** if it is running without them. A launch of an app
+  that already has the shim only brings it to the front. The shim answers
+  one back camera; keeps `AVCaptureSession`'s inputs, outputs and running
+  state itself; hands every `AVCaptureVideoDataOutput` delegate the image
+  30 times a second in the format its `videoSettings` ask for (420v by
+  default, 420f or BGRA); reports QR codes found by CIDetector to an
+  `AVCaptureMetadataOutput`; and draws the image in each
+  `AVCaptureVideoPreviewLayer` with its `videoGravity`. It polls the file
+  four times a second, so `applies` is `live` while an app this server
+  launched with it runs, and `launch` until one does. `DELETE` removes the
+  file: apps with the shim see black, and later launches are plain ones.
+  Frames are 1920x1080, `activeFormat`'s size, landscape as a back
+  camera's are: the image is held upright and fitted whole on white, so a
+  code is never cropped, as on an emulator. Known
+  differences from a phone: `videoRotationAngle` is kept but not applied;
+  QR bounds are in that landscape frame's coordinates, and the preview
+  layer's conversions are not faked; metadata is QR only, and asking for
+  another type throws as a phone does for an unsupported one; there is no
+  photo or movie output.
+  An app that needs something the shim does not fake can read
+  `LOUPE_CAMERA_FILE` itself in a debug build: when the variable names a
+  file (relative to the app's home on a phone), feed the scanner from it
+  and skip `AVCaptureDevice`. Re-read it when its modification date moves,
+  as the shim does, to follow swaps. A sketch, not exercised in any app:
+
+  ```swift
+  #if DEBUG
+  /// Frames from the image loupe stages, for a build loupe launched.
+  final class LoupeCameraFrames {
+      let url: URL
+      init?() {
+          guard let path = ProcessInfo.processInfo.environment["LOUPE_CAMERA_FILE"] else { return nil }
+          url = URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
+      }
+      /// The current image, or nil when it is cleared: treat as a covered lens.
+      func image() -> CGImage? {
+          guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+          return CGImageSourceCreateImageAtIndex(src, 0, nil)
+      }
+  }
+  #endif
+  ```
+
+  The scanner calls `image()` on a timer and hands it to the same decode
+  step its `AVCaptureVideoDataOutput` delegate feeds, converted to the
+  pixel buffer format that step expects. On a throwaway iPhone 17
+  simulator (iOS 27.1), a test app built on Flipcash's capture setup
+  (back wide camera, video data output, QR metadata output, preview layer)
+  got 420v frames, decoded the QR, and saw a swap to a 1280x960 JPEG and a
+  clear within a second, without a relaunch. After the 1920x1080 change,
+  the same through a spare server on an iPhone 17 simulator (iOS 27.0).
+
+  **Physical iPhones.** The same shim, for **development-signed** apps
+  only: dyld honours `DYLD_INSERT_LIBRARIES` in an app with
+  `get-task-allow`, the way Xcode's Main Thread Checker gets in, and
+  ignores the whole launch environment in an App Store, TestFlight or
+  enterprise build. No app code changes. On the first POST loupe builds
+  the shim for `iphoneos` and signs a copy with each Apple Development
+  identity in the keychain, one per team: dyld refuses a library signed by
+  a team other than the app's (library validation) and skips it, and a
+  missing path, without a word, so every copy goes in the insert list and
+  the matching one loads. A `launch` with an image staged then finds the
+  app's data container (devicectl does not say where it is, so loupe
+  launches the app once with `DYLD_PRINT_ENV` and reads `HOME` off the
+  console, which also closes it), copies the shims and the image into it
+  with `devicectl device copy to`, and relaunches the app with
+  `DEVICECTL_CHILD_DYLD_INSERT_LIBRARIES` and
+  `DEVICECTL_CHILD_LOUPE_CAMERA_FILE`. The shim writes the pid it loaded
+  into to `Library/Caches/loupe-camera.png.loaded`, and loupe reads it back:
+  a pid that does not match is the launch's 422 `noCameraShim`, as is an
+  app dyld takes no environment from. So the app must be signed by a team
+  this Mac has an Apple Development identity for, which is the case when
+  it was built and installed from this Mac. A later POST or DELETE copies
+  the image, or an empty file for black (devicectl cannot delete a file),
+  into each app still running with the shim, so `applies` is `live` for
+  those and `launch` otherwise. Each devicectl call is 1 to 5s: on an
+  iPhone 16 Pro (iOS 27.2) over Wi-Fi a shimmed launch with the container
+  already known took 2.7s and a swap or clear 1.0 to 1.4s; the first
+  launch of an app adds the console launch that finds its container. A
+  launch's budget is 2 minutes while an image is staged.
+  The phone must be unlocked, as for any launch. Measured there through a
+  spare server with a test app signed by a second team: the QR decoded, a
+  swap to red and a clear to black showed live, and Settings answered
+  422 `noCameraShim` in 5s.
 - `POST /api/devices/shutdown?target=<id>` stops an AVD or simulator and
   answers 200 with its `TargetInfo`; `DELETE /api/devices?target=<id>` stops it
   if running, deletes it and answers 204. The target must be an `avd:` or

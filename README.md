@@ -48,7 +48,9 @@ targets already need: adb, the Android emulator, Xcode.
 - An HTTP API covers the accessibility tree with a precomputed `center` per
   node, tap, swipe, text, keys, app launch, deep links, screenshots, APK
   install, photo and video import, logs, crash reports, and boot and
-  shutdown. On a debuggable Compose app, `/api/ui?compose=1` names each node
+  shutdown. `/api/camera` points an AVD's, simulator's or iPhone's back
+  camera at an image, so a scanner can be tested without holding a phone
+  up to a screen. On a debuggable Compose app, `/api/ui?compose=1` names each node
   after the composable that drew it, with its source line.
 - `loupe mcp` serves the same routes as MCP tools, so an agent such as
   Claude Code needs no curl.
