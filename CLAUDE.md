@@ -25,7 +25,7 @@ Read the doc before touching its area. None of these load automatically.
   gaps, environment notes.
 - `docs/targets.md`: AVDs (boot, `loupe-warm`, pause, idle shutdown, reset,
   New device), Android keyboard, clipboard, device frames.
-- `docs/ios.md`: iOS simulators (simcap, HID, CoreDevice) and physical iPhones.
+- `docs/ios.md`: iOS simulators and physical iPhones: installing simcap, what works where, limits.
 - `docs/running.md`: every flag, the stats overlay, tests.
 - `docs/agent-api.md`: every device route under `/api/*`, claims and the
   human hold.
@@ -36,8 +36,11 @@ Read the doc before touching its area. None of these load automatically.
 - `docs/security.md`: what auth guarantees and doesn't, pairing and sessions.
 - `docs/getting-started.md`: the walkthrough from a clone to a phone,
   the service and an agent.
-- `docs/internals/traps.md`: the traps list, symptom first. Grep it for the symptom you see,
-  and read the entry before changing code a trap names.
+- How it works inside, and the traps list, are private: `docs/internals/` in
+  bmcreations/loupe-private (`~/dev/loupe-private`). Its `traps.md` is
+  symptom first. Grep it for the symptom you see, and read the entry before
+  changing code a trap names. Its other files hold the mechanism and history
+  behind each public doc, one file per doc.
 - `docs/protocol.md`: session wire protocol.
 - `docs/extensions.md`: the v0 contract for extensions: registering, the
   `/api/ext` proxy, and the security model.

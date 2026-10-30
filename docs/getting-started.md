@@ -103,9 +103,11 @@ its own credential and opens full screen.
 ## 4. Run it as a service
 
 ```sh
-make agent-install   # write the LaunchAgent and start it
-make agent-status    # state, pid, last exit
-make agent-log       # tail loupe-run.log
+make agent-install     # write the LaunchAgent and start it
+make agent-status      # state, pid, last exit
+make agent-log         # tail loupe-run.log
+make build             # the deploy: the supervisor restarts onto the new binary
+make agent-uninstall   # stop it and remove the plist
 ```
 
 The service runs `loupe-supervisor.sh` on port 18456 with TLS. Do step 3's
@@ -114,12 +116,15 @@ the repo root, or the name in `LOUPE_TS_HOSTNAME`, and reissues the
 certificate with `tailscale cert` when it is 30 days old. It restarts
 the server after a crash and onto every new build, so from then on
 `make build` is the deploy step. It also runs `-synthetic`, so the test
-pattern is always there.
+pattern is always there. A host reached some other way needs its own
+certificate and TCP and UDP open on the port; see
+[architecture.md](architecture.md#running-it).
 
 Under launchd the run log never holds the token. Read it from
 `~/Library/Caches/loupe/token`, or fetch the phone link with
 `GET /api/handoff`. While anyone is watching, loupe keeps the Mac from
-idle-sleeping. Closing a MacBook's lid still sleeps it.
+idle-sleeping ([Sleep](architecture.md#sleep)). Closing a MacBook's lid still
+sleeps it.
 
 ## 5. Connect an agent
 
