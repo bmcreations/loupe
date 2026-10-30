@@ -53,8 +53,13 @@ Every command is also an MCP tool. Point Claude Code or any MCP client at
 claude mcp add loupe -- loupe mcp
 ```
 
-Coordinates are device pixels, the ones `ui` reports in each node's
-`center`. Drive from the accessibility tree rather than from the video.
+`tap` takes a node instead of a point: `loupe tap <target> --text "Sign in"`
+finds it in the accessibility tree and taps its center, and `--id` and
+`--desc` match the other fields. Two matches are refused with the candidates
+rather than guessed at. Coordinates still work, in device pixels, the ones
+`ui` reports in each node's `center`. `sequence` runs several steps in one
+call, and stops at the first that fails. Drive from the accessibility tree
+rather than from the video.
 [docs/cli.md](docs/cli.md) covers the commands, [docs/mcp.md](docs/mcp.md)
 the tools, and [docs/agent-api.md](docs/agent-api.md) every HTTP route.
 
@@ -91,15 +96,16 @@ the tools, and [docs/agent-api.md](docs/agent-api.md) every HTTP route.
 
 **Lets agents work beside you**
 
-- The accessibility tree with a precomputed `center` per node, tap, swipe,
-  text, keys, app launch, deep links, screenshots, APK install, logs, crash
+- The accessibility tree with a precomputed `center` per node, tap by text,
+  resource id or description, swipe, text, keys, waiting for a node, app launch, deep links, screenshots, APK install, logs, crash
   reports, boot and shutdown. On a debuggable Compose app, each node names
   the composable that drew it, with its source line.
 - `camera` points an AVD's, simulator's or iPhone's back camera at an
   image, so a scanner can be tested without holding a phone up to a screen.
 - An agent claims a device before it drives it. Your own input holds agents
   off, you can mark a device hands off, and viewers see an agent's cursor
-  before it taps.
+  before it taps. Between an agent's calls the cursor stays where it last
+  acted for 20 seconds, dimmed.
 - **Flags**: box an area of the screen, write a note, and send the
   screenshot and UI tree to an agent, or interrupt one mid-task.
 - **Recording** writes the encoder's output to an MP4, with no re-encode.

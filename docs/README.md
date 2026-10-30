@@ -17,7 +17,7 @@ The top-level `README.md` says what loupe does. Start with
 
 | Doc | What's in it |
 | --- | --- |
-| [agent-api.md](agent-api.md) | Every device route under `/api/*`, claims and the human hold |
+| [agent-api.md](agent-api.md) | Every device route under `/api/*`, tap by text and `/api/sequence`, claims and the human hold |
 | [cli.md](cli.md) | `loupe <command>`: the MCP tools as shell commands, and how claims last between them |
 | [mcp.md](mcp.md) | `loupe mcp`, its tools, and pushing flags into Claude Code over channels |
 | [flags.md](flags.md) | A person flagging a screen or interrupting an agent, and where a flag can be sent |
