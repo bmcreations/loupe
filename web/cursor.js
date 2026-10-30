@@ -5,14 +5,19 @@
 //
 // One cursor per agent name. It travels like a mouse from where it last was
 // to the next point -- on a slight arc, easing in and out, longer for a
-// longer trip -- ripples on a tap, follows a swipe, and fades once the agent
-// has been quiet for IDLE_MS. A move (MsgCursor, /api/input's move action)
+// longer trip -- ripples on a tap, follows a swipe, and parks once the agent
+// has been quiet for IDLE_MS: dimmed, pulsing, where it last acted, for
+// PARK_MS more before it fades. An agent thinks for seconds between calls,
+// and a cursor that vanished each time would read as one that left. A move (MsgCursor, /api/input's move action)
 // travels without rippling, so an agent can point before it taps. Positions
 // are the event's fractions of the screen, so they land on the canvas at
 // whatever size it is drawn.
 
-// How long a cursor stays after its agent's last action.
+// How long a cursor stays lit after its agent's last action.
 export const IDLE_MS = 2500;
+// How long it then stays parked before it fades. Long enough to cover an
+// agent's pause between tool calls; a cursor parked this long has stopped.
+export const PARK_MS = 20000;
 // The shortest and longest trip to a new point, before the action plays.
 export const GLIDE_MIN_MS = 160;
 export const GLIDE_MAX_MS = 650;
@@ -170,7 +175,7 @@ export function mount(layer, deps) {
     let c = cursors.get(name);
     if (c) {
       cancel(c.timer);
-      c.el.classList.remove('gone');
+      c.el.classList.remove('gone', 'parked');
       return { c, fresh: false };
     }
     const el = doc.createElement('div');
@@ -198,11 +203,14 @@ export function mount(layer, deps) {
 
   function idle(name, c, afterMs) {
     c.timer = later(() => {
-      c.el.classList.add('gone');
+      c.el.classList.add('parked');
       c.timer = later(() => {
-        c.el.remove();
-        cursors.delete(name);
-      }, FADE_MS);
+        c.el.classList.add('gone');
+        c.timer = later(() => {
+          c.el.remove();
+          cursors.delete(name);
+        }, FADE_MS);
+      }, PARK_MS);
     }, afterMs + IDLE_MS);
   }
 
