@@ -139,6 +139,15 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 	s.publishAgentEvent(ctx, t, InputRequest{Action: "tap", X: x, Y: y}, c, err, nil)
 	_, extra["published"] = s.mgr.Session(t.ID())
 	extra["longPressed"], extra["verified"], extra["retried"] = res.LongPressed, res.Verified, res.Retried
+	if res.PasteFrom != "" {
+		extra["pasteFrom"] = res.PasteFrom
+	}
+	if res.KeyPasteErr != "" {
+		extra["keyPasteErr"] = res.KeyPasteErr
+	}
+	if res.ClearErr != "" {
+		extra["clearErr"] = res.ClearErr
+	}
 	switch {
 	case errors.Is(err, target.ErrNoPaste):
 		trace("noPaste", nil)

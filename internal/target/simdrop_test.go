@@ -3,7 +3,8 @@ package target
 import "testing"
 
 func TestJudgePaste(t *testing.T) {
-	read := func(v string) fieldRead { return fieldRead{value: v, ok: true} }
+	read := func(v string) fieldRead { return fieldRead{value: v, ok: true, images: 0} }
+	withImages := func(v string, n int) fieldRead { return fieldRead{value: v, ok: true, images: n} }
 	for _, c := range []struct {
 		name          string
 		before, after fieldRead
@@ -16,8 +17,11 @@ func TestJudgePaste(t *testing.T) {
 		{"nothing changed", read("field:"), read("field:"), pasteMissing},
 		{"nothing changed after one", read("field: ￼"), read("field: ￼"), pasteMissing},
 		{"no value either side", read(""), read(""), pasteUnknown},
-		{"no field before", fieldRead{}, read("field: ￼"), pasteUnknown},
-		{"no field after", read("field:"), fieldRead{}, pasteUnknown},
+		{"no field before", fieldRead{images: -1}, read("field: ￼"), pasteUnknown},
+		{"no field after", read("field:"), fieldRead{images: -1}, pasteUnknown},
+		{"a chip beside the field", withImages("Message", 1), withImages("Message", 2), pasteTook},
+		{"a chip, field not read", fieldRead{images: 1}, fieldRead{images: 2}, pasteTook},
+		{"an image went away", withImages("Message", 2), withImages("Message", 1), pasteMissing},
 	} {
 		if got := judgePaste(c.before, c.after); got != c.want {
 			t.Errorf("%s: judgePaste(%q, %q) = %d; want %d", c.name, c.before.value, c.after.value, got, c.want)
@@ -63,5 +67,14 @@ func TestTreeAppSkipsTheHomeScreen(t *testing.T) {
 	}
 	if name, ok := treeApp(app); !ok || name != "Target" {
 		t.Errorf("treeApp(app) = %q, %v", name, ok)
+	}
+}
+
+func TestAXPrefOn(t *testing.T) {
+	for out, want := range map[string]bool{"1\n": true, "true": true, "0\n": false, "": false,
+		"The domain/default pair of (com.apple.Accessibility, X) does not exist\n": false} {
+		if got := axPrefOn(out); got != want {
+			t.Errorf("axPrefOn(%q) = %v; want %v", out, got, want)
+		}
 	}
 }

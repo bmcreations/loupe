@@ -3,6 +3,7 @@ package target
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -48,6 +49,19 @@ func (s *Simulator) Inspect(ctx context.Context) (*UI, error) {
 	if err != nil {
 		return nil, err
 	}
+	ui, err := s.inspect(ctx, w, h)
+	if !errors.Is(err, errAXNoFrame) {
+		return ui, err
+	}
+	// An empty root on a simulator whose apps have accessibility turned off
+	// reads again once it is on.
+	if changed, aerr := s.enableAppAccessibility(ctx); aerr != nil || !changed {
+		return ui, err
+	}
+	return s.inspect(ctx, w, h)
+}
+
+func (s *Simulator) inspect(ctx context.Context, w, h int) (*UI, error) {
 	out, err := s.input().do(ctx, 0, "ui")
 	if err != nil {
 		return nil, fmt.Errorf("accessibility dump: %w", err)
@@ -67,13 +81,13 @@ func parseAXTree(raw []byte, width, height int) (*UI, error) {
 		return nil, fmt.Errorf("parse accessibility tree: %w", err)
 	}
 	if len(root.Frame) != 4 || root.Frame[2] <= 0 {
-		return nil, fmt.Errorf("accessibility root has no frame: %q", root.Role)
+		return nil, fmt.Errorf("%w: %q", errAXNoFrame, root.Role)
 	}
 	scale := math.Round(float64(width) / root.Frame[2])
 	if scale < 1 {
 		scale = 1
 	}
-	return &UI{Width: width, Height: height, Root: axToNode(&root, scale)}, nil
+	return &UI{Width: width, Height: height, Root: axToNode(&root, scale), scale: scale}, nil
 }
 
 func axToNode(a *axNode, scale float64) *Node {

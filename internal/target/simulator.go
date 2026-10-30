@@ -143,6 +143,9 @@ type Simulator struct {
 	// it has answered (simdrop.go). Guarded by pbImageMu.
 	pbImageMu sync.Mutex
 	pbImage   *bool
+	// hitCap is whether simcap's -caps lists hit, nil until it has
+	// answered (simhit.go). Guarded by pbImageMu.
+	hitCap *bool
 
 	// pbSet is the text a viewer last set on the pasteboard, so the watcher
 	// does not hand it straight back to them as a copy on the simulator.
