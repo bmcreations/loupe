@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
+	"github.com/bmcreations/loupe/internal/trace"
 )
 
 // matchTarget is an Inspector and Actuator that records every tap. Each
@@ -199,4 +203,35 @@ func TestAMatchTapSendsTheCursorToTheNode(t *testing.T) {
 		return
 	}
 	t.Fatal("no cursor reached the viewer")
+}
+
+// The trace names what a match tap looked for and what it hit, so a tap
+// that landed on the wrong node can be read back from loupe-trace.jsonl.
+func TestAMatchTapIsTracedWithItsMatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trace.jsonl")
+	tw, err := trace.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := matchServer(t, signInScreen())
+	s.trace = tw
+	if rec := postInput(s, "dev1", `{"action":"tap","match":{"text":"Sign in"}}`); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	tw.Close()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var rec map[string]any
+		_ = json.Unmarshal([]byte(line), &rec)
+		if rec["action"] == "tap" {
+			if rec["match"] != `text="Sign in"` || rec["matchedText"] != "Sign in" {
+				t.Fatalf("trace record %v; want the match and the node it hit", rec)
+			}
+			return
+		}
+	}
+	t.Fatalf("no tap in the trace: %s", b)
 }

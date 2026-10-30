@@ -41,9 +41,9 @@ var InputActions = []string{"tap", "swipe", "pinch", "text", "key", "button", "r
 // oneOf request schema from the same table (inputActionSchemas), so the
 // wire contract and the handler's own validation cannot drift apart. A
 // field named here and missing from the request is a 400 naming it; ms and
-// to, the two fields no action requires, stay optional (a swipe with no ms
-// takes defaultSwipeMs, and a rotate with no to cycles from the current
-// rotation).
+// to, which no action requires, stay optional (a swipe with no ms takes
+// defaultSwipeMs, and a rotate with no to cycles from the current
+// rotation). A tap's match stands in for its x and y: see InputMatchFields.
 var InputRequiredFields = map[string][]string{
 	"tap":     {"x", "y"},
 	"swipe":   {"x", "y", "x2", "y2"},
@@ -541,6 +541,11 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 		switch req.Action {
 		case "tap":
+			// The trace says what the tap was looking for, not only where
+			// it landed, so a match that hit the wrong node can be read back.
+			if matched != nil {
+				extra = map[string]any{"match": req.Match.String(), "matchedId": matched.ID, "matchedText": matched.Text, "matchedDesc": matched.Desc}
+			}
 			// A caller that named a node had no point to send a move with
 			// first, so the cursor is sent here, on its way as the touch is.
 			if matched != nil && c.viewer == 0 {

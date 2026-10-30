@@ -750,7 +750,7 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   will-change: transform, opacity;
 }
 .agentCursor.parked { opacity: 0.6; }
-.agentCursor.parked .agentArrow { animation: agent-parked 1.6s ease-in-out infinite; }
+.agentCursor.parked .agentArrow { animation: agent-parked 1.6s ease-in-out infinite; transform-origin: 1px 1px; }
 @keyframes agent-parked {
   50% { transform: scale(0.85); }
 }
