@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,10 @@ const quicSlotBacklog = 64
 // quicOpenTimeout bounds the wait for the control stream and its open message,
 // as /wt bounds the wait for its control stream.
 const quicOpenTimeout = 10 * time.Second
+
+// quicStreamKindTimeout bounds the wait for a stream's first byte. A var so
+// tests can shorten it.
+var quicStreamKindTimeout = quicOpenTimeout
 
 // ServeQUIC runs one connection that negotiated session.QUICALPN. It returns
 // when the viewer ends.
@@ -140,10 +145,17 @@ func (c *qConn) acceptStreams(ctlCh chan<- *quic.Stream) {
 			// A stream the client opened and has not yet written to may not
 			// exist here yet, but one that arrived has its first byte on the
 			// way. The deadline keeps a silent stream from holding a goroutine.
-			_ = st.SetReadDeadline(time.Now().Add(quicOpenTimeout))
+			_ = st.SetReadDeadline(time.Now().Add(quicStreamKindTimeout))
 			var kind [1]byte
 			_, err := io.ReadFull(st, kind[:])
 			_ = st.SetReadDeadline(time.Time{})
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				// Left open, not reset: NWConnectionGroup opens a base
+				// stream it never writes to, and a reset of that stream
+				// fails the whole group (EINVAL on iOS).
+				return
+			}
 			if err != nil {
 				st.CancelRead(0)
 				st.CancelWrite(0)
