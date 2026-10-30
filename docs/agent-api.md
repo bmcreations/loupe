@@ -83,8 +83,7 @@ human watches the same session.
   node appears and answers with it, looking for 10s unless the match sets
   `waitMs`. It is answered before arbitration and kept out of the event
   log, like a match lookup, so a person holding the target does not refuse
-  it. It exists for `/api/sequence`; a single call gains nothing over a
-  `tap` with `waitMs`.
+  it. In a sequence it holds the next step until a screen has loaded.
   On Android a tap or swipe the input dispatcher threw away answers 409
   `code: "touchRejected"` with its reason, since `input` exits 0 either way
   (trap 50).

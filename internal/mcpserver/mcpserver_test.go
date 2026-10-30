@@ -395,3 +395,36 @@ func TestReleaseIsNeverForced(t *testing.T) {
 		t.Errorf("%d releases: %v", dels, fake.requests())
 	}
 }
+
+// The steps reach the server as the model wrote them: a step at x:0 keeps
+// its 0, which an InputRequest would drop and the server would refuse.
+func TestSequenceSendsItsStepsWithEveryNumber(t *testing.T) {
+	var mu sync.Mutex
+	var path, body string
+	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/sequence" {
+			return false
+		}
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		path, body = r.URL.Path+"?"+r.URL.RawQuery, string(b)
+		mu.Unlock()
+		w.Write([]byte(`{"ok":true,"steps":[]}`))
+		return true
+	}}
+	cs, stop := connect(t, fake)
+	res := call(t, cs, "sequence", map[string]any{"target": "e", "steps": []any{
+		map[string]any{"action": "tap", "x": 0, "y": 0},
+		map[string]any{"action": "wait", "match": map[string]any{"text": "X"}},
+	}})
+	stop()
+	if res.IsError {
+		t.Fatalf("sequence: %s", text(res))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := `{"steps":[{"action":"tap","x":0,"y":0},{"action":"wait","match":{"text":"X"}}]}`
+	if path != "/api/sequence?target=e" || body != want {
+		t.Fatalf("sent %s %s; want /api/sequence?target=e %s", path, body, want)
+	}
+}
