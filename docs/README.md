@@ -43,6 +43,7 @@ The top-level `README.md` says what loupe does. Start with
 
 | Doc | What's in it |
 | --- | --- |
+| [releasing.md](releasing.md) | Tagging a release, the Homebrew formula, and why simcap builds from source |
 | [internals/traps.md](internals/traps.md) | Problems hit while building loupe and what the code does about each, symptom first. Code comments cite them by number |
 
 ## Design notes

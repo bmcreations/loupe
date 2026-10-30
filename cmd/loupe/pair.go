@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/bmcreations/loupe/internal/httpapi"
+	"github.com/bmcreations/loupe/internal/mcpserver"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -70,6 +71,10 @@ func (c *adminClient) do(method, path string, body, out any) error {
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if mcpserver.PlainHTTPAnswered(c.base, err) {
+			c.base.Scheme = "http"
+			return c.do(method, path, body, out)
+		}
 		return err
 	}
 	defer resp.Body.Close()
