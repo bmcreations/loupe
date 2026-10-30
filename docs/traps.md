@@ -2,8 +2,8 @@
 
 Each of these cost real time. The symptom is given first, because that is how
 you will meet it again. Section names such as Device frames or Adaptive bitrate
-refer to `docs/architecture.md`, `docs/targets.md`, `docs/ios.md` and
-`docs/agent-api.md`.
+refer to `docs/architecture.md`, `docs/targets.md`, `docs/ios.md`,
+`docs/agent-api.md`, `docs/flags.md`, `docs/mcp.md`, `docs/recording.md` and `docs/security.md`.
 
 1. **fps reads ~130 when the encoder is set to 60.** x264 with
    `ultrafast`+`zerolatency` emits several slices per picture and each was

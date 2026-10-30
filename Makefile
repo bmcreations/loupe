@@ -9,8 +9,8 @@ GUI   := gui/$(shell id -u)
 	agent-install agent-uninstall agent-restart agent-status agent-log
 
 # A checkout can add its own targets in private.mk, which is not part of this
-# repo. One that sets SIMCAP_FROM_SOURCE builds simcap itself in place of the
-# download below.
+# repo. One that sets SIMCAP_FROM_SOURCE replaces the simcap target below with
+# its own.
 .DEFAULT_GOAL := build
 -include private.mk
 
@@ -36,22 +36,27 @@ composeagent:
 	$(D8) --min-api 29 --lib $(ANDROID_JAR) --output .build/composeagent .build/composeagent/classes.jar
 	cp .build/composeagent/classes.dex $(COMPOSE_OUT)/loupe-compose.dex
 
-# simcap, the iOS simulator and iPhone helper, is closed source and ships as a
-# signed, notarized binary on the releases page. The server lists simulators
-# only once .build/simcap exists.
-SIMCAP_URL ?= https://github.com/bmcreations/loupe/releases/latest/download/simcap-macos.zip
-# The Developer ID team release builds are signed by. The download is refused
-# unless its leaf certificate names this team.
-SIMCAP_TEAM ?= 2X56L589EV
+# simcap, the iOS simulator and iPhone helper, lives in bmcreations/simcap.
+# This clones it into .build/simcap-src (or updates the clone) and builds it
+# with Xcode's swiftc. The server lists simulators only once .build/simcap
+# exists. TEAM signs it with that team's Apple Development identity, so a
+# phone's camera grant survives a rebuild; without it the build is ad hoc.
+SIMCAP_REPO ?= https://github.com/bmcreations/simcap.git
+SIMCAP_REF ?= main
 
 ifndef SIMCAP_FROM_SOURCE
 simcap:
-	mkdir -p .build && rm -rf .build/simcap .build/simcap-dl
-	curl -fsSL -o .build/simcap.zip $(SIMCAP_URL)
-	ditto -x -k .build/simcap.zip .build/simcap-dl
-	codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "$(SIMCAP_TEAM)"' .build/simcap-dl/simcap
-	mv .build/simcap-dl/simcap .build/simcap
-	rm -rf .build/simcap-dl .build/simcap.zip
+	mkdir -p .build
+	if [ -d .build/simcap-src/.git ]; then \
+		git -C .build/simcap-src fetch -q --depth 1 origin $(SIMCAP_REF) && \
+		git -C .build/simcap-src checkout -q --detach FETCH_HEAD; \
+	else \
+		rm -rf .build/simcap-src && \
+		git clone -q --depth 1 --branch $(SIMCAP_REF) $(SIMCAP_REPO) .build/simcap-src; \
+	fi
+	$(MAKE) -C .build/simcap-src simcap TEAM=$(TEAM)
+	cp .build/simcap-src/.build/simcap .build/simcap.new
+	mv -f .build/simcap.new .build/simcap
 endif
 
 # The XCUITest runner that applies a physical iPhone's touches below iOS 27,

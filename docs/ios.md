@@ -1,7 +1,20 @@
 # iOS simulators and iPhones
 
-Not offered in public loupe yet: iOS support is coming soon. This page
-describes how it works.
+**iOS simulators are supported. Physical iPhones and iPads are a preview.**
+A paired phone is listed and streams over a cable, but its input is still
+being worked on: below iOS 27, touch needs an XCUITest runner. Both need
+simcap, an Apache 2.0 Swift helper from
+[bmcreations/simcap](https://github.com/bmcreations/simcap). `make simcap`
+clones it into `.build/simcap-src`, builds it with Xcode, and puts the
+binary at `.build/simcap`; `make simcap TEAM=<team id>` signs it with your
+Apple Development identity, which streaming a phone needs (see "Sign simcap
+with a team" below). loupe runs without it, with Android targets only.
+
+**simcap uses private frameworks that ship with Xcode** (CoreSimulator,
+SimulatorKit, AccessibilityPlatformTranslation), loaded from your own
+Xcode install. Apple does not support them, and an Xcode update can break
+simcap until it is fixed. If simcap stops building or launching after an
+Xcode update, file an issue on its repo.
 
 How loupe streams and drives iOS simulators through simcap, and physical
 iPhones and iPads through CoreDevice. Android targets, the phone keyboard,
@@ -309,6 +322,9 @@ a session and started 3s after Safari opened the page, and did not repeat.
 
 ## Physical iOS devices
 
+A preview. What works and what has only been tried on one phone is said
+paragraph by paragraph below.
+
 **Every iPhone and iPad paired with this Mac is a target, `ios:<udid>`,
 over a cable or the network alike, and streams over either.** They come
 from `xcrun devicectl list devices --json-output`, polled every 10s
@@ -335,7 +351,7 @@ any failed launch, and "The requested application <bundle> is not
 installed." in its reason, which answers 404 `notInstalled`; any other
 failure is a 502 with devicectl's words. Install is not wired:
 `/api/install` reads every upload as an APK through aapt2. Logs are, through
-syslog_relay (see `GET /api/logcat` under Agent API).
+syslog_relay (see `GET /api/logcat` in `docs/agent-api.md`).
 
 devicectl 651.13.4 (Xcode 27.0, `jsonVersion` 5) puts its fields under
 `properties`: the name is `properties.state.name`, the OS version
@@ -393,8 +409,8 @@ Signed ad hoc, simcap's designated requirement is its cdhash, so TCC reads
 a rebuild as a new program: on 17 October tccd logged "Failed to match
 existing code requirement" for the rebuilt simcap, then prompted, and the
 26.6 phone streamed nothing while the prompt sat unanswered on the Mac.
-Release builds of simcap are signed with a team's Developer ID under the
-identifier `dev.bmcreations.loupe.simcap`,
+`make simcap TEAM=<team id>` signs simcap with that team's Apple
+Development identity under the identifier `dev.bmcreations.loupe.simcap`,
 so the requirement is the identifier and the team (`subject.OU`), which a
 rebuild keeps. sign.sh writes it out: codesign's default pins the leaf
 certificate's common name, which a renewed certificate changes. That the grant then survives a rebuild follows from the requirement
