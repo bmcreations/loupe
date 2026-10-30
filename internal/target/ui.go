@@ -26,6 +26,8 @@ type UI struct {
 	Height   int   `json:"height"`
 	Rotation int   `json:"rotation"`
 	Root     *Node `json:"root"`
+	// scale is pixels per point on an iOS simulator, 0 elsewhere.
+	scale float64
 }
 
 // Node is one view. Fields that are empty or false are omitted, because a
