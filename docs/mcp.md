@@ -24,7 +24,7 @@ needs no curl. It is a client of a running server, not a second server: a
 stdio MCP server (the official Go SDK) that turns each tool call into one
 request. Tools: `targets`, `ui`, `screenshot` (an image, not JSON), `point`,
 `tap`, `swipe`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`, `logcat`,
-`crashes`, `crash`, `install`, `camera`, `boot`, `release`, `flags` and `flag`. `TestEveryToolNamesARoute` checks each
+`crashes`, `crash`, `install`, `camera`, `drop`, `boot`, `release`, `flags` and `flag`. `TestEveryToolNamesARoute` checks each
 against `httpapi.Routes()`.
 
 - **Flags:** `-url` (default `https://localhost:18456`), `-token` and

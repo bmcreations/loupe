@@ -49,6 +49,7 @@ var toolRoutes = []toolRoute{
 	{"crash", http.MethodGet, "/api/crashes/"},
 	{"install", http.MethodPost, "/api/install"},
 	{"camera", http.MethodPost, "/api/camera"},
+	{"drop", http.MethodPost, "/api/drop"},
 	{"boot", http.MethodPost, "/api/devices/boot"},
 	{"release", http.MethodDelete, "/api/claims"},
 	{"flags", http.MethodGet, "/api/flags"},
@@ -190,6 +191,13 @@ type cameraIn struct {
 	Targeted
 	Path  string `json:"path,omitempty" jsonschema:"a PNG or JPEG on the Mac running loupe mcp"`
 	Clear bool   `json:"clear,omitempty" jsonschema:"give the camera back instead of setting an image"`
+}
+
+type dropIn struct {
+	Targeted
+	X    int    `json:"x" jsonschema:"device pixels, as /api/ui's center reports them"`
+	Y    int    `json:"y" jsonschema:"device pixels, as /api/ui's center reports them"`
+	Path string `json:"path" jsonschema:"a PNG, JPEG, GIF, WebP or HEIC on the Mac running loupe mcp"`
 }
 
 // addTools registers every tool in toolRoutes on s.
@@ -354,6 +362,24 @@ func addTools(s *mcp.Server, c *Client) {
 		}
 		b, _, err := c.do(ctx, http.MethodPost, "/api/camera", q, "application/octet-stream", bytes.NewReader(body))
 		return jsonResult(b, err)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "drop",
+		Description: "Paste an image read from this Mac's disk into the text field at x, y on an iOS simulator, as dropping a picture onto it does: the field is tapped to raise the edit menu and its Paste tapped, and the field's value is read to confirm the image went in. A point with no Paste is an error with code noPaste; a Paste that left the field unchanged twice is pasteFailed; a simcap too old to set an image is simcapOutdated." + driving,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in dropIn) (*mcp.CallToolResult, any, error) {
+		if in.Path == "" {
+			return errResult(fmt.Errorf("path: an image")), nil, nil
+		}
+		body, err := os.ReadFile(in.Path)
+		if err != nil {
+			return errResult(err), nil, nil
+		}
+		q := url.Values{"target": {in.Target}, "x": {strconv.Itoa(in.X)}, "y": {strconv.Itoa(in.Y)}}
+		return jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
+			b, _, err := c.do(ctx, http.MethodPost, "/api/drop", q, "application/octet-stream", bytes.NewReader(body))
+			return b, err
+		}))
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

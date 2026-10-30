@@ -175,7 +175,9 @@ var simSlimLabels = []string{
 	"com.apple.mediaanalysisd.service",
 	"com.apple.mediastream.mstreamd",
 	"com.apple.medialibraryd",
-	"com.apple.assetsd",
+	// com.apple.assetsd is not here though simslim disables it: it serves
+	// com.apple.photos.service, and without it `simctl addmedia` fails with
+	// PHPhotosErrorDomain 3301, so /api/media could add nothing.
 	"com.apple.assetsd.nebulad",
 	// News, Weather, Maps & Games
 	"com.apple.newsd",
@@ -284,10 +286,20 @@ func setSlim(udid string, on bool) ([]string, error) {
 		return nil, err
 	}
 	if on {
+		listed := make(map[string]bool, len(simSlimLabels))
 		for _, l := range simSlimLabels {
+			listed[l] = true
 			if !entries[l] {
 				entries[l] = true
 				ours[l] = true
+			}
+		}
+		// A label an older list disabled and this one dropped comes back on,
+		// so a simulator slimmed before the drop heals on its next boot.
+		for l := range ours {
+			if !listed[l] {
+				entries[l] = false
+				delete(ours, l)
 			}
 		}
 	} else {

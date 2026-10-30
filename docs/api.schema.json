@@ -195,6 +195,9 @@
     "POST /api/devices/shutdown 409": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
+    "POST /api/drop 200": {
+      "$ref": "#/$defs/httpapi.DropResponse"
+    },
     "POST /api/extensions 200": {
       "$ref": "#/$defs/httpapi.Extension"
     },
@@ -837,6 +840,25 @@
         "devices",
         "pairs",
         "nameRule"
+      ],
+      "type": "object"
+    },
+    "httpapi.DropResponse": {
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "target": {
+          "type": "string"
+        },
+        "tookMs": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target",
+        "ok",
+        "tookMs"
       ],
       "type": "object"
     },

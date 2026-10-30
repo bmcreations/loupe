@@ -143,6 +143,25 @@ const ErrCodeBusy = "busy"
 // format or a since the target's log cannot give.
 const ErrCodeNotSupported = "notSupported"
 
+// ErrCodeNoPaste is a /api/drop where no Paste item appeared: the point is
+// not a field that takes an image. The client falls back to /api/media.
+const ErrCodeNoPaste = "noPaste"
+
+// ErrCodePasteFailed is a /api/drop where Paste was tapped and the field's
+// value did not change, after a second try.
+const ErrCodePasteFailed = "pasteFailed"
+
+// ErrCodeSimcapOutdated is /api/drop's 501 when simcap was built before it
+// could put an image on the pasteboard. Rebuilding it (make simcap) fixes it;
+// it is 501 like ErrCodeNoFFmpeg, a tool this server lacks, not a device that
+// failed.
+const ErrCodeSimcapOutdated = "simcapOutdated"
+
+// ErrCodeUnsupported is a /api/drop on a target that cannot paste an image.
+// It is not ErrCodeNotSupported because the client was written against
+// "unsupported".
+const ErrCodeUnsupported = "unsupported"
+
 // ErrCodeNoFFmpeg is GET /api/record/{id}/frames's 501 when ffmpeg is not
 // on PATH, in /opt/homebrew/bin or in /usr/local/bin.
 const ErrCodeNoFFmpeg = "noFFmpeg"

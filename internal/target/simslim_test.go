@@ -161,3 +161,51 @@ func TestParseDisabled(t *testing.T) {
 		t.Fatalf("parseDisabled = %v", got)
 	}
 }
+
+// assetsd serves the Photos library; a slim simulator still has to take
+// /api/media.
+func TestSlimKeepsThePhotosLibrary(t *testing.T) {
+	for _, l := range simSlimLabels {
+		if l == "com.apple.assetsd" {
+			t.Fatal("slim disables com.apple.assetsd, which simctl addmedia needs")
+		}
+	}
+}
+
+// A simulator an older list slimmed gets back what this list dropped, and
+// nothing it did not disable itself.
+func TestSetSlimOnReenablesDroppedLabels(t *testing.T) {
+	useSlimRoot(t)
+	p := writeStore(t, "U", stockStore)
+	if _, err := setSlim("U", true); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(simSlimDir("U"), simSlimMarker)
+	b, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := readStore(t, p)
+	store["com.apple.assetsd"] = true
+	if err := os.WriteFile(p, encodeSlimStore(store), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, append(b, "\ncom.apple.assetsd\n"...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := setSlim("U", true); err != nil {
+		t.Fatal(err)
+	}
+	got := readStore(t, p)
+	if got["com.apple.assetsd"] {
+		t.Fatal("com.apple.assetsd still disabled")
+	}
+	if !got["com.apple.example.userset"] {
+		t.Fatal("enabled an override loupe did not set")
+	}
+	ours, err := readSlimMarker(marker)
+	if err != nil || ours["com.apple.assetsd"] {
+		t.Fatalf("marker still lists com.apple.assetsd: %v", err)
+	}
+}
