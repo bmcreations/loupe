@@ -206,6 +206,11 @@ func (d *IOSDevice) phoneHome(ctx context.Context, bundle string) (string, error
 	if strings.Contains(said.String(), "Waiting for the application") {
 		return "", fmt.Errorf("%s: %w", bundle, ErrNotDevSigned)
 	}
+	if said.Len() == 0 {
+		// Seen with the phone at its passcode screen: devicectl neither
+		// launches nor says why.
+		return "", fmt.Errorf("devicectl launch %s: no answer in 30s; is the phone locked?", bundle)
+	}
 	return "", fmt.Errorf("devicectl launch %s: %s", bundle, strings.TrimSpace(said.String()))
 }
 
