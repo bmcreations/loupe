@@ -401,11 +401,30 @@ func addInput[In any](s *mcp.Server, c *Client, name, desc string, build func(In
 					// way, so it reaches the point about when the touch
 					// lands. Only the viewers' cursor depends on it, so a
 					// failed move is not the action's failure.
-					_, _ = c.postJSON(ctx, "/api/input", q, httpapi.InputRequest{Action: "move", X: req.X, Y: req.Y})
+					_, _ = c.postJSON(ctx, "/api/input", q, inputBody(httpapi.InputRequest{Action: "move", X: req.X, Y: req.Y}))
 				}
-				return c.postJSON(ctx, "/api/input", q, req)
+				return c.postJSON(ctx, "/api/input", q, inputBody(req))
 			}))
 		})
+}
+
+// inputBody encodes req with every coordinate its action requires, 0
+// included. InputRequest's omitempty drops a 0, and the server refuses a
+// tap at x 0 as one with no x at all. A tap naming a node sends no point.
+func inputBody(req httpapi.InputRequest) map[string]any {
+	b, _ := json.Marshal(req)
+	var body map[string]any
+	_ = json.Unmarshal(b, &body)
+	if req.Match != nil {
+		return body
+	}
+	coords := map[string]int{"x": req.X, "y": req.Y, "x2": req.X2, "y2": req.Y2}
+	for _, field := range httpapi.InputRequiredFields[req.Action] {
+		if v, ok := coords[field]; ok {
+			body[field] = v
+		}
+	}
+	return body
 }
 
 // pointsFirst reports whether an input tool moves the agent's cursor to its

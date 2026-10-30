@@ -27,7 +27,7 @@ import (
 // who held the target. With watch on, the flag stays open while the person
 // reproduces the problem, and ending it adds their input in between and the
 // screen as it was at the end. Agents read flags with GET, long-polling for
-// new ones; loupe mcp pushes each to a Claude Code session (docs/agent-api.md).
+// new ones; loupe mcp pushes each to a Claude Code session (docs/flags.md, docs/mcp.md).
 //
 // Flags are the person's signal, like the clipboard: neither claims nor the
 // human hold gate them, and reading one claims nothing. An interrupt is the

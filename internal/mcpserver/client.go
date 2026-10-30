@@ -65,6 +65,23 @@ func NewClient(rawURL, token, agent string) (*Client, error) {
 	}, nil
 }
 
+// PlainHTTPAnswered reports whether err is a plain-HTTP server answering an
+// https:// request to a loopback host. The clients default to
+// https://localhost:18456, the launchd service's TLS listener; a server run
+// without a certificate answers the same port in plain HTTP, and on loopback
+// nothing is lost by following it. Off loopback the error stands, since
+// dropping TLS there would send the token in the clear.
+func PlainHTTPAnswered(base *url.URL, err error) bool {
+	return base.Scheme == "https" && isLoopback(base.Hostname()) &&
+		strings.Contains(err.Error(), "server gave HTTP response to HTTPS client")
+}
+
+// SetSession replaces the random session NewClient picks. The CLI sends a
+// fixed one, or none, so that its claim outlives the process that took it:
+// the next command, a new process, still holds it. With none the server keys
+// claims by agent name alone.
+func (c *Client) SetSession(s string) { c.session = s }
+
 func isLoopback(host string) bool {
 	if host == "localhost" {
 		return true
@@ -128,12 +145,27 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, cont
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	req.Header.Set(httpapi.HeaderAgent, c.agent)
-	req.Header.Set(httpapi.HeaderSession, c.session)
+	if c.session != "" {
+		req.Header.Set(httpapi.HeaderSession, c.session)
+	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if PlainHTTPAnswered(c.base, err) {
+			// A loopback server without TLS, as `brew services` runs it.
+			// Every later request goes to http:// too.
+			c.base.Scheme = "http"
+			if body == nil {
+				return c.do(ctx, method, path, q, contentType, nil)
+			}
+			if sk, ok := body.(io.Seeker); ok {
+				if _, serr := sk.Seek(0, io.SeekStart); serr == nil {
+					return c.do(ctx, method, path, q, contentType, body)
+				}
+			}
+		}
 		return nil, nil, err
 	}
 	defer resp.Body.Close()
@@ -247,20 +279,4 @@ func (c *Client) ReleaseAll(ctx context.Context) {
 		_ = c.release(ctx, t)
 		cancel()
 	}
-}
-
-// UseSession replaces the random session ID this client was made with, so a
-// one-shot command acts as the agent session that holds the claim.
-func (c *Client) UseSession(id string) {
-	if id != "" {
-		c.session = id
-	}
-}
-
-// Post sends body to path for target without claiming it first: for a
-// one-shot command, which would otherwise leave a claim with nothing to
-// release it.
-func (c *Client) Post(ctx context.Context, path, target string, body []byte) (json.RawMessage, error) {
-	b, _, err := c.do(ctx, http.MethodPost, path, url.Values{"target": {target}}, "application/json", bytes.NewReader(body))
-	return b, err
 }

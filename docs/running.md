@@ -1,8 +1,9 @@
 # Running loupe
 
-Flags, the settings file, the stats overlay and the tests. How the server is
-deployed under launchd, TLS and auth are in `docs/architecture.md` under
-Running it.
+Flags, the settings file, the stats overlay and the tests. For a first run,
+start with `docs/getting-started.md`. How the server is deployed under
+launchd, TLS and auth are in `docs/architecture.md` under Running it, and
+what auth guarantees is in `docs/security.md`.
 
 ## Flags
 
@@ -43,16 +44,11 @@ the file beats the default.** The file is described under Configuration below.
 | `-emulator-keep-state` | `false` | Save an emulator's state into its snapshot before shutting it down, so the next boot resumes it |
 | `-scrcpy-server` | embedded | Path to a jar to use instead of the embedded one |
 | `-scrcpy-version` | embedded | Version string for `-scrcpy-server`; must match that jar exactly |
-| `-simcap` | `.build/simcap` | The simcap helper. Simulators are listed only when it exists |
+| `-simcap` | `.build/simcap`, then `simcap` on PATH | The simcap helper. Simulators are listed only when it exists |
 | `-no-simulators` | `false` | Skip iOS simulator discovery |
 | `-simulator-slim` | `false` | Boot simulators with background daemons disabled, which frees most of their memory |
 | `-no-ios-devices` | `false` | Skip physical iPhone and iPad discovery through devicectl |
 | `-xcrunner` | `.build/xcrunner` | XCUITest runner (`make xcrunner TEAM=...`); iPhones below iOS 27 take touches through it over a cable |
-
-`loupe mcp`, `loupe pair`, `loupe sessions`, `loupe tap` and `loupe sequence`
-are clients of a running server, with flags of their own and no banner.
-`loupe tap` and `loupe sequence` are in `docs/agent-api.md` beside
-`loupe mcp`.
 
 ## Configuration
 
@@ -109,4 +105,4 @@ go run ./cmd/simprobe -animate <udid>
 ```
 
 Test against a spare server on another port, not one a phone is using.
-`docs/traps.md` lists the traps this has already hit, symptom first.
+`docs/internals/traps.md` lists the traps this has already hit, symptom first.

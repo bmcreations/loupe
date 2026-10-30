@@ -428,3 +428,51 @@ func TestSequenceSendsItsStepsWithEveryNumber(t *testing.T) {
 		t.Fatalf("sent %s %s; want /api/sequence?target=e %s", path, body, want)
 	}
 }
+
+// A point on the screen's edge is 0, and the server refuses a tap whose x
+// is missing; InputRequest's omitempty would drop it.
+func TestAPointAtZeroKeepsItsZero(t *testing.T) {
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		want []string
+	}{
+		{"tap", map[string]any{"target": "e", "x": 0, "y": 0}, []string{"x", "y"}},
+		{"point", map[string]any{"target": "e", "x": 0, "y": 5}, []string{"x", "y"}},
+		{"swipe", map[string]any{"target": "e", "x": 0, "y": 900, "x2": 0, "y2": 0}, []string{"x", "y", "x2", "y2"}},
+	} {
+		var mu sync.Mutex
+		var bodies []map[string]json.RawMessage
+		fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+			if r.URL.Path == "/api/input" {
+				var b map[string]json.RawMessage
+				json.NewDecoder(r.Body).Decode(&b)
+				mu.Lock()
+				bodies = append(bodies, b)
+				mu.Unlock()
+			}
+			return false
+		}}
+		cs, stop := connect(t, fake)
+		if res := call(t, cs, tc.tool, tc.args); res.IsError {
+			t.Fatalf("%s: %s", tc.tool, text(res))
+		}
+		stop()
+		if len(bodies) == 0 {
+			t.Fatalf("%s sent no /api/input body", tc.tool)
+		}
+		for _, b := range bodies {
+			var action string
+			json.Unmarshal(b["action"], &action)
+			fields := tc.want
+			if action == "move" {
+				fields = []string{"x", "y"}
+			}
+			for _, f := range fields {
+				if _, ok := b[f]; !ok {
+					t.Errorf("%s: %s body has no %q: %v", tc.tool, action, f, b)
+				}
+			}
+		}
+	}
+}

@@ -11,7 +11,7 @@ import (
 // A viewer that goes away mid-gesture never sends the up. Android then holds
 // that pointer down for good and rejects every injected DOWN after it as
 // "pointers already down" -- this server's, scrcpy's and `adb shell input`'s
-// alike -- while `input` still exits 0 (docs/traps.md, trap 50). On the
+// alike -- while `input` still exits 0 (docs/internals/traps.md, trap 50). On the
 // Acme One two pointers were stuck that way until something lifted them, so
 // whatever leaves lifts what it left down.
 type downPointers struct {

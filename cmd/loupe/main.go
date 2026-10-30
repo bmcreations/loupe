@@ -169,7 +169,15 @@ type avdList []string
 func (a *avdList) String() string     { return strings.Join(*a, ",") }
 func (a *avdList) Set(v string) error { *a = append(*a, v); return nil }
 
+// version is set at release by -ldflags "-X main.version=..."; a plain go
+// build says dev.
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "-version" || os.Args[1] == "--version") {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 	// `loupe mcp` is a client of a running server, with flags of its own, and
 	// must not print the banner: its stdout is the MCP wire.
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
@@ -183,12 +191,22 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "sessions" {
 		os.Exit(runSessions(os.Args[2:]))
 	}
-	// `loupe tap` and `loupe sequence` drive a running server once each.
-	if len(os.Args) > 1 && os.Args[1] == "tap" {
-		os.Exit(runTap(os.Args[2:]))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "sequence" {
-		os.Exit(runSequence(os.Args[2:]))
+	// Anything else that is not a flag is a CLI command against a running
+	// server. An unknown word is an error: flag.Parse would stop at it and
+	// start a server, ignoring it.
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		switch name := os.Args[1]; name {
+		case "help":
+			printCLIHelp(os.Stdout)
+			os.Exit(0)
+		default:
+			cmd, ok := findCLICommand(name)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "loupe: unknown command %q; `loupe help` lists them\n", name)
+				os.Exit(2)
+			}
+			os.Exit(runCLI(cmd, os.Args[2:]))
+		}
 	}
 	tightenOutput(os.Stdout)
 	tightenOutput(os.Stderr)
@@ -207,7 +225,7 @@ func main() {
 		synthetic     = flag.Bool("synthetic", false, "register a synthetic 60fps test pattern target")
 		noDevices     = flag.Bool("no-devices", false, "skip adb device discovery")
 		xcrunnerPath  = flag.String("xcrunner", ".build/xcrunner", "built XCUITest runner (make xcrunner TEAM=...); iPhones below iOS 27 take touches through it over a cable")
-		simcapPath    = flag.String("simcap", ".build/simcap", "path to the built simcap helper; iOS simulators are listed only when it exists (make simcap)")
+		simcapPath    = flag.String("simcap", "", "path to the simcap helper (default: .build/simcap when it exists, then simcap on PATH); iOS simulators are listed only when it exists (make simcap)")
 		noSimulators  = flag.Bool("no-simulators", false, "skip iOS simulator discovery")
 		noIOSDevices  = flag.Bool("no-ios-devices", false, "skip physical iPhone and iPad discovery through devicectl")
 		maxSize       = flag.Int("max-size", def.MaxSize, "cap the longest edge of the video, in pixels")
@@ -235,6 +253,7 @@ func main() {
 	)
 	flag.Var(&avds, "avd", "AVD to boot at startup; repeatable. Every installed AVD is listed either way")
 	flag.Parse()
+	*simcapPath = resolveSimcap(*simcapPath)
 
 	// Settings come from three places and the API has to be able to say which.
 	// A flag given explicitly outranks the file for the life of the process, so
@@ -1061,4 +1080,22 @@ func watchDevices(ctx context.Context, adb target.ADB, names *target.AVDResolver
 		case <-time.After(backoff):
 		}
 	}
+}
+
+// resolveSimcap picks the simcap helper when -simcap is not given: a
+// checkout's own build first, so `make simcap` keeps working, then one on
+// PATH, which is where Homebrew puts it. With neither, the checkout path
+// stands, and the startup line says it is not built.
+func resolveSimcap(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	const local = ".build/simcap"
+	if _, err := os.Stat(local); err == nil {
+		return local
+	}
+	if p, err := exec.LookPath("simcap"); err == nil {
+		return p
+	}
+	return local
 }

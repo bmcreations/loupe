@@ -1,0 +1,73 @@
+version: 2
+
+project_name: loupe
+
+builds:
+  - main: ./cmd/loupe
+    binary: loupe
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos: [darwin, linux]
+    goarch: [arm64, amd64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - THIRD_PARTY_NOTICES.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs"
+      - "^test"
+      - "^chore"
+
+# The formula goes to bmcreations/homebrew-tap, beside trace. simcap, the
+# iOS helper, is its own head-only formula there, since it builds with the
+# user's Xcode against private frameworks.
+brews:
+  - repository:
+      owner: bmcreations
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_msg_template: "Brew formula update for loupe version {{ .Tag }}"
+    homepage: https://github.com/bmcreations/loupe
+    description: Stream and drive Android devices, emulators and iOS simulators from a browser
+    license: Apache-2.0
+    install: |
+      bin.install "loupe"
+    service: |
+      run [opt_bin/"loupe", "-addr", ":18456"]
+      keep_alive true
+      environment_variables PATH: std_service_path_env
+      log_path var/"log/loupe.log"
+      error_log_path var/"log/loupe.log"
+    caveats: |
+      Run it in a terminal to see its link, which carries the token:
+        loupe -addr :18456
+      or keep it running in the background on the same port:
+        brew services start loupe
+
+      It serves plain HTTP until you give it a certificate. A phone's
+      browser needs HTTPS: set tlsCert and tlsKey in
+      ~/Library/Application Support/loupe/config.json (docs/getting-started.md).
+
+      Android needs adb and, for AVDs, the emulator from the Android SDK.
+      iOS simulators need simcap, built with your Xcode:
+        brew install --HEAD bmcreations/tap/simcap
+
+      Drive a device from the shell with `loupe help`, or from an agent
+      with `loupe mcp`.
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/loupe version")
