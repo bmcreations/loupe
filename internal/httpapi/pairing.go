@@ -87,7 +87,12 @@ func isOpenAuthPath(path string) bool {
 
 // sessionFromBearer returns the session an lsn_ Bearer names, if it is live.
 func (s *Server) sessionFromBearer(r *http.Request) *pairing.Session {
-	tok := bearer(r)
+	return s.sessionFromToken(bearer(r))
+}
+
+// sessionFromToken returns the live session an lsn_ token names. QUIC's open
+// message carries its credential this way, with no request to read it from.
+func (s *Server) sessionFromToken(tok string) *pairing.Session {
 	if s.pairing == nil || !strings.HasPrefix(tok, pairing.SessionPrefix) {
 		return nil
 	}

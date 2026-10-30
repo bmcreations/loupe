@@ -69,8 +69,9 @@ func (s *Server) ServeQUIC(qc *quic.Conn) {
 		return
 	}
 	// The token is checked here rather than by the authed middleware, which
-	// this path never passes through. An empty server token is -no-auth.
-	if s.token != "" && !s.tokenMatches(open.Token) {
+	// this path never passes through. An empty server token is -no-auth. A
+	// paired device sends its lsn_ session, as it would as a Bearer.
+	if s.token != "" && !s.tokenMatches(open.Token) && s.sessionFromToken(open.Token) == nil {
 		s.trace.Record(map[string]any{"kind": "quic-error", "stage": "auth", "target": open.Target})
 		_ = qc.CloseWithError(quic.ApplicationErrorCode(session.QUICCloseUnauthorized), "unauthorized")
 		return
