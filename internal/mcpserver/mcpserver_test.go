@@ -203,6 +203,19 @@ func TestATapPointsAtItsSpotBeforeTouching(t *testing.T) {
 	}
 }
 
+// The tool has no point to send a move to; the server points once it has
+// found the node.
+func TestATapByTextSendsTheMatchAndDoesNotPoint(t *testing.T) {
+	got := inputBodies(t, "tap", map[string]any{"target": "e", "text": "Sign in", "index": 0, "waitMs": 2000})
+	if len(got) != 1 || got[0].Action != "tap" || got[0].Match == nil {
+		t.Fatalf("bodies %+v, want one tap carrying a match", got)
+	}
+	m := got[0].Match
+	if m.Text != "Sign in" || m.Index == nil || *m.Index != 0 || m.WaitMs != 2000 {
+		t.Errorf("match %+v, want text, index 0 and waitMs carried over", m)
+	}
+}
+
 func TestASwipePointsAtItsStartBeforeTouching(t *testing.T) {
 	got := inputBodies(t, "swipe", map[string]any{"target": "e", "x": 100, "y": 900, "x2": 100, "y2": 200})
 	if len(got) != 2 || got[0].Action != "move" || got[0].X != 100 || got[0].Y != 900 || got[1].Action != "swipe" {

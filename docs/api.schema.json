@@ -214,7 +214,7 @@
       "$ref": "#/$defs/httpapi.FlagEndRequest"
     },
     "POST /api/input 200": {
-      "$ref": "#/$defs/httpapi.OKResponse"
+      "$ref": "#/$defs/httpapi.InputResponse"
     },
     "POST /api/input request": {
       "$ref": "#/$defs/httpapi.InputRequest"
@@ -836,6 +836,19 @@
     },
     "httpapi.ErrorResponse": {
       "properties": {
+        "candidates": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/target.Node"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
         "claim": {
           "anyOf": [
             {
@@ -1355,6 +1368,16 @@
             "keycode": {
               "type": "integer"
             },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ms": {
               "type": "integer"
             },
@@ -1417,6 +1440,94 @@
           "additionalProperties": true,
           "properties": {
             "action": {
+              "const": "tap"
+            },
+            "activity": {
+              "type": "string"
+            },
+            "button": {
+              "enum": [
+                "back",
+                "home",
+                "lock",
+                "recents"
+              ],
+              "type": "string"
+            },
+            "keycode": {
+              "type": "integer"
+            },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ms": {
+              "type": "integer"
+            },
+            "on": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "package": {
+              "type": "string"
+            },
+            "scale": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "text": {
+              "type": "string"
+            },
+            "to": {
+              "anyOf": [
+                {
+                  "maximum": 3,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "url": {
+              "type": "string"
+            },
+            "x": {
+              "type": "integer"
+            },
+            "x2": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "y2": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "action",
+            "match"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "action": {
               "const": "swipe"
             },
             "activity": {
@@ -1433,6 +1544,16 @@
             },
             "keycode": {
               "type": "integer"
+            },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "ms": {
               "type": "integer"
@@ -1515,6 +1636,16 @@
             "keycode": {
               "type": "integer"
             },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ms": {
               "type": "integer"
             },
@@ -1595,6 +1726,16 @@
             "keycode": {
               "type": "integer"
             },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ms": {
               "type": "integer"
             },
@@ -1672,6 +1813,16 @@
             },
             "keycode": {
               "type": "integer"
+            },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "ms": {
               "type": "integer"
@@ -1751,6 +1902,16 @@
             "keycode": {
               "type": "integer"
             },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ms": {
               "type": "integer"
             },
@@ -1829,6 +1990,16 @@
             "keycode": {
               "type": "integer"
             },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ms": {
               "type": "integer"
             },
@@ -1906,6 +2077,16 @@
             "keycode": {
               "type": "integer"
             },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ms": {
               "type": "integer"
             },
@@ -1982,6 +2163,16 @@
             },
             "keycode": {
               "type": "integer"
+            },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "ms": {
               "type": "integer"
@@ -2061,6 +2252,16 @@
             "keycode": {
               "type": "integer"
             },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ms": {
               "type": "integer"
             },
@@ -2138,6 +2339,16 @@
             },
             "keycode": {
               "type": "integer"
+            },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "ms": {
               "type": "integer"
@@ -2217,6 +2428,16 @@
             "keycode": {
               "type": "integer"
             },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ms": {
               "type": "integer"
             },
@@ -2276,6 +2497,27 @@
           "type": "object"
         }
       ]
+    },
+    "httpapi.InputResponse": {
+      "properties": {
+        "matched": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/target.Node"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
     },
     "httpapi.InstallResponse": {
       "properties": {
@@ -3572,6 +3814,36 @@
         "width",
         "height"
       ],
+      "type": "object"
+    },
+    "target.Match": {
+      "properties": {
+        "contains": {
+          "type": "boolean"
+        },
+        "desc": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "waitMs": {
+          "type": "integer"
+        }
+      },
       "type": "object"
     },
     "target.Node": {

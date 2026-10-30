@@ -64,10 +64,39 @@ type uiIn struct {
 	Interactive bool `json:"interactive,omitempty" jsonschema:"drop layout containers and nodes covered by something else"`
 }
 
-type tapIn struct {
+type pointIn struct {
 	Targeted
 	X int `json:"x" jsonschema:"device pixels, as /api/ui's center reports them"`
 	Y int `json:"y" jsonschema:"device pixels"`
+}
+
+// tapIn takes a point, or a node named by its id, text or desc.
+type tapIn struct {
+	Targeted
+	X        *int   `json:"x,omitempty" jsonschema:"device pixels, as /api/ui's center reports them; leave out when naming a node"`
+	Y        *int   `json:"y,omitempty" jsonschema:"device pixels"`
+	Text     string `json:"text,omitempty" jsonschema:"tap the node with this text (a button's label on Android and iOS)"`
+	ID       string `json:"id,omitempty" jsonschema:"tap the node with this resource-id or accessibility identifier; a bare Android name matches any package"`
+	Desc     string `json:"desc,omitempty" jsonschema:"tap the node with this content description, often an icon button's only label"`
+	Contains bool   `json:"contains,omitempty" jsonschema:"match text and desc as case-insensitive substrings"`
+	Index    *int   `json:"index,omitempty" jsonschema:"which of several matches, in tree order from 0; without it more than one match is an error listing them"`
+	WaitMs   int    `json:"waitMs,omitempty" jsonschema:"keep looking for the node this long, up to 20000"`
+}
+
+func (in tapIn) request() httpapi.InputRequest {
+	if in.Text != "" || in.ID != "" || in.Desc != "" {
+		return httpapi.InputRequest{Action: "tap", Match: &target.Match{
+			ID: in.ID, Text: in.Text, Desc: in.Desc, Contains: in.Contains, Index: in.Index, WaitMs: in.WaitMs,
+		}}
+	}
+	req := httpapi.InputRequest{Action: "tap"}
+	if in.X != nil {
+		req.X = *in.X
+	}
+	if in.Y != nil {
+		req.Y = *in.Y
+	}
+	return req
 }
 
 type swipeIn struct {
@@ -172,12 +201,12 @@ func addTools(s *mcp.Server, c *Client) {
 	const driving = " Claims the target for this session first, so another agent cannot drive it at the same time; refused while a person is using it."
 
 	addInput(s, c, "point", "Move this agent's cursor to a point in device pixels, without touching the device, so a person watching sees what you are about to act on. tap and swipe already point first; call this to show a target while you work something out. Claims the target like the other input tools, but is not refused while a person is using it.",
-		func(in tapIn) (string, httpapi.InputRequest) {
+		func(in pointIn) (string, httpapi.InputRequest) {
 			return in.Target, httpapi.InputRequest{Action: "move", X: in.X, Y: in.Y}
 		})
-	addInput(s, c, "tap", "Tap a point in device pixels."+driving,
+	addInput(s, c, "tap", "Tap a point in device pixels, or a node named by text, id or desc: the server finds it in the view hierarchy, taps its center and answers with the node it hit. A name that matches several nodes is an error listing them; pass index to pick one."+driving,
 		func(in tapIn) (string, httpapi.InputRequest) {
-			return in.Target, httpapi.InputRequest{Action: "tap", X: in.X, Y: in.Y}
+			return in.Target, in.request()
 		})
 	addInput(s, c, "swipe", "Drag from one point to another, in device pixels."+driving,
 		func(in swipeIn) (string, httpapi.InputRequest) {
@@ -329,7 +358,9 @@ func addInput[In any](s *mcp.Server, c *Client, name, desc string, build func(In
 			t, req := build(in)
 			q := url.Values{"target": {t}}
 			return jsonResult(c.drive(ctx, t, func() (json.RawMessage, error) {
-				if pointsFirst(req.Action) {
+				// A tap naming a node has no point yet; the server points
+				// once it has found one.
+				if pointsFirst(req.Action) && req.Match == nil {
 					// The cursor starts its trip while the action is on its
 					// way, so it reaches the point about when the touch
 					// lands. Only the viewers' cursor depends on it, so a

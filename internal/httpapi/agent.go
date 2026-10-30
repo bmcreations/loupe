@@ -63,6 +63,17 @@ var InputRequiredFields = map[string][]string{
 	"move":    {"x", "y"},
 }
 
+// InputMatchFields names the actions that can find their point in the view
+// hierarchy instead of being given one, and the fields that do it. A body
+// carrying any of them is checked against this set rather than
+// InputRequiredFields, and must not also carry the fields it replaces: a
+// tap with both a match and an x would leave the caller guessing which one
+// won. apischema gives each of these actions a second oneOf variant from
+// this table, so the schema and validateInputRequest agree.
+var InputMatchFields = map[string][]string{
+	"tap": {"match"},
+}
+
 // launchTimeout covers am start -W, which waits for the activity to draw.
 // A cold start of a large debug build runs to several seconds, past
 // agentTimeout.
@@ -325,6 +336,17 @@ type InputRequest struct {
 	// URL is the openURL action's link, handed to whatever the device has
 	// registered for it. Only its scheme and host are traced.
 	URL string `json:"url,omitempty"`
+	// Match is a tap's node, named by its id, text or desc instead of a
+	// point. handleInput dumps the view hierarchy, taps the one node it
+	// names at its center, and answers with that node. See InputMatchFields.
+	Match *target.Match `json:"match,omitempty"`
+}
+
+// InputResponse is POST /api/input's 200. Matched is the node a tap with a
+// match landed on, without its children, so a caller can see what it hit.
+type InputResponse struct {
+	OK      bool         `json:"ok"`
+	Matched *target.Node `json:"matched,omitempty"`
 }
 
 // validateInputRequest checks that body -- the raw request bytes, decoded
@@ -349,6 +371,22 @@ func validateInputRequest(body []byte, action string) error {
 		// decode into a map cannot fail on the same bytes; this is here only
 		// so the function has no silent failure mode if that ever changes.
 		return err
+	}
+	present := func(field string) bool {
+		v, ok := raw[field]
+		return ok && string(v) != "null"
+	}
+	if present("match") {
+		alt, ok := InputMatchFields[action]
+		if !ok {
+			return fmt.Errorf("action %q takes no match", action)
+		}
+		for _, field := range required {
+			if present(field) {
+				return fmt.Errorf("action %q takes a match or %s, not both", action, strings.Join(required, " and "))
+			}
+		}
+		required = alt
 	}
 	for _, field := range required {
 		v, present := raw[field]
@@ -432,6 +470,19 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A match is looked up before arbitration, like a launch's names: a
+	// node that is not on the screen is a 404 whoever holds the target,
+	// and reading the tree is never refused.
+	var matched *target.Node
+	if req.Match != nil {
+		n, ok := s.resolveMatch(w, r, t, *req.Match)
+		if !ok {
+			return
+		}
+		matched = n.Leaf()
+		req.X, req.Y = n.Center[0], n.Center[1]
+	}
+
 	c := s.inputCaller(r, t.ID())
 	if !s.arbitrate(w, r, t.ID(), req.Action, c) {
 		return
@@ -490,6 +541,11 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 		switch req.Action {
 		case "tap":
+			// A caller that named a node had no point to send a move with
+			// first, so the cursor is sent here, on its way as the touch is.
+			if matched != nil && c.viewer == 0 {
+				s.publishCursor(ctx, t, InputRequest{Action: "move", X: req.X, Y: req.Y}, c)
+			}
 			err = act.Tap(ctx, req.X, req.Y)
 		case "swipe":
 			err = act.Swipe(ctx, req.X, req.Y, req.X2, req.Y2, req.Ms)
@@ -702,7 +758,89 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	s.traceInputWith(r, t.ID(), req.Action, c, nil, extra)
 	acted = true
 	s.agentActed(t.ID(), req.Action, c)
-	writeJSON(w, http.StatusOK, OKResponse{OK: true})
+	writeJSON(w, http.StatusOK, InputResponse{OK: true, Matched: matched})
+}
+
+// matchPollEvery is the pause between hierarchy dumps while a match waits
+// for its node. A dump itself takes from a few hundred ms to over 2s, so
+// this only keeps a fast target from being asked back to back.
+const matchPollEvery = 250 * time.Millisecond
+
+// resolveMatch finds the node m names on t's screen, dumping the hierarchy
+// again until m.WaitMs runs out while nothing matches. It writes the error
+// response itself: 404 noMatch, 409 ambiguous with the candidates, or what
+// /api/ui would answer for the dump.
+func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.Target, m target.Match) (*target.Node, bool) {
+	if m.Empty() {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "match needs an id, text or desc"})
+		return nil, false
+	}
+	if m.WaitMs < 0 || m.WaitMs > target.MaxMatchWaitMs {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error: fmt.Sprintf("match waitMs %d out of range [0,%d]", m.WaitMs, target.MaxMatchWaitMs),
+		})
+		return nil, false
+	}
+	insp, ok := t.(target.Inspector)
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, ErrorResponse{
+			Error: fmt.Sprintf("target %q has no view hierarchy to match in", t.ID()),
+		})
+		return nil, false
+	}
+	wait := time.Duration(m.WaitMs) * time.Millisecond
+	ctx, cancel := context.WithTimeout(r.Context(), agentTimeout+wait)
+	defer cancel()
+	ctx = s.peerReadCtx(ctx, r, t)
+	deadline := time.Now().Add(wait)
+	for {
+		ui, err := insp.Inspect(ctx)
+		if err != nil {
+			s.traceAgent(r, t.ID(), "match", err)
+			if writeOwnerError(w, err) {
+				return nil, false
+			}
+			status := http.StatusBadGateway
+			if errors.Is(err, target.ErrUIAutomationBusy) {
+				status = http.StatusConflict
+			}
+			writeJSON(w, status, ErrorResponse{Error: err.Error()})
+			return nil, false
+		}
+		n, found, err := target.Pick(ui.Root, m)
+		switch {
+		case err == nil:
+			return n, true
+		case errors.Is(err, target.ErrAmbiguousMatch):
+			s.traceAgent(r, t.ID(), "match", err)
+			writeJSON(w, http.StatusConflict, ErrorResponse{
+				Error: err.Error(), Code: ErrCodeAmbiguous, Candidates: leaves(found),
+			})
+			return nil, false
+		}
+		if time.Now().Add(matchPollEvery).After(deadline) {
+			s.traceAgent(r, t.ID(), "match", err)
+			writeJSON(w, http.StatusNotFound, ErrorResponse{
+				Error: err.Error(), Code: ErrCodeNoMatch, Candidates: leaves(found),
+			})
+			return nil, false
+		}
+		select {
+		case <-ctx.Done():
+			writeJSON(w, http.StatusNotFound, ErrorResponse{Error: err.Error(), Code: ErrCodeNoMatch})
+			return nil, false
+		case <-time.After(matchPollEvery):
+		}
+	}
+}
+
+// leaves strips each node's children, for a list of candidates.
+func leaves(ns []*target.Node) []*target.Node {
+	out := make([]*target.Node, len(ns))
+	for i, n := range ns {
+		out[i] = n.Leaf()
+	}
+	return out
 }
 
 // errInputFailed replaces a text action's own error everywhere it could

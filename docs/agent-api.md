@@ -47,7 +47,36 @@ human watches the same session.
   a person watching sees where the agent is about to act. It is live only,
   kept out of the event log and `/api/events`, passes the human hold and
   leaves the banner alone, but another agent's claim still refuses it.
-  `loupe mcp`'s `tap` and `swipe` send one before they touch.
+  `loupe mcp`'s `tap` and `swipe` send one before they touch. Once an
+  agent has been quiet for 2.5s its cursor parks: it dims and pulses where
+  it last acted for 20s more before it fades (`PARK_MS` in
+  `web/cursor.js`). An agent thinks for seconds between calls, and a
+  cursor that vanished each time would read as one that had left.
+
+  A `tap` can name a node instead of a point:
+  `{"action":"tap","match":{"text":"Sign in"}}`. `match` takes `id`,
+  `text` and `desc`, and a node has to satisfy every field given. `id` is
+  a resource-id on Android or an accessibility identifier on iOS, and a
+  bare Android name (`send`) matches any package's `:id/send`. `text` and
+  `desc` match exactly, or as case-insensitive substrings with
+  `"contains": true`. On a simulator a button's label is its `text`. The
+  server dumps the hierarchy, taps the node's `center`, sends the cursor
+  there first, and answers `{"ok":true,"matched":{...}}` with the node it
+  hit, without its children. Nodes with no area and nodes simcap marks
+  `occluded` never match, and a match with the same bounds as one already
+  found counts once, since uiautomator stacks a Compose node and its host
+  at one rectangle with the same label. More than one match is 409
+  `ambiguous` with `candidates` and nothing touched; `"index": n` picks
+  one in tree order. No match is 404 `noMatch`. `"waitMs"` (at most
+  20000) dumps again every 250ms until the node appears, which replaces
+  a sleep-and-retry after a navigation. The lookup runs before
+  arbitration, as a launch's name check does, so a missing node is a 404
+  even while a person holds the target. A body with both `match` and
+  `x`/`y` is a 400. Every match tap costs a full dump, about 2.3s on
+  emulator-5554 per the `/api/ui` timing above; the tree is not cached,
+  because a center read before an app scrolled by itself would land on
+  a neighbour. `loupe mcp`'s `tap` takes the same fields as `text`, `id`,
+  `desc`, `contains`, `index` and `waitMs`.
   On Android a tap or swipe the input dispatcher threw away answers 409
   `code: "touchRejected"` with its reason, since `input` exits 0 either way
   (trap 50).
