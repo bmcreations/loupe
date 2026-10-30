@@ -1587,6 +1587,30 @@ Section names such as Device frames or Adaptive bitrate refer to
     read which cells show before changing the layout; an AVD whose
     `hw.camera.back.orientation` is not 90 is staged as sent.
 
+57. **A simulator that sat idle goes blurry after one network hiccup, and
+    stays blurry for minutes.** The trace shows `starved` cutting the
+    bitrate to about what a still screen produces, then a `resize` to the
+    ladder's floor. The Flipcash simulator on 30 October, viewed in Handset:
+    a static chat at 2fps, one 951ms round trip at 12:26:44, and 57 frames
+    suppressed awaiting a keyframe over the next two seconds. The window read
+    `awaitFrac` 0.62 over 92 frames, so the starved gate aimed at goodput,
+    256 kbps, which measured the content rather than the link. 4 Mbps went to
+    256 kbps in one step and 664x1440 to 248x544, and the climb back is x1.5
+    every ~26s.
+
+    The frame share overstated the wait because idle frames are few: the
+    waits filled 2 of the window's 11 seconds. Trap 34 sized the starved gate
+    for a wait sustained across the window, and the frame count could not
+    tell that from a burst. The starved and undercarried gates now also need
+    the share of active time holding a wait (`awaitMs` over `activeMs` in the
+    trace) to reach their frame threshold. At a steady frame rate the two
+    shares agree. Pinned by
+    `TestABurstOfKeyframeWaitsOnAnIdleScreenIsNotStarvation`, which replays
+    that window and fails with `starved` at 256 kbps without the time share.
+
+    `minWindowFrameRate` did not catch it: the suppressed frames count as
+    produced, so the burst lifted the window to 8.4fps.
+
 ## Open observation: a 4.87s held sample in a Pixel_10 recording
 
 Not a numbered trap: the cause is not known. A recording of Pixel_10 from

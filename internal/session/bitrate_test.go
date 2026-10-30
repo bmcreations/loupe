@@ -806,3 +806,34 @@ func TestNoStepUpWhileTheViewerWaitsOnKeyframes(t *testing.T) {
 		t.Errorf("stepped up to %d while the viewer waited on keyframes", got)
 	}
 }
+
+// The Flipcash simulator on 30 October: a static chat at 2fps, then one
+// 951ms round trip and two seconds of frames suppressed awaiting a keyframe.
+// The window read awaitFrac 0.62 over 92 frames, and the starved gate cut 4
+// Mbps to 256 kbps -- what a static screen produces, not what the link can
+// carry -- and the size ladder to 248x544. The waits filled 2 of 11 seconds;
+// starvation fills the window.
+func TestABurstOfKeyframeWaitsOnAnIdleScreenIsNotStarvation(t *testing.T) {
+	a := NewLiveBitrateAdapter(4_000_000)
+	start := time.Now()
+	a.Observe(start, BitrateSample{})
+	idle := BitrateSample{Frames: 2, Bytes: 32_000}
+	samples := []BitrateSample{idle, idle, idle, idle, idle, idle, idle, idle, idle,
+		{Frames: 15, Shed: 1, AwaitKey: 11, Bytes: 32_000},
+		{Frames: 58, Shed: 3, AwaitKey: 46, Bytes: 32_000},
+	}
+	for i, s := range samples {
+		// The trace judged the window at windowMs 10999: the samples ran a
+		// little under a second apart, so the tenth landed just short of
+		// downWindow and the eleventh decided.
+		at := time.Duration(i+1) * 999 * time.Millisecond
+		if i == len(samples)-1 {
+			at = 10999 * time.Millisecond
+		}
+		next, rep := a.Observe(start.Add(at), s)
+		if next != 0 {
+			t.Fatalf("second %d: %s changed the encoder to %d (awaitFrac %.2f over %d frames)",
+				i+1, rep.Gate, next, rep.AwaitFrac, rep.Frames)
+		}
+	}
+}

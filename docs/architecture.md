@@ -473,7 +473,10 @@ the new bitrate is the measured goodput, floored at 250 kbps; on a starved link
 it is the goodput again, with a halving as the ceiling on one step. A link carrying
 under half the current rate while the viewer waits on keyframes for a fifth
 of the window steps down to goodput too, which is the gap between those two
-that trap 51 fell into. Recovery
+that trap 51 fell into. Both of those gates also need the waits spread over
+time: the share of active seconds holding a wait must reach the same
+fraction as the share of frames, or a burst behind one late keyframe on a
+near-idle screen reads as starvation (trap 57). Recovery
 steps up by half after 60s with almost no shedding and almost no keyframe
 waiting, capped at six changes per
 session so a marginal link cannot oscillate, with a 12s settle after each
