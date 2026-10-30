@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 420" width="1280" height="420" role="img" aria-labelledby="t d">
+  <title id="t">loupe</title>
+  <desc id="d">A phone screen under a magnifying loupe, with a tap landing on its Sign in button, next to the title loupe and the tagline: your Android devices, emulators and iOS simulators, live in any browser, and drivable by your agents.</desc>
+  <style>
+    .bg { fill: #F6F8FA; }
+    .ink { fill: #0F172A; }
+    .muted { fill: #475569; }
+    .chip { fill: #E0F2F1; }
+    .chiptext { fill: #0F766E; }
+    .phone { fill: #0F172A; }
+    .screen { fill: #FFFFFF; }
+    .block { fill: #E2E8F0; }
+    .lens { fill: #2DD4BF; fill-opacity: 0.08; stroke: #0F172A; }
+    .lensback { fill: #FFFFFF; }
+    .handle { fill: #0F172A; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0B1120; }
+      .ink { fill: #F1F5F9; }
+      .muted { fill: #94A3B8; }
+      .chip { fill: #12302E; }
+      .chiptext { fill: #5EEAD4; }
+      .phone { fill: #1E293B; }
+      .screen { fill: #111827; }
+      .block { fill: #1F2937; }
+      .lens { fill: #2DD4BF; fill-opacity: 0.10; stroke: #CBD5E1; }
+      .lensback { fill: #111827; }
+      .handle { fill: #CBD5E1; }
+    }
+    .ripple { transform-box: fill-box; transform-origin: center; animation: ripple 2.4s ease-out infinite; }
+    @keyframes ripple { 0% { transform: scale(0.3); opacity: 0.9; } 70%, 100% { transform: scale(1.8); opacity: 0; } }
+    .cursor { animation: move 2.4s ease-in-out infinite; }
+    @keyframes move { 0% { transform: translate(-30px, -40px); } 45%, 100% { transform: translate(0, 0); } }
+    .live { animation: blink 1.2s steps(2, start) infinite; }
+    @keyframes blink { to { visibility: hidden; } }
+    @media (prefers-reduced-motion: reduce) { .ripple, .cursor, .live { animation: none; } }
+    .title { font: 800 92px ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; letter-spacing: -3px; }
+    .tag { font: 400 25px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .chipfont { font: 600 16px ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+    .ui { font: 600 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .badge { font: 700 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 1px; }
+  </style>
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2DD4BF"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+    <clipPath id="screenclip"><rect x="148" y="58" width="184" height="308" rx="18"/></clipPath>
+  </defs>
+
+  <rect class="bg" width="1280" height="420"/>
+
+  <!-- phone -->
+  <rect class="phone" x="136" y="40" width="208" height="340" rx="30"/>
+  <g clip-path="url(#screenclip)">
+    <rect class="screen" x="148" y="58" width="184" height="308"/>
+    <rect x="148" y="58" width="184" height="70" fill="url(#accent)"/>
+    <rect class="block" x="166" y="150" width="148" height="30" rx="8"/>
+    <rect class="block" x="166" y="192" width="148" height="30" rx="8"/>
+    <rect class="block" x="166" y="236" width="96" height="10" rx="5"/>
+    <rect x="166" y="282" width="148" height="40" rx="12" fill="#0F766E"/>
+    <text class="ui" x="240" y="307" text-anchor="middle" fill="#FFFFFF">Sign in</text>
+  </g>
+  <rect x="210" y="46" width="60" height="6" rx="3" fill="#334155"/>
+
+  <!-- loupe: the lens shows the Sign in button magnified, with the tap landing on it -->
+  <defs>
+    <clipPath id="lensclip"><circle cx="300" cy="300" r="76"/></clipPath>
+  </defs>
+  <rect class="handle" x="350" y="352" width="26" height="92" rx="12" transform="rotate(-45 363 398)"/>
+  <circle class="lensback" cx="300" cy="300" r="76"/>
+  <g clip-path="url(#lensclip)">
+    <g transform="translate(300 302) scale(1.7) translate(-240 -302)">
+      <rect class="screen" x="148" y="240" width="184" height="126"/>
+      <rect class="block" x="166" y="236" width="96" height="10" rx="5"/>
+      <rect x="166" y="282" width="148" height="40" rx="12" fill="#0F766E"/>
+      <text class="ui" x="240" y="307" text-anchor="middle" fill="#FFFFFF">Sign in</text>
+      <circle class="ripple" cx="240" cy="302" r="16" fill="none" stroke="#2DD4BF" stroke-width="3"/>
+      <g class="cursor"><circle cx="240" cy="302" r="6" fill="#6366F1" stroke="#FFFFFF" stroke-width="2"/></g>
+    </g>
+  </g>
+  <circle class="lens" cx="300" cy="300" r="76" stroke-width="12"/>
+
+  <!-- live badge -->
+  <rect x="400" y="62" width="82" height="30" rx="15" fill="#DC2626"/>
+  <circle class="live" cx="420" cy="77" r="5" fill="#FFFFFF"/>
+  <text class="badge" x="434" y="81" fill="#FFFFFF">LIVE</text>
+
+  <!-- title -->
+  <text class="title ink" x="590" y="168">loupe</text>
+  <text class="tag muted" x="594" y="218">Your Android devices, emulators and iOS simulators,</text>
+  <text class="tag muted" x="594" y="252">live in any browser. Your agents drive them too.</text>
+
+  <g class="chipfont">
+    <rect class="chip" x="594" y="290" width="186" height="38" rx="19"/>
+    <text class="chiptext" x="687" y="314" text-anchor="middle">60 fps in Safari</text>
+    <rect class="chip" x="794" y="290" width="156" height="38" rx="19"/>
+    <text class="chiptext" x="872" y="314" text-anchor="middle">live touch</text>
+    <rect class="chip" x="964" y="290" width="206" height="38" rx="19"/>
+    <text class="chiptext" x="1067" y="314" text-anchor="middle">HTTP · CLI · MCP</text>
+  </g>
+</svg>

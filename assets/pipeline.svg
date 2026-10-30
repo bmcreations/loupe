@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-labelledby="t d">
+  <title id="t">How loupe connects devices to browsers and agents</title>
+  <desc id="d">Android phones over adb, Android emulators and iOS simulators feed one loupe binary on your Mac. loupe streams H.264 to a browser over WebTransport or WebSocket and takes touch back, and serves the same devices to scripts and agents through the HTTP API, the loupe CLI and loupe mcp.</desc>
+  <style>
+    .bg { fill: #F6F8FA; }
+    .card { fill: #FFFFFF; stroke: #CBD5E1; }
+    .hub { fill: #0F172A; }
+    .ink { fill: #0F172A; }
+    .muted { fill: #475569; }
+    .hubink { fill: #F1F5F9; }
+    .hubmuted { fill: #94A3B8; }
+    .wire { stroke: #94A3B8; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0B1120; }
+      .card { fill: #111827; stroke: #334155; }
+      .hub { fill: #134E4A; }
+      .ink { fill: #F1F5F9; }
+      .muted { fill: #94A3B8; }
+      .hubmuted { fill: #99F6E4; }
+      .wire { stroke: #475569; }
+    }
+    .flow { stroke-dasharray: 6 10; animation: flow 1s linear infinite; }
+    .back { stroke-dasharray: 6 10; animation: flow 1s linear infinite reverse; }
+    @keyframes flow { to { stroke-dashoffset: -16; } }
+    @media (prefers-reduced-motion: reduce) { .flow, .back { animation: none; } }
+    .h { font: 700 18px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .s { font: 400 14px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .m { font: 600 13px ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+    .big { font: 800 34px ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; letter-spacing: -1px; }
+  </style>
+
+  <rect class="bg" width="1200" height="400"/>
+
+  <!-- sources -->
+  <g>
+    <rect class="card" x="30" y="40" width="300" height="88" rx="14"/>
+    <text class="h ink" x="52" y="76">Android phones</text>
+    <text class="s muted" x="52" y="102">over adb, with an embedded scrcpy-server</text>
+
+    <rect class="card" x="30" y="156" width="300" height="88" rx="14"/>
+    <text class="h ink" x="52" y="192">Android emulators</text>
+    <text class="s muted" x="52" y="218">every AVD, booted on demand</text>
+
+    <rect class="card" x="30" y="272" width="300" height="88" rx="14"/>
+    <text class="h ink" x="52" y="308">iOS simulators</text>
+    <text class="s muted" x="52" y="334">through simcap</text>
+  </g>
+
+  <!-- wires in -->
+  <g fill="none" stroke-width="3">
+    <path class="wire flow" d="M330 84 C 390 84, 400 200, 450 200"/>
+    <path class="wire flow" d="M330 200 H 450"/>
+    <path class="wire flow" d="M330 316 C 390 316, 400 200, 450 200"/>
+  </g>
+
+  <!-- hub -->
+  <rect class="hub" x="450" y="110" width="300" height="180" rx="20"/>
+  <text class="big hubink" x="600" y="186" text-anchor="middle">loupe</text>
+  <text class="s hubmuted" x="600" y="216" text-anchor="middle">one Go binary on your Mac</text>
+  <text class="s hubmuted" x="600" y="240" text-anchor="middle">claims · human hold · trace</text>
+
+  <!-- wires out -->
+  <g fill="none" stroke-width="3">
+    <path class="wire flow" d="M750 170 C 800 170, 810 100, 870 100" stroke="#2DD4BF"/>
+    <path class="wire back" d="M750 230 C 800 230, 810 300, 870 300" stroke="#6366F1"/>
+  </g>
+
+  <!-- sinks -->
+  <g>
+    <rect class="card" x="870" y="40" width="300" height="120" rx="14"/>
+    <text class="h ink" x="892" y="76">A browser</text>
+    <text class="s muted" x="892" y="102">Safari on your iPhone, or any desktop</text>
+    <text class="m muted" x="892" y="130">H.264 over WebTransport</text>
+    <text class="m muted" x="892" y="148">touch, keys and clipboard back</text>
+
+    <rect class="card" x="870" y="240" width="300" height="120" rx="14"/>
+    <text class="h ink" x="892" y="276">Scripts and agents</text>
+    <text class="s muted" x="892" y="302">drive the same device while you watch</text>
+    <text class="m muted" x="892" y="330">/api/*  ·  loupe &lt;command&gt;</text>
+    <text class="m muted" x="892" y="348">loupe mcp</text>
+  </g>
+</svg>

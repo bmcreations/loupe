@@ -133,4 +133,3 @@ covers the MCP server.
   clipboard, device frames.
 - [security.md](security.md): what the token protects, and pairing a
   device with its own revocable session.
-- [traps.md](traps.md): search it for the symptom you see before debugging.
