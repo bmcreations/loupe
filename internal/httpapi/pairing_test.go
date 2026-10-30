@@ -387,3 +387,21 @@ func TestPairingRoutesAnswer404WhenTheStoreIsUnreadable(t *testing.T) {
 		t.Error("the unreadable file was overwritten")
 	}
 }
+
+func TestQUICOpenAcceptsAPairedSession(t *testing.T) {
+	s, h := pairingServer(t)
+	sess := pairBearer(t, h, mintCode(t, h, master, `{"label":"phone"}`).Code)
+	if s.sessionFromToken(sess.Token) == nil {
+		t.Fatalf("a live session token was refused")
+	}
+	if s.sessionFromToken("lsn_not-a-session") != nil || s.sessionFromToken("") != nil {
+		t.Fatalf("an unknown token was accepted")
+	}
+	rec := pdo(h, call{method: http.MethodDelete, path: "/api/sessions/" + sess.ID, auth: master})
+	if rec.Code >= 300 {
+		t.Fatalf("DELETE session = %d %s", rec.Code, rec.Body)
+	}
+	if s.sessionFromToken(sess.Token) != nil {
+		t.Fatalf("a revoked session token was accepted")
+	}
+}
