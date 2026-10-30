@@ -102,6 +102,8 @@ var endpoints = []endpoint{
 	{"GET /api/events", dirResponse, session.EventPage{}},
 	{"POST /api/input request", dirRequest, httpapi.InputRequest{}},
 	{"POST /api/input 200", dirResponse, httpapi.InputResponse{}},
+	{"POST /api/sequence request", dirRequest, httpapi.SequenceRequest{}},
+	{"POST /api/sequence 200", dirResponse, httpapi.SequenceResponse{}},
 	{"POST /api/install 200", dirResponse, httpapi.InstallResponse{}},
 	{"POST /api/install 422", dirResponse, httpapi.InstallResponse{}},
 	{"POST /api/media 200", dirResponse, httpapi.MediaResponse{}},

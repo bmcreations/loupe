@@ -31,7 +31,7 @@ import (
 // requires it not fall through to the "unknown action" branch -- so an
 // action added to the switch and forgotten here fails a test rather than
 // silently shipping a schema an agent's generated client cannot see.
-var InputActions = []string{"tap", "swipe", "pinch", "text", "key", "button", "rotate", "reclaim", "hardwareKeyboard", "launch", "openURL", "move"}
+var InputActions = []string{"tap", "swipe", "pinch", "text", "key", "button", "rotate", "reclaim", "hardwareKeyboard", "launch", "openURL", "move", "wait"}
 
 // InputRequiredFields names the JSON fields handleInput requires present --
 // not merely non-zero, since x=0 and keycode=0 are both coordinates and
@@ -61,6 +61,9 @@ var InputRequiredFields = map[string][]string{
 	"launch":  {"package"},
 	"openURL": {"url"},
 	"move":    {"x", "y"},
+	// A wait with ms pauses that long; with a match instead it waits for
+	// the node to appear (InputMatchFields).
+	"wait": {"ms"},
 }
 
 // InputMatchFields names the actions that can find their point in the view
@@ -71,8 +74,13 @@ var InputRequiredFields = map[string][]string{
 // won. apischema gives each of these actions a second oneOf variant from
 // this table, so the schema and validateInputRequest agree.
 var InputMatchFields = map[string][]string{
-	"tap": {"match"},
+	"tap":  {"match"},
+	"wait": {"match"},
 }
+
+// defaultWaitMs is how long a wait for a node looks when its match gives no
+// waitMs. A wait that looked once would not be a wait.
+const defaultWaitMs = 10_000
 
 // launchTimeout covers am start -W, which waits for the activity to draw.
 // A cold start of a large debug build runs to several seconds, past
@@ -474,6 +482,9 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	// node that is not on the screen is a 404 whoever holds the target,
 	// and reading the tree is never refused.
 	var matched *target.Node
+	if req.Action == "wait" && req.Match != nil && req.Match.WaitMs == 0 {
+		req.Match.WaitMs = defaultWaitMs
+	}
 	if req.Match != nil {
 		n, ok := s.resolveMatch(w, r, t, *req.Match)
 		if !ok {
@@ -481,6 +492,28 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 		matched = n.Leaf()
 		req.X, req.Y = n.Center[0], n.Center[1]
+	}
+
+	// A wait touches nothing, so like the match it may have looked up it is
+	// answered before arbitration and never enters the event log.
+	switch req.Action {
+	case "wait":
+		if matched == nil {
+			if req.Ms < 0 || req.Ms > target.MaxMatchWaitMs {
+				writeJSON(w, http.StatusBadRequest, ErrorResponse{
+					Error: fmt.Sprintf("wait ms %d out of range [0,%d]", req.Ms, target.MaxMatchWaitMs),
+				})
+				return
+			}
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(time.Duration(req.Ms) * time.Millisecond):
+			}
+		}
+		s.traceAgent(r, t.ID(), "wait", nil)
+		writeJSON(w, http.StatusOK, InputResponse{OK: true, Matched: matched})
+		return
 	}
 
 	c := s.inputCaller(r, t.ID())

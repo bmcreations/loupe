@@ -235,3 +235,26 @@ func TestAMatchTapIsTracedWithItsMatch(t *testing.T) {
 	}
 	t.Fatalf("no tap in the trace: %s", b)
 }
+
+func TestAWaitForANodeAnswersWithItAndTouchesNothing(t *testing.T) {
+	s, ft := matchServer(t, emptyScreen(), signInScreen())
+	rec := postInput(s, "dev1", `{"action":"wait","match":{"text":"Sign in"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp InputResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.Matched == nil || resp.Matched.Text != "Sign in" || len(ft.taps) != 0 || ft.inspects != 2 {
+		t.Fatalf("response %s, taps %v, inspects %d; want the node after a second look and no tap", rec.Body.String(), ft.taps, ft.inspects)
+	}
+}
+
+func TestAWaitOfMsIsBounded(t *testing.T) {
+	s, _ := matchServer(t, signInScreen())
+	if rec := postInput(s, "dev1", `{"action":"wait","ms":999999}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400", rec.Code)
+	}
+	if rec := postInput(s, "dev1", `{"action":"wait","ms":5}`); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+}

@@ -43,6 +43,7 @@ var toolRoutes = []toolRoute{
 	{"button", http.MethodPost, "/api/input"},
 	{"launch", http.MethodPost, "/api/input"},
 	{"open_url", http.MethodPost, "/api/input"},
+	{"sequence", http.MethodPost, "/api/sequence"},
 	{"logcat", http.MethodGet, "/api/logcat"},
 	{"crashes", http.MethodGet, "/api/crashes"},
 	{"crash", http.MethodGet, "/api/crashes/"},
@@ -97,6 +98,30 @@ func (in tapIn) request() httpapi.InputRequest {
 		req.Y = *in.Y
 	}
 	return req
+}
+
+// stepIn is one step of a sequence: a POST /api/input body. Its numbers are
+// pointers so a 0 is sent rather than dropped, which the server would read
+// as a missing field.
+type stepIn struct {
+	Action   string        `json:"action" jsonschema:"tap, swipe, text, key, button, launch, openURL, move or wait"`
+	X        *int          `json:"x,omitempty" jsonschema:"device pixels: tap, swipe start, move"`
+	Y        *int          `json:"y,omitempty" jsonschema:"device pixels"`
+	X2       *int          `json:"x2,omitempty" jsonschema:"swipe end, device pixels"`
+	Y2       *int          `json:"y2,omitempty" jsonschema:"swipe end, device pixels"`
+	Ms       *int          `json:"ms,omitempty" jsonschema:"swipe duration, or how long a wait without a match pauses (up to 20000)"`
+	Text     string        `json:"text,omitempty" jsonschema:"text to type"`
+	Keycode  *int          `json:"keycode,omitempty" jsonschema:"an Android KeyEvent keycode"`
+	Button   string        `json:"button,omitempty"`
+	Package  string        `json:"package,omitempty" jsonschema:"launch: Android package or iOS bundle ID"`
+	Activity string        `json:"activity,omitempty"`
+	URL      string        `json:"url,omitempty" jsonschema:"openURL: the URL"`
+	Match    *target.Match `json:"match,omitempty" jsonschema:"tap or wait: the node by id, text or desc instead of x and y; a wait with a match waits for the node to appear, 10s unless waitMs says otherwise"`
+}
+
+type sequenceIn struct {
+	Targeted
+	Steps []stepIn `json:"steps" jsonschema:"up to 50 steps, run in order; the first that fails stops the rest"`
 }
 
 type swipeIn struct {
@@ -329,6 +354,17 @@ func addTools(s *mcp.Server, c *Client) {
 		}
 		b, _, err := c.do(ctx, http.MethodPost, "/api/camera", q, "application/octet-stream", bytes.NewReader(body))
 		return jsonResult(b, err)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "sequence",
+		Description: "Run several inputs in one call, so a known flow (fill a form, tap through a dialog) costs one round trip instead of one per step. Each step is an input tool's body with its action named: tap (x,y or match), swipe, text, key, button, launch, openURL, move, and wait (ms, or match to wait for a node). Steps run in order and the cursor moves to each touch first; the first step that fails stops the rest, and the answer names it and holds every step's result. Read the screen again before a step whose node depends on what an earlier step opened, or use a wait with a match." + driving,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sequenceIn) (*mcp.CallToolResult, any, error) {
+		return jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
+			return c.postJSON(ctx, "/api/sequence", url.Values{"target": {in.Target}}, struct {
+				Steps []stepIn `json:"steps"`
+			}{in.Steps})
+		}))
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

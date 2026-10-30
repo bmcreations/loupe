@@ -267,9 +267,9 @@ func TestAMovePassesTheHoldAndReachesViewersAsACursor(t *testing.T) {
 	}
 }
 
-func TestOnlyTheKeyboardSwitchIsExempt(t *testing.T) {
+func TestOnlyTheKeyboardSwitchAndAWaitAreExempt(t *testing.T) {
 	for _, a := range InputActions {
-		if got, want := arbitrated(a), a != "hardwareKeyboard"; got != want {
+		if got, want := arbitrated(a), a != "hardwareKeyboard" && a != "wait"; got != want {
 			t.Errorf("arbitrated(%q) = %v; want %v", a, got, want)
 		}
 	}
@@ -277,7 +277,7 @@ func TestOnlyTheKeyboardSwitchIsExempt(t *testing.T) {
 
 func TestOnlyMoveSkipsTheHold(t *testing.T) {
 	for _, a := range InputActions {
-		if got, want := held(a), a != "hardwareKeyboard" && a != "move"; got != want {
+		if got, want := held(a), a != "hardwareKeyboard" && a != "move" && a != "wait"; got != want {
 			t.Errorf("held(%q) = %v; want %v", a, got, want)
 		}
 	}

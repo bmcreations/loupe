@@ -264,6 +264,12 @@
     "POST /api/record 409": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
+    "POST /api/sequence 200": {
+      "$ref": "#/$defs/httpapi.SequenceResponse"
+    },
+    "POST /api/sequence request": {
+      "$ref": "#/$defs/httpapi.SequenceRequest"
+    },
     "POST /api/servers 201": {
       "$ref": "#/$defs/httpapi.ServerInfo"
     },
@@ -2495,6 +2501,182 @@
             "y"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "action": {
+              "const": "wait"
+            },
+            "activity": {
+              "type": "string"
+            },
+            "button": {
+              "enum": [
+                "back",
+                "home",
+                "lock",
+                "recents"
+              ],
+              "type": "string"
+            },
+            "keycode": {
+              "type": "integer"
+            },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ms": {
+              "type": "integer"
+            },
+            "on": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "package": {
+              "type": "string"
+            },
+            "scale": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "text": {
+              "type": "string"
+            },
+            "to": {
+              "anyOf": [
+                {
+                  "maximum": 3,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "url": {
+              "type": "string"
+            },
+            "x": {
+              "type": "integer"
+            },
+            "x2": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "y2": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "action",
+            "ms"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "action": {
+              "const": "wait"
+            },
+            "activity": {
+              "type": "string"
+            },
+            "button": {
+              "enum": [
+                "back",
+                "home",
+                "lock",
+                "recents"
+              ],
+              "type": "string"
+            },
+            "keycode": {
+              "type": "integer"
+            },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ms": {
+              "type": "integer"
+            },
+            "on": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "package": {
+              "type": "string"
+            },
+            "scale": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "text": {
+              "type": "string"
+            },
+            "to": {
+              "anyOf": [
+                {
+                  "maximum": 3,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "url": {
+              "type": "string"
+            },
+            "x": {
+              "type": "integer"
+            },
+            "x2": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "y2": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "action",
+            "match"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -3003,6 +3185,66 @@
       },
       "required": [
         "revoked"
+      ],
+      "type": "object"
+    },
+    "httpapi.SequenceRequest": {
+      "properties": {
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/httpapi.InputRequest"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "type": "object"
+    },
+    "httpapi.SequenceResponse": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "failed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/httpapi.SequenceStep"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "ok",
+        "steps"
+      ],
+      "type": "object"
+    },
+    "httpapi.SequenceStep": {
+      "properties": {
+        "body": {},
+        "status": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status"
       ],
       "type": "object"
     },

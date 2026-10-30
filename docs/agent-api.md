@@ -77,6 +77,14 @@ human watches the same session.
   because a center read before an app scrolled by itself would land on
   a neighbour. `loupe mcp`'s `tap` takes the same fields as `text`, `id`,
   `desc`, `contains`, `index` and `waitMs`.
+
+  `wait` touches nothing. `{"action":"wait","ms":1500}` pauses (at most
+  20000), and `{"action":"wait","match":{"text":"Inbox"}}` dumps until the
+  node appears and answers with it, looking for 10s unless the match sets
+  `waitMs`. It is answered before arbitration and kept out of the event
+  log, like a match lookup, so a person holding the target does not refuse
+  it. It exists for `/api/sequence`; a single call gains nothing over a
+  `tap` with `waitMs`.
   On Android a tap or swipe the input dispatcher threw away answers 409
   `code: "touchRejected"` with its reason, since `input` exits 0 either way
   (trap 50).
@@ -209,6 +217,25 @@ and lapse is traced as `kind:"agent"`, `action:"claim"`, `"release"` or
 `"claimExpired"` (traced when the lapse is next read, not on a timer), a refusal carries `refused: "claimedBy"` or `"handsOff"`, and
 the client reports `picker-handsoff` and `picker-release` with `target`, `on`
 and `outcome`.
+- `POST /api/sequence?target=<id>` runs several `/api/input` bodies in
+  order: `{"steps":[{"action":"tap","match":{"text":"Email"}},
+  {"action":"text","text":"a@b.co"},{"action":"tap","match":{"text":"Sign
+  in"}},{"action":"wait","match":{"text":"Inbox"}}]}`. An agent pays one
+  round trip for the flow instead of one model turn per step, and its
+  cursor moves from step to step with no pause for thought between. Each
+  step goes through `handleInput` itself with the sequence's query and
+  headers, so it is validated, arbitrated, logged and traced as if sent
+  alone, and a person who takes the device back partway stops the
+  sequence at the next step. Before a coordinate `tap` or `swipe` the
+  runner sends a `move`, as `loupe mcp` does for one tap. The first step
+  that answers anything but 200 stops the rest: the response has that
+  step's status, `"failed": <index>`, its `error` (prefixed `step N:`) and
+  `code` at the top level so a caller that keys on `humanHeld` or
+  `claimedBy` finds them where a single input puts them, and `steps` with
+  each step's `status` and `body` up to and including it. All 200 is
+  `{"ok":true,"steps":[...]}`. 1 to 50 steps (`MaxSequenceSteps`). A step
+  whose node only exists after an earlier step should look for it with a
+  `wait` and a `match`, or with `waitMs` on its own `match`.
 - `GET /api/screenshot` returns one PNG of the framebuffer, at the device's own
   resolution and with no session open. 266ms on emulator-5554 (1080x2424),
   444ms on an Acme One (1200x2670). `Screenshotter` is optional the way
@@ -685,7 +712,7 @@ and `outcome`.
 needs no curl. It is a client of a running server, not a second server: a
 stdio MCP server (the official Go SDK) that turns each tool call into one
 request. Tools: `targets`, `ui`, `screenshot` (an image, not JSON), `point`,
-`tap`, `swipe`, `type_text`, `key`, `button`, `launch`, `open_url`, `logcat`,
+`tap`, `swipe`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`, `logcat`,
 `crashes`, `crash`, `install`, `camera`, `boot`, `release`, `flags` and `flag`. `TestEveryToolNamesARoute` checks each
 against `httpapi.Routes()`.
 
@@ -712,6 +739,9 @@ PNG in 219ms, then `button` home claimed the target, `launch` Settings in
 client released it. With another agent's claim on the target, `button` and
 `launch` came back as tool errors naming `claimedBy` and the holder, and
 that claim was still there after the client exited.
+
+`sequence` sends its steps with every number kept, so a step at `x: 0` is
+not dropped the way an `InputRequest` encoding would drop it.
 
 Point an MCP config at a copy of the binary, not at `./loupe`: a client
 holds the executable open for its whole session, and `make build` then
