@@ -108,6 +108,11 @@ const ErrCodeNoSuchActivity = "noSuchActivity"
 // handles the URL, such as a custom scheme whose app is not installed.
 const ErrCodeNoURLHandler = "noHandler"
 
+// ErrCodeNoCameraShim is the launch action's 422 on a physical iPhone with a
+// camera image staged, when the app cannot be given the camera shim: it is
+// not development-signed, or no local identity shares its team.
+const ErrCodeNoCameraShim = "noCameraShim"
+
 // ErrCodeRecording is POST /api/record's 409 when the target is already
 // recording, and the 409 for fetching the MP4, a contact sheet or a DELETE
 // of a recording that has not ended. Stop it first.

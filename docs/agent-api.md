@@ -77,7 +77,11 @@ human watches the same session.
   error for a missing bundle names no cause, so a failed launch asks
   `simctl get_app_container`, which exits 2 for an app that is not there,
   and answers 404 `notInstalled` as Android does. Any other exit leaves
-  the launch's own error, a 502.
+  the launch's own error, a 502. With a camera image staged (see
+  `/api/camera`), a phone app the camera shim did not load into (not
+  development-signed, or no local identity for its team) is 422
+  `noCameraShim`, and a shim that could not be built or signed is the
+  502, its error starting "camera shim:".
 
   `openURL` (`{"url": ...}`) hands a URL to whatever the device has
   registered for it: a deep link, a universal link or an https page. On
@@ -259,8 +263,9 @@ and `outcome`.
 - `POST /api/camera?target=<id>` points the device's back camera at the
   request body, a PNG or JPEG, raw; `DELETE` gives the camera back. Both
   answer 200 `{target, ok, applies, tookMs}`, POST with the image's `width`
-  and `height` too, and `applies` says when an app sees it. AVDs and iOS simulators only: physical devices,
-  `emulator-` serials and synthetic answer 501. Anything that is not a PNG
+  and `height` too, and `applies` says when an app sees it. AVDs, iOS simulators and
+  physical iPhones; Android devices, `emulator-` serials and synthetic
+  answer 501. Anything that is not a PNG
   or JPEG, or is over 8192px a side, is 400; over 32 MiB is 413. The image
   is staged as PNG under `~/Library/Caches/loupe/camera/`, one per target,
   and a JPEG is re-encoded: the emulator reads the file's type from its
@@ -307,15 +312,19 @@ and `outcome`.
   four times a second, so `applies` is `live` while an app this server
   launched with it runs, and `launch` until one does. `DELETE` removes the
   file: apps with the shim see black, and later launches are plain ones.
-  Known differences from a phone: frames come at the image's own size,
-  not `activeFormat`'s 1920x1080; `videoRotationAngle` is kept but not
-  applied; metadata is QR only, and asking for another type throws as a
-  phone does for an unsupported one; there is no photo or movie output.
+  Frames are 1920x1080, `activeFormat`'s size, landscape as a back
+  camera's are: the image is held upright and fitted whole on white, so a
+  code is never cropped (the emulator crops to fill instead). Known
+  differences from a phone: `videoRotationAngle` is kept but not applied;
+  QR bounds are in that landscape frame's coordinates, and the preview
+  layer's conversions are not faked; metadata is QR only, and asking for
+  another type throws as a phone does for an unsupported one; there is no
+  photo or movie output.
   An app that needs something the shim does not fake can read
-  `LOUPE_CAMERA_FILE` itself in a debug build, which is the app-side
-  contract: when the variable names a file, feed the scanner from it and
-  skip `AVCaptureDevice`. Re-read it when its modification date moves, as
-  the shim does, to follow swaps. A sketch, not exercised in any app:
+  `LOUPE_CAMERA_FILE` itself in a debug build: when the variable names a
+  file (relative to the app's home on a phone), feed the scanner from it
+  and skip `AVCaptureDevice`. Re-read it when its modification date moves,
+  as the shim does, to follow swaps. A sketch, not exercised in any app:
 
   ```swift
   #if DEBUG
@@ -341,13 +350,41 @@ and `outcome`.
   simulator (iOS 27.1), a test app built on Flipcash's capture setup
   (back wide camera, video data output, QR metadata output, preview layer)
   got 420v frames, decoded the QR, and saw a swap to a 1280x960 JPEG and a
-  clear within a second, without a relaunch.
+  clear within a second, without a relaunch. After the 1920x1080 change,
+  the same through a spare server on an iPhone 17 simulator (iOS 27.0).
 
-  **Physical iPhones.** Nothing: a signed app on a device cannot be made to
-  load a library, and loupe has no way to put a file where the app reads.
-  The supported path is an app-side hook: a debug build that, when a file
-  it knows of exists, feeds its capture pipeline from that file instead of
-  `AVCaptureDevice`. Loupe does not deliver that file yet.
+  **Physical iPhones.** The same shim, for **development-signed** apps
+  only: dyld honours `DYLD_INSERT_LIBRARIES` in an app with
+  `get-task-allow`, the way Xcode's Main Thread Checker gets in, and
+  ignores the whole launch environment in an App Store, TestFlight or
+  enterprise build. No app code changes. On the first POST loupe builds
+  the shim for `iphoneos` and signs a copy with each Apple Development
+  identity in the keychain, one per team: dyld refuses a library signed by
+  a team other than the app's (library validation) and skips it, and a
+  missing path, without a word, so every copy goes in the insert list and
+  the matching one loads. A `launch` with an image staged then finds the
+  app's data container (devicectl does not say where it is, so loupe
+  launches the app once with `DYLD_PRINT_ENV` and reads `HOME` off the
+  console, which also closes it), copies the shims and the image into it
+  with `devicectl device copy to`, and relaunches the app with
+  `DEVICECTL_CHILD_DYLD_INSERT_LIBRARIES` and
+  `DEVICECTL_CHILD_LOUPE_CAMERA_FILE`. The shim writes the pid it loaded
+  into to `Library/Caches/loupe-camera.png.loaded`, and loupe reads it back:
+  a pid that does not match is the launch's 422 `noCameraShim`, as is an
+  app dyld takes no environment from. So the app must be signed by a team
+  this Mac has an Apple Development identity for, which is the case when
+  it was built and installed from this Mac. A later POST or DELETE copies
+  the image, or an empty file for black (devicectl cannot delete a file),
+  into each app still running with the shim, so `applies` is `live` for
+  those and `launch` otherwise. Each devicectl call is 1 to 5s: on an
+  iPhone 16 Pro (iOS 27.2) over Wi-Fi a shimmed launch with the container
+  already known took 2.7s and a swap or clear 1.0 to 1.4s; the first
+  launch of an app adds the console launch that finds its container. A
+  launch's budget is 2 minutes while an image is staged.
+  The phone must be unlocked, as for any launch. Measured there through a
+  spare server with a test app signed by a second team: the QR decoded, a
+  swap to red and a clear to black showed live, and Settings answered
+  422 `noCameraShim` in 5s.
 - `POST /api/devices/shutdown?target=<id>` stops an AVD or simulator and
   answers 200 with its `TargetInfo`; `DELETE /api/devices?target=<id>` stops it
   if running, deletes it and answers 204. The target must be an `avd:` or

@@ -64,14 +64,58 @@ static void LCSwapClass(Class c, SEL orig, SEL repl) { LCSwap(object_getClass(c)
 	NSArray *codes;               // LCCode
 	NSUInteger generation;
 }
-- (CVPixelBufferRef)bufferForFormat:(OSType)format;
+- (CVPixelBufferRef)bufferForFormat:(OSType)format angle:(int)angle;
 @end
 
+// The camera's native buffer is landscape, kLCLong x kLCShort, as a phone's
+// back camera delivers it with a connection rotation of 0. The image is held
+// upright in front of a phone in portrait, so it fills a kLCShort x kLCLong
+// canvas.
+enum { kLCLong = 1920, kLCShort = 1080 };
+
+// LCPath is the image file. A relative path is under the app's home
+// directory, which is where a physical device's copy has to live.
 static NSString *LCPath(void) {
-	return [[[NSProcessInfo processInfo] environment] objectForKey:@"LOUPE_CAMERA_FILE"];
+	NSString *p = [[[NSProcessInfo processInfo] environment] objectForKey:@"LOUPE_CAMERA_FILE"];
+	if (p.length && !p.isAbsolutePath) {
+		p = [NSHomeDirectory() stringByAppendingPathComponent:p];
+	}
+	return p;
 }
 
-static CVPixelBufferRef LCCreateBGRA(CGImageRef image, size_t w, size_t h) {
+// LCCanvas fits image whole into a w x h canvas, centred on white, so a code
+// held up to the camera is never cropped. The emulator's imagefile camera
+// crops to fill instead.
+static CGImageRef LCCanvas(CGImageRef image, size_t w, size_t h) {
+	CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+	CGContextRef ctx = CGBitmapContextCreate(NULL, w, h, 8, 0, cs, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+	CGColorSpaceRelease(cs);
+	// White under a transparent image, the way it would look on a screen.
+	CGContextSetRGBFillColor(ctx, 1, 1, 1, 1);
+	CGContextFillRect(ctx, CGRectMake(0, 0, w, h));
+	CGFloat iw = CGImageGetWidth(image), ih = CGImageGetHeight(image);
+	CGFloat scale = MIN(w / iw, h / ih);
+	CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
+	CGContextDrawImage(ctx, CGRectMake((w - iw * scale) / 2, (h - ih * scale) / 2, iw * scale, ih * scale), image);
+	CGImageRef out = CGBitmapContextCreateImage(ctx);
+	CGContextRelease(ctx);
+	return out;
+}
+
+// LCBufferSize is the size of a buffer delivered at a connection rotation:
+// the native landscape buffer, turned by angle degrees clockwise.
+static void LCBufferSize(int angle, size_t *w, size_t *h) {
+	BOOL portrait = angle == 90 || angle == 270;
+	*w = portrait ? kLCShort : kLCLong;
+	*h = portrait ? kLCLong : kLCShort;
+}
+
+// LCCreateBGRA renders the upright canvas as a buffer at a connection
+// rotation. The native buffer is the upright scene turned 90 degrees
+// counterclockwise, so the scene is turned by angle - 90 clockwise.
+static CVPixelBufferRef LCCreateBGRA(CGImageRef image, int angle) {
+	size_t w, h;
+	LCBufferSize(angle, &w, &h);
 	NSDictionary *attrs = @{(id)kCVPixelBufferIOSurfacePropertiesKey : @{}};
 	CVPixelBufferRef pb = NULL;
 	if (CVPixelBufferCreate(NULL, w, h, kCVPixelFormatType_32BGRA, (CFDictionaryRef)attrs, &pb) != kCVReturnSuccess) {
@@ -81,11 +125,15 @@ static CVPixelBufferRef LCCreateBGRA(CGImageRef image, size_t w, size_t h) {
 	CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
 	CGContextRef ctx = CGBitmapContextCreate(CVPixelBufferGetBaseAddress(pb), w, h, 8, CVPixelBufferGetBytesPerRow(pb), cs,
 	                                         kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
-	// White under a transparent image, the way it would look on a screen.
-	CGContextSetRGBFillColor(ctx, image ? 1 : 0, image ? 1 : 0, image ? 1 : 0, 1);
+	// Black with no image: a covered lens.
+	CGContextSetRGBFillColor(ctx, 0, 0, 0, 1);
 	CGContextFillRect(ctx, CGRectMake(0, 0, w, h));
 	if (image) {
-		CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), image);
+		// Core Graphics turns counterclockwise for a positive angle, y up.
+		CGContextTranslateCTM(ctx, w / 2.0, h / 2.0);
+		CGContextRotateCTM(ctx, -(angle - 90) * M_PI / 180);
+		CGFloat iw = CGImageGetWidth(image), ih = CGImageGetHeight(image);
+		CGContextDrawImage(ctx, CGRectMake(-iw / 2, -ih / 2, iw, ih), image);
 	}
 	CGContextRelease(ctx);
 	CGColorSpaceRelease(cs);
@@ -168,8 +216,10 @@ static CVPixelBufferRef LCCreateNV12(CVPixelBufferRef bgra, OSType format) {
 - (NSInteger)objectID { return 0; }
 @end
 
-// LCFindCodes reads QR codes out of the image, with bounds and corners
-// normalized to it, origin top left, as AVFoundation reports them.
+// LCFindCodes reads QR codes out of the upright canvas. AVFoundation reports
+// bounds and corners normalized to the native landscape buffer, origin top
+// left, whatever the connection's rotation, so an upright point (u, v) is
+// reported as (v, 1 - u).
 static NSArray *LCFindCodes(CGImageRef image, size_t w, size_t h) {
 	if (!image) {
 		return @[];
@@ -186,12 +236,15 @@ static NSArray *LCFindCodes(CGImageRef image, size_t w, size_t h) {
 		LCCode *c = [LCCode alloc];
 		c->lcString = [q.messageString copy];
 		CGRect b = q.bounds;
-		c->lcBounds = CGRectMake(b.origin.x / W, 1 - (b.origin.y + b.size.height) / H, b.size.width / W, b.size.height / H);
+		// Upright, origin top left, then turned into the native buffer.
+		CGRect u = CGRectMake(b.origin.x / W, 1 - (b.origin.y + b.size.height) / H, b.size.width / W, b.size.height / H);
+		c->lcBounds = CGRectMake(u.origin.y, 1 - (u.origin.x + u.size.width), u.size.height, u.size.width);
 		NSMutableArray *corners = [NSMutableArray array];
 		CGPoint pts[4] = {q.topLeft, q.topRight, q.bottomRight, q.bottomLeft};
 		for (int i = 0; i < 4; i++) {
 			CGPoint p = pts[i];
-			CFDictionaryRef dict = CGPointCreateDictionaryRepresentation(CGPointMake(p.x / W, 1 - p.y / H));
+			CGFloat u = p.x / W, v = 1 - p.y / H;
+			CFDictionaryRef dict = CGPointCreateDictionaryRepresentation(CGPointMake(v, 1 - u));
 			[corners addObject:(id)dict];
 			CFRelease(dict);
 		}
@@ -216,37 +269,33 @@ static NSArray *LCFindCodes(CGImageRef image, size_t w, size_t h) {
 				(id)kCGImageSourceCreateThumbnailWithTransform : @YES,
 				(id)kCGImageSourceThumbnailMaxPixelSize : @1920,
 			};
-			image = CGImageSourceCreateThumbnailAtIndex(src, 0, (CFDictionaryRef)opts);
+			CGImageRef decoded = CGImageSourceCreateThumbnailAtIndex(src, 0, (CFDictionaryRef)opts);
 			CFRelease(src);
-		}
-		if (image) {
-			width = CGImageGetWidth(image) & ~(size_t)1;
-			height = CGImageGetHeight(image) & ~(size_t)1;
-			if (width < 2 || height < 2) {
-				CGImageRelease(image);
-				image = NULL;
+			if (decoded) {
+				image = LCCanvas(decoded, kLCShort, kLCLong);
+				CGImageRelease(decoded);
 			}
 		}
-		if (!image) {
-			width = 1280, height = 720;
-		}
+		width = kLCShort, height = kLCLong;
 		codes = [LCFindCodes(image, width, height) retain];
 	}
 	return self;
 }
-- (CVPixelBufferRef)bufferForFormat:(OSType)format {
+- (CVPixelBufferRef)bufferForFormat:(OSType)format angle:(int)angle {
 	@synchronized(self) {
-		id have = [buffers objectForKey:@(format)];
+		NSString *key = [NSString stringWithFormat:@"%u/%d", (unsigned)format, angle];
+		id have = [buffers objectForKey:key];
 		if (have) {
 			return (CVPixelBufferRef)have;
 		}
-		CVPixelBufferRef bgra = (CVPixelBufferRef)[buffers objectForKey:@(kCVPixelFormatType_32BGRA)];
+		NSString *bgraKey = [NSString stringWithFormat:@"%u/%d", (unsigned)kCVPixelFormatType_32BGRA, angle];
+		CVPixelBufferRef bgra = (CVPixelBufferRef)[buffers objectForKey:bgraKey];
 		if (!bgra) {
-			bgra = LCCreateBGRA(image, width, height);
+			bgra = LCCreateBGRA(image, angle);
 			if (!bgra) {
 				return NULL;
 			}
-			[buffers setObject:(id)bgra forKey:@(kCVPixelFormatType_32BGRA)];
+			[buffers setObject:(id)bgra forKey:bgraKey];
 			CVPixelBufferRelease(bgra);
 		}
 		if (format == kCVPixelFormatType_32BGRA) {
@@ -256,7 +305,7 @@ static NSArray *LCFindCodes(CGImageRef image, size_t w, size_t h) {
 		if (!pb) {
 			return NULL;
 		}
-		[buffers setObject:(id)pb forKey:@(format)];
+		[buffers setObject:(id)pb forKey:key];
 		CVPixelBufferRelease(pb);
 		return pb;
 	}
@@ -544,11 +593,16 @@ static LCInput *gInput;
 @interface LCConnection : AVCaptureConnection {
 @public
 	AVCaptureOutput *lcOutput; // weak: the output holds the connection
-	AVCaptureVideoOrientation orientation;
-	CGFloat rotation;
+	CGFloat rotation; // clockwise degrees; 0 is the native landscape buffer
 	BOOL mirrored, autoMirror, enabled;
 }
 @end
+
+// LCAngle is a connection's rotation as one of 0, 90, 180 or 270.
+static int LCAngle(LCConnection *c) {
+	int a = ((int)lround(c ? c->rotation / 90 : 0) % 4 + 4) % 4;
+	return a * 90;
+}
 
 @implementation LCConnection
 - (AVCaptureOutput *)output { return lcOutput; }
@@ -558,8 +612,22 @@ static LCInput *gInput;
 - (void)setEnabled:(BOOL)b { enabled = b; }
 - (BOOL)isActive { return YES; }
 - (BOOL)isVideoOrientationSupported { return YES; }
-- (AVCaptureVideoOrientation)videoOrientation { return orientation ?: AVCaptureVideoOrientationPortrait; }
-- (void)setVideoOrientation:(AVCaptureVideoOrientation)o { orientation = o; }
+- (AVCaptureVideoOrientation)videoOrientation {
+	switch (LCAngle(self)) {
+	case 90: return AVCaptureVideoOrientationPortrait;
+	case 180: return AVCaptureVideoOrientationLandscapeLeft;
+	case 270: return AVCaptureVideoOrientationPortraitUpsideDown;
+	default: return AVCaptureVideoOrientationLandscapeRight;
+	}
+}
+- (void)setVideoOrientation:(AVCaptureVideoOrientation)o {
+	switch (o) {
+	case AVCaptureVideoOrientationPortrait: rotation = 90; break;
+	case AVCaptureVideoOrientationLandscapeLeft: rotation = 180; break;
+	case AVCaptureVideoOrientationPortraitUpsideDown: rotation = 270; break;
+	default: rotation = 0; break;
+	}
+}
 - (BOOL)isVideoRotationAngleSupported:(CGFloat)a { return YES; }
 - (CGFloat)videoRotationAngle { return rotation; }
 - (void)setVideoRotationAngle:(CGFloat)a { rotation = a; }
@@ -654,11 +722,12 @@ static LCConnection *LCConnectionFor(AVCaptureOutput *output) {
 	if (s) {
 		return s;
 	}
-	LCFrame *f = LCCurrentFrame();
+	size_t w, h;
+	LCBufferSize(LCAngle(LCConnectionFor(self)), &w, &h);
 	return @{
 		(id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
-		(id)kCVPixelBufferWidthKey : @(f ? f->width : 1920),
-		(id)kCVPixelBufferHeightKey : @(f ? f->height : 1080),
+		(id)kCVPixelBufferWidthKey : @(w),
+		(id)kCVPixelBufferHeightKey : @(h),
 	};
 }
 - (void)lc_setVideoSettings:(NSDictionary *)s {
@@ -992,7 +1061,8 @@ static void LCDeliver(AVCaptureVideoDataOutput *o, LCFrame *f, CMTime pts) {
 	if ([objc_getAssociatedObject(o, kLCBusy) boolValue]) {
 		return;
 	}
-	CVPixelBufferRef pb = [f bufferForFormat:LCFormatFor(o)];
+	LCConnection *c = LCConnectionFor(o);
+	CVPixelBufferRef pb = [f bufferForFormat:LCFormatFor(o) angle:LCAngle(c)];
 	if (!pb) {
 		return;
 	}
@@ -1008,7 +1078,6 @@ static void LCDeliver(AVCaptureVideoDataOutput *o, LCFrame *f, CMTime pts) {
 		return;
 	}
 	objc_setAssociatedObject(o, kLCBusy, @YES, OBJC_ASSOCIATION_RETAIN);
-	LCConnection *c = LCConnectionFor(o);
 	[d retain];
 	[o retain];
 	dispatch_async(q, ^{
@@ -1163,5 +1232,9 @@ __attribute__((constructor)) static void LCInstall(void) {
 		});
 		dispatch_resume(timer);
 		LCLog(@"installed, file %@", LCPath());
+		// Loupe reads this back to tell that the running app loaded the shim:
+		// dyld drops an insert it cannot load without a word.
+		NSString *marker = [LCPath() stringByAppendingString:@".loaded"];
+		[[NSString stringWithFormat:@"%d\n", getpid()] writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 	}
 }

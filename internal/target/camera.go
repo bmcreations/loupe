@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // CameraApplies says when a camera image reaches the app looking through the
@@ -38,6 +39,15 @@ type CameraFeeder interface {
 	// ClearCamera gives the back camera back. Nothing staged is not an
 	// error.
 	ClearCamera(ctx context.Context) (CameraApplies, error)
+}
+
+// ErrCameraShim is a camera shim that could not be built or signed.
+var ErrCameraShim = errors.New("camera shim")
+
+// LaunchBudgeter is a Launcher whose launch can take longer than an
+// ordinary one; 0 means the ordinary budget.
+type LaunchBudgeter interface {
+	LaunchBudget() time.Duration
 }
 
 // ErrNoCameraDir is returned when there is no cache dir to stage an image in.

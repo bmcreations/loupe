@@ -24,33 +24,38 @@ import (
 var loupecamSource []byte
 
 var (
-	loupecamMu   sync.Mutex
-	loupecamPath string
+	loupecamMu    sync.Mutex
+	loupecamPaths = map[string]string{}
 )
 
-// loupecamDylib builds the shim once per source and SDK, into the cache dir
-// next to the staged images, and returns its path. It needs Xcode, which a
-// simulator needs anyway.
+// loupecamDylib builds the shim for the simulator.
 func loupecamDylib(ctx context.Context) (string, error) {
+	return loupecamBuild(ctx, "iphonesimulator")
+}
+
+// loupecamBuild builds the shim once per source and SDK, iphonesimulator or
+// iphoneos, into the cache dir next to the staged images, and returns its
+// path. It needs Xcode, which a simulator or a phone needs anyway.
+func loupecamBuild(ctx context.Context, sdk string) (string, error) {
 	loupecamMu.Lock()
 	defer loupecamMu.Unlock()
-	if loupecamPath != "" {
-		if _, err := os.Stat(loupecamPath); err == nil {
-			return loupecamPath, nil
+	if p := loupecamPaths[sdk]; p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
 		}
 	}
-	sdk, err := exec.CommandContext(ctx, "xcrun", "--sdk", "iphonesimulator", "--show-sdk-version").Output()
+	ver, err := exec.CommandContext(ctx, "xcrun", "--sdk", sdk, "--show-sdk-version").Output()
 	if err != nil {
-		return "", fmt.Errorf("camera shim: no iphonesimulator SDK: %w", err)
+		return "", fmt.Errorf("%w: no %s SDK: %v", ErrCameraShim, sdk, err)
 	}
-	sum := sha256.Sum256(append(append([]byte{}, loupecamSource...), sdk...))
+	sum := sha256.Sum256(append(append([]byte(sdk), loupecamSource...), ver...))
 	dir, err := cameraDir()
 	if err != nil {
 		return "", err
 	}
 	out := filepath.Join(dir, "loupecam-"+hex.EncodeToString(sum[:6])+".dylib")
 	if _, err := os.Stat(out); err == nil {
-		loupecamPath = out
+		loupecamPaths[sdk] = out
 		return out, nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -61,21 +66,26 @@ func loupecamDylib(ctx context.Context) (string, error) {
 		return "", err
 	}
 	tmp := out + ".tmp"
-	cmd := exec.CommandContext(ctx, "xcrun", "--sdk", "iphonesimulator", "clang",
-		"-dynamiclib", "-arch", "arm64", "-arch", "x86_64", "-mios-simulator-version-min=15.0",
+	args := []string{"--sdk", sdk, "clang", "-dynamiclib", "-arch", "arm64"}
+	if sdk == "iphonesimulator" {
+		args = append(args, "-arch", "x86_64", "-mios-simulator-version-min=15.0")
+	} else {
+		args = append(args, "-mios-version-min=15.0")
+	}
+	args = append(args,
 		"-fno-objc-arc", "-fobjc-exceptions", "-O2",
 		"-framework", "Foundation", "-framework", "AVFoundation", "-framework", "CoreMedia",
 		"-framework", "CoreVideo", "-framework", "CoreImage", "-framework", "ImageIO",
 		"-framework", "QuartzCore", "-framework", "CoreGraphics",
 		"-o", tmp, src)
-	if b, err := cmd.CombinedOutput(); err != nil {
+	if b, err := exec.CommandContext(ctx, "xcrun", args...).CombinedOutput(); err != nil {
 		os.Remove(tmp)
-		return "", fmt.Errorf("camera shim: build: %w: %s", err, strings.TrimSpace(string(b)))
+		return "", fmt.Errorf("%w: build: %v: %s", ErrCameraShim, err, strings.TrimSpace(string(b)))
 	}
 	if err := os.Rename(tmp, out); err != nil {
 		return "", err
 	}
-	loupecamPath = out
+	loupecamPaths[sdk] = out
 	return out, nil
 }
 

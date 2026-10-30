@@ -226,6 +226,9 @@ func (s *Simulator) Launch(ctx context.Context, bundle, activity string) (*Launc
 	if !handled {
 		out, err = exec.CommandContext(ctx, "xcrun", "simctl", "launch", s.UDID(), bundle).CombinedOutput()
 	}
+	if errors.Is(err, ErrCameraShim) {
+		return nil, err
+	}
 	if err != nil {
 		// simctl's error for a missing app is FBSOpenApplicationService code
 		// 4, "The request to open ... failed", which names no cause. Asking
