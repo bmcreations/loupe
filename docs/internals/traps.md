@@ -1,9 +1,17 @@
-# Traps already hit
+# Traps
 
-Each of these cost real time. The symptom is given first, because that is how
-you will meet it again. Section names such as Device frames or Adaptive bitrate
-refer to `docs/architecture.md`, `docs/targets.md`, `docs/ios.md`,
-`docs/agent-api.md`, `docs/flags.md`, `docs/mcp.md`, `docs/recording.md` and `docs/security.md`.
+Notes for changing loupe's code, not a bug tracker. Each entry is a problem
+hit while building loupe, what caused it, and what the code does about it
+now, with any limit that remains (a link too slow for the encoder's floor,
+for one). Entries open with the symptom, so searching for what you see finds
+the entry. Code comments cite them by number ("trap 50"), so the numbers
+never change. The one behavior without a known cause is kept apart at the
+end, under Open observation.
+
+Section names such as Device frames or Adaptive bitrate refer to
+`docs/architecture.md`, `docs/targets.md`, `docs/ios.md`,
+`docs/agent-api.md`, `docs/flags.md`, `docs/mcp.md`, `docs/recording.md` and
+`docs/security.md`.
 
 1. **fps reads ~130 when the encoder is set to 60.** x264 with
    `ultrafast`+`zerolatency` emits several slices per picture and each was

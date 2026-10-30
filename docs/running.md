@@ -105,4 +105,4 @@ go run ./cmd/simprobe -animate <udid>
 ```
 
 Test against a spare server on another port, not one a phone is using.
-`docs/traps.md` lists the traps this has already hit, symptom first.
+`docs/internals/traps.md` lists the traps this has already hit, symptom first.

@@ -29,13 +29,14 @@ Read the doc before touching its area. None of these load automatically.
 - `docs/running.md`: every flag, the stats overlay, tests.
 - `docs/agent-api.md`: every device route under `/api/*`, claims and the
   human hold.
+- `docs/cli.md`: `loupe <command>`, the MCP tools as shell commands.
 - `docs/mcp.md`: `loupe mcp`, its tools, flags pushed over channels.
 - `docs/flags.md`: flags, watches, interrupts, T3 Code and other destinations.
 - `docs/recording.md`: `/api/record` and the MP4 writer.
 - `docs/security.md`: what auth guarantees and doesn't, pairing and sessions.
 - `docs/getting-started.md`: the walkthrough from a clone to a phone,
   the service and an agent.
-- `docs/traps.md`: the traps list, symptom first. Grep it for the symptom you see,
+- `docs/internals/traps.md`: the traps list, symptom first. Grep it for the symptom you see,
   and read the entry before changing code a trap names.
 - `docs/protocol.md`: session wire protocol.
 - `docs/extensions.md`: the v0 contract for extensions: registering, the

@@ -46,7 +46,7 @@ func lifts(ts []target.Touch) map[uint64]target.Touch {
 
 // A viewer that goes away with fingers down would leave them down on the
 // device, and Android then rejects every injected touch after it, from this
-// server or from adb (docs/traps.md, trap 50).
+// server or from adb (docs/internals/traps.md, trap 50).
 func TestAViewerLeavingMidTouchLiftsItsFingers(t *testing.T) {
 	s, st := touchSession()
 	id, _ := s.AddViewer()

@@ -191,6 +191,23 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "sessions" {
 		os.Exit(runSessions(os.Args[2:]))
 	}
+	// Anything else that is not a flag is a CLI command against a running
+	// server. An unknown word is an error: flag.Parse would stop at it and
+	// start a server, ignoring it.
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		switch name := os.Args[1]; name {
+		case "help":
+			printCLIHelp(os.Stdout)
+			os.Exit(0)
+		default:
+			cmd, ok := findCLICommand(name)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "loupe: unknown command %q; `loupe help` lists them\n", name)
+				os.Exit(2)
+			}
+			os.Exit(runCLI(cmd, os.Args[2:]))
+		}
+	}
 	tightenOutput(os.Stdout)
 	tightenOutput(os.Stderr)
 	def := config.Default()

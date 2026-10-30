@@ -18,6 +18,7 @@ The top-level `README.md` says what loupe does. Start with
 | Doc | What's in it |
 | --- | --- |
 | [agent-api.md](agent-api.md) | Every device route under `/api/*`, claims and the human hold |
+| [cli.md](cli.md) | `loupe <command>`: the MCP tools as shell commands, and how claims last between them |
 | [mcp.md](mcp.md) | `loupe mcp`, its tools, and pushing flags into Claude Code over channels |
 | [flags.md](flags.md) | A person flagging a screen or interrupting an agent, and where a flag can be sent |
 | [recording.md](recording.md) | Recording a target's encoder output to MP4 |
@@ -37,8 +38,13 @@ The top-level `README.md` says what loupe does. Start with
 | [architecture.md](architecture.md) | Package layout, transports, deployment under launchd, auth, configuration, adaptive bitrate, telemetry, known gaps |
 | [protocol.md](protocol.md) | The session wire protocol between the server and its viewers |
 | [remote-targets.md](remote-targets.md) | Streaming targets attached to another machine; peer servers are built |
+
+## Working on loupe
+
+| Doc | What's in it |
+| --- | --- |
 | [releasing.md](releasing.md) | Tagging a release, the Homebrew formula, and why simcap builds from source |
-| [traps.md](traps.md) | Every trap already hit, symptom first. Search it for the symptom you see |
+| [internals/traps.md](internals/traps.md) | Problems hit while building loupe and what the code does about each, symptom first. Code comments cite them by number |
 
 ## Design notes
 
