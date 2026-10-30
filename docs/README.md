@@ -37,6 +37,7 @@ The top-level `README.md` says what loupe does. Start with
 | [architecture.md](architecture.md) | Package layout, transports, deployment under launchd, auth, configuration, adaptive bitrate, telemetry, known gaps |
 | [protocol.md](protocol.md) | The session wire protocol between the server and its viewers |
 | [remote-targets.md](remote-targets.md) | Streaming targets attached to another machine; peer servers are built |
+| [releasing.md](releasing.md) | Tagging a release, the Homebrew formula, and why simcap builds from source |
 | [traps.md](traps.md) | Every trap already hit, symptom first. Search it for the symptom you see |
 
 ## Design notes

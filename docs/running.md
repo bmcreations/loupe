@@ -44,7 +44,7 @@ the file beats the default.** The file is described under Configuration below.
 | `-emulator-keep-state` | `false` | Save an emulator's state into its snapshot before shutting it down, so the next boot resumes it |
 | `-scrcpy-server` | embedded | Path to a jar to use instead of the embedded one |
 | `-scrcpy-version` | embedded | Version string for `-scrcpy-server`; must match that jar exactly |
-| `-simcap` | `.build/simcap` | The simcap helper. Simulators are listed only when it exists |
+| `-simcap` | `.build/simcap`, then `simcap` on PATH | The simcap helper. Simulators are listed only when it exists |
 | `-no-simulators` | `false` | Skip iOS simulator discovery |
 | `-simulator-slim` | `false` | Boot simulators with background daemons disabled, which frees most of their memory |
 | `-no-ios-devices` | `false` | Skip physical iPhone and iPad discovery through devicectl |

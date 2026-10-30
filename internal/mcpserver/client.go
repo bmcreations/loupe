@@ -65,6 +65,17 @@ func NewClient(rawURL, token, agent string) (*Client, error) {
 	}, nil
 }
 
+// PlainHTTPAnswered reports whether err is a plain-HTTP server answering an
+// https:// request to a loopback host. The clients default to
+// https://localhost:18456, the launchd service's TLS listener; a server run
+// without a certificate answers the same port in plain HTTP, and on loopback
+// nothing is lost by following it. Off loopback the error stands, since
+// dropping TLS there would send the token in the clear.
+func PlainHTTPAnswered(base *url.URL, err error) bool {
+	return base.Scheme == "https" && isLoopback(base.Hostname()) &&
+		strings.Contains(err.Error(), "server gave HTTP response to HTTPS client")
+}
+
 func isLoopback(host string) bool {
 	if host == "localhost" {
 		return true
@@ -134,6 +145,19 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, cont
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if PlainHTTPAnswered(c.base, err) {
+			// A loopback server without TLS, as `brew services` runs it.
+			// Every later request goes to http:// too.
+			c.base.Scheme = "http"
+			if body == nil {
+				return c.do(ctx, method, path, q, contentType, nil)
+			}
+			if sk, ok := body.(io.Seeker); ok {
+				if _, serr := sk.Seek(0, io.SeekStart); serr == nil {
+					return c.do(ctx, method, path, q, contentType, body)
+				}
+			}
+		}
 		return nil, nil, err
 	}
 	defer resp.Body.Close()

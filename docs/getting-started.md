@@ -21,6 +21,21 @@ starts, so stop at the first that fails.
 - **A TLS certificate the phone trusts**, to reach loupe from another
   device. A tailnet is the easy way; see step 3.
 
+## Homebrew or a clone
+
+```sh
+brew install bmcreations/tap/loupe
+brew install --HEAD bmcreations/tap/simcap   # only for iOS simulators
+```
+
+That installs `loupe` and, if you want it, simcap on your PATH, so every
+`./loupe` below is `loupe`. `brew services start loupe` replaces step 4: it
+runs `loupe -addr :18456` under launchd, in plain HTTP until
+`config.json` names a certificate, and logs to
+`$(brew --prefix)/var/log/loupe.log`. The steps below build from a clone,
+which is what you want to change loupe itself or to sign simcap for a
+physical iPhone.
+
 ## 1. Build it and check the client
 
 ```sh
@@ -54,7 +69,9 @@ For iOS simulators, build the helper once and restart. It needs Xcode:
 make simcap          # clones bmcreations/simcap and builds it into .build/simcap
 ```
 
-Every available simulator then appears as `sim:<udid>`, booted or not.
+loupe uses `.build/simcap` when it runs from the checkout, and otherwise
+the `simcap` on PATH, which is where the Homebrew formula puts it. Every
+available simulator then appears as `sim:<udid>`, booted or not.
 Physical iPhones are a preview; see [ios.md](ios.md).
 
 ## 3. Open it on your phone

@@ -8,7 +8,9 @@ simcap, an Apache 2.0 Swift helper from
 clones it into `.build/simcap-src`, builds it with Xcode, and puts the
 binary at `.build/simcap`; `make simcap TEAM=<team id>` signs it with your
 Apple Development identity, which streaming a phone needs (see "Sign simcap
-with a team" below). loupe runs without it, with Android targets only.
+with a team" below). `brew install --HEAD bmcreations/tap/simcap` builds
+the same source ad hoc onto PATH, which is enough for simulators. loupe
+runs without it, with Android targets only.
 
 **simcap uses private frameworks that ship with Xcode** (CoreSimulator,
 SimulatorKit, AccessibilityPlatformTranslation), loaded from your own
@@ -28,7 +30,8 @@ wire format, so `simStream` reads it with the parser a device uses and nothing
 above `internal/target/simulator.go` knows the frames came from CoreSimulator.
 
 **Simulators are listed only when simcap is built** (`make simcap`, into
-`.build/simcap`, which `-simcap` can move). A simulator in the picker that
+`.build/simcap`, or the Homebrew formula, onto PATH; `-simcap` overrides
+both). A simulator in the picker that
 fails every open with "simcap is not built" is a target the viewer can see and
 cannot watch, which is worse than its absence. simcap stays out of
 `make build` for the reason in Verification discipline.
