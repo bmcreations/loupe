@@ -1,10 +1,10 @@
 # Security
 
 Reaching loupe's port is enough to drive every device it serves: tap, type,
-install an APK, read the clipboard. Everything here follows from that. The
-mechanisms are described in full under Auth in
-[architecture.md](architecture.md); this page says what they guarantee and
-what they don't, then documents pairing.
+install an APK, read the clipboard. Everything here follows from that. This page
+says what the token and sessions guarantee and what they don't, then documents
+pairing. Auth in [architecture.md](architecture.md) shows where they sit in
+the server.
 
 ## What protects a server
 
@@ -54,11 +54,9 @@ supervisor issues its certificate with `tailscale cert`. See
 
 ## Pairing and sessions
 
-
 A paired device holds a session instead of the master token, so one device
-can be signed out without re-keying every other. Sessions are added beside
-the master token, so the master token, the `loupe_token` cookie and `?token=`
-still work exactly as before.
+can be signed out without re-keying every other. The master token, the
+`loupe_token` cookie and `?token=` keep working.
 
 - `POST /api/pairings {"target": [...], "label", "canPair"}` mints a
   one-time code, `XXXX-XXXX-XXXX` from a 32-letter alphabet with no `0 O 1 I`,
@@ -74,10 +72,7 @@ still work exactly as before.
   `{"id", "token", "expiresAt"}` with an `lsn_` token shown once. Dashes,
   spaces and case in the code are ignored. An unknown, expired, spent or
   orphaned code is the same 401. Failures are limited to 5 a minute per
-  remote address, 429 past that. There is no cap across addresses, so junk
-  from elsewhere cannot keep pairing shut for everyone. A `browser`
-  exchange runs the Origin check, so a page elsewhere cannot pair a
-  visitor's browser into its own session.
+  remote address, 429 past that. A `browser` exchange runs the Origin check.
 - `GET /api/auth` answers any caller with `{"method":
   "master"|"session"|"none", "session", "pairing", "canPair"}`. A server
   older than this answers 404, which is how a client tells them apart.
@@ -92,24 +87,19 @@ still work exactly as before.
   any other, so a stolen phone session cannot sign out every other device.
   Both answer `{"revoked": [ids]}`.
 
-**Revoking cascades.** A revoke also revokes every session paired through
-a code the revoked one minted, and so on down, and drops its pending codes.
-A code whose minter is no longer a live `canPair` session will not redeem.
-Without that, a stolen `canPair` session could pair a second device and
-survive its own revocation. A revoke does not yet close a stream already
-open (spec Task 4).
+**Revoking cascades.** A revoke also revokes every session paired through a
+code the revoked one minted, and so on down, and drops its pending codes. A
+code whose minter is no longer a live `canPair` session will not redeem. A
+revoke does not yet close a stream that is already open.
 
-**Sessions slide.** One expires 30 days after its last use. Use is noted in
-memory and written to disk at most every 5 minutes per session. Revoked
-rows stay 7 days so `loupe sessions` can show them, then go.
+**Sessions slide.** One expires 30 days after its last use. Revoked rows stay
+7 days so `loupe sessions` can show them, then go.
 
-**`sessions.json` sits beside `config.json`** (by default
-`~/Library/Application Support/loupe/`; a spare server with `-config` keeps
-its own), 0600, written whole through a temp file and a
-rename. It holds SHA-256 hashes of tokens and codes, never the secrets, so
-a lookup is a map index on the hash and needs no constant-time compare. A
-file that does not parse is left alone and pairing is off until it is
-fixed, rather than overwritten and signing every device out.
+**`sessions.json`** sits beside `config.json` (by default
+`~/Library/Application Support/loupe/`; a spare server with `-config` keeps its
+own), mode 0600, and holds hashes of tokens and codes, never the secrets. If it
+does not parse, pairing is off until it is fixed and only the master token
+works; loupe does not overwrite it.
 
 **From the shell**, with the master token from the token file as `loupe mcp`
 reads it:

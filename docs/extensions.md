@@ -50,9 +50,8 @@ The response is the registered entry:
 A body that breaks a rule gets 400 with `{"error": "..."}`. Loupe keeps at
 most 32 extensions, and the body may be at most 4 KiB.
 
-**Only loopback URLs are accepted.** Anyone with the token can register.
-If any host were allowed, the token would let them reach any other machine
-through loupe.
+**Only loopback URLs are accepted.** Anyone with the token can register, so
+loupe will not proxy to any other host.
 
 **A registration lasts 90 seconds.** Register again on a timer well inside
 that window: appmap registers every 30 seconds. Registering the same name
@@ -118,8 +117,4 @@ is a good default.
 ## Building one
 
 An extension can be a Go binary with its own `main` package, but nothing
-requires it. Any program that speaks
-HTTP on loopback works.
-
-The registry is tested in
-`internal/httpapi/extension_test.go`.
+requires it. Any program that speaks HTTP on loopback works.

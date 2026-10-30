@@ -54,7 +54,7 @@ func (s *Server) handleCamera(w http.ResponseWriter, r *http.Request) {
 	cf, ok := t.(target.CameraFeeder)
 	if !ok {
 		writeJSON(w, http.StatusNotImplemented, ErrorResponse{
-			Error: fmt.Sprintf("target %q has no camera loupe can feed: AVDs and iOS simulators only (docs/agent-api.md, Camera)", t.ID()),
+			Error: fmt.Sprintf("target %q has no camera loupe can feed: AVDs and iOS simulators only (docs/agent-api.md, /api/camera)", t.ID()),
 		})
 		return
 	}

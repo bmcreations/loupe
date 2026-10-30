@@ -1,9 +1,9 @@
 # Running loupe
 
 Flags, the settings file, the stats overlay and the tests. For a first run,
-start with `docs/getting-started.md`. How the server is deployed under
-launchd, TLS and auth are in `docs/architecture.md` under Running it, and
-what auth guarantees is in `docs/security.md`.
+start with [getting-started.md](getting-started.md). How the pieces fit,
+including deployment and auth, is in [architecture.md](architecture.md); what
+auth guarantees is in [security.md](security.md).
 
 ## Flags
 
@@ -50,13 +50,40 @@ the file beats the default.** The file is described under Configuration below.
 | `-no-ios-devices` | `false` | Skip physical iPhone and iPad discovery through devicectl |
 | `-xcrunner` | `.build/xcrunner` | XCUITest runner (`make xcrunner TEAM=...`); iPhones below iOS 27 take touches through it over a cable |
 
+### Plain HTTP
+
+Without `-tls-cert` and `-tls-key`, the server refuses to start unless `-addr`
+names a loopback host (`127.0.0.1`, `::1` or `localhost`), and exits 2 saying
+so. `:8080`, the default, binds every interface and is refused. Over plain HTTP
+the cookie cannot be `Secure`, and the token, the stream and clipboard text
+cross the network readable. `-insecure-http` serves it anyway and prints a
+warning.
+
 ## Configuration
 
 The settings file is `~/Library/Application Support/loupe/config.json`, or
-wherever `-config` points, written with the defaults on first run.
-`GET /api/config` reports what the server uses, what is on disk, where each
-value came from, and whether a flag pins it so a write would not take effect.
-`docs/architecture.md` covers the file and the API under Configuration.
+wherever `-config` points. It is written with the defaults on first run so
+there is something to edit. Flag defaults come from the same table, so the two
+agree.
+
+`GET /api/config` reports each setting four ways:
+
+| Field | Meaning |
+| --- | --- |
+| `value` | What the server is using |
+| `fileValue` | What is on disk |
+| `source` | `default`, `file` or `flag` |
+| `pinned` | A flag overrides the file, so a write will not take effect |
+
+A `PUT` is all-or-nothing. When a flag pins a setting, the `PUT` still persists
+to disk, changes nothing until the flag goes away, and its response names the
+pinned settings instead of returning a bare 200.
+
+`applies: "nextSession"` does not mean immediately. A change applies to
+sessions launched after it. An open session keeps the options it started with,
+and a released session lingers for 15s, so a viewer already watching sees
+nothing change until their session ends. Auth is not in the file; the token has
+its own file.
 
 ## Reading the stats overlay
 
@@ -80,8 +107,8 @@ latency you are paying for nothing.
 The overlay is for glancing at. For anything you intend to act on, read the
 trace (`-trace`): the server writes one record per second joining its counters
 with the client's report, which is the only place the two can be compared on
-the same timeline. `docs/architecture.md` describes the fields under Client
-telemetry.
+the same timeline. [architecture.md](architecture.md#client-telemetry) lists the
+records.
 
 ## Tests
 
@@ -104,5 +131,6 @@ scrcpy parser:
 go run ./cmd/simprobe -animate <udid>
 ```
 
-Test against a spare server on another port, not one a phone is using.
-`docs/internals/traps.md` lists the traps this has already hit, symptom first.
+Test against a spare server on another port, not one a phone is using. A spare
+server is safe on a loopback address (`-addr 127.0.0.1:18472 ... -no-auth`) or
+with TLS (`-addr :18470 ... -tls-cert`).

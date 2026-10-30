@@ -19,11 +19,9 @@ exit status 1; bad arguments exit 2.
 
 ## Commands are the MCP tools
 
-Each command is a tool from `loupe mcp`, run in the same process over an
-in-memory transport, so the two cannot drift: the same schemas, the same
-claim before input, the same requests. `TestEveryToolHasACommand` fails when
-a tool has no command or a command's positional names a field the tool does
-not have.
+Each command runs a tool from `loupe mcp`, so the two share schemas, the
+claim before input, and requests. Routes, parameters and errors are in
+[agent-api.md](agent-api.md); the tools are in [mcp.md](mcp.md).
 
 | Command | Tool | Positional |
 |---|---|---|
@@ -84,7 +82,7 @@ The certificate is not checked on a loopback host, as with `loupe mcp`.
 
 Input commands claim the target first, as the MCP tools do. A claim is a
 lease that every call from its holder renews and that lapses after 10 idle
-minutes (see Claims and the human hold in `agent-api.md`). `loupe mcp`
+minutes (see Claims and the human hold in [agent-api.md](agent-api.md)). `loupe mcp`
 releases its claims when it exits; the CLI does not, because each command is
 a new process and the next `tap` has to find the claim still held. End it
 with `loupe release <target>` or let it lapse.
