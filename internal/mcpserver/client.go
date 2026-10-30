@@ -65,6 +65,12 @@ func NewClient(rawURL, token, agent string) (*Client, error) {
 	}, nil
 }
 
+// SetSession replaces the random session NewClient picks. The CLI sends a
+// fixed one, or none, so that its claim outlives the process that took it:
+// the next command, a new process, still holds it. With none the server keys
+// claims by agent name alone.
+func (c *Client) SetSession(s string) { c.session = s }
+
 func isLoopback(host string) bool {
 	if host == "localhost" {
 		return true
@@ -128,7 +134,9 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, cont
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	req.Header.Set(httpapi.HeaderAgent, c.agent)
-	req.Header.Set(httpapi.HeaderSession, c.session)
+	if c.session != "" {
+		req.Header.Set(httpapi.HeaderSession, c.session)
+	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
