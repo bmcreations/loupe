@@ -600,8 +600,11 @@ agent sessions off one device. It is a lease:
 While a claim lasts, any other agent's input on the target answers 409
 `code: "claimedBy"` with the holder in `claim`, before anything reaches the
 device. Every call from the holder, `/api/ui` and `/api/screenshot` included,
-renews the lease, and it lapses 10 minutes after the last call. Claims are in
-memory, so a restart drops them.
+renews the lease, and it lapses 10 minutes after the last call. Claims are
+saved to `claims.json` beside the config file and survive a restart, unless
+the lease ran out while the server was down. A renewal is saved at most once a
+minute, so a restored lease can be up to a minute short. Claims are kept out of
+`handsoff.json`, which holds only what the person marked.
 
 ### Hands off
 
