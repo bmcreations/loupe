@@ -743,6 +743,25 @@ that claim was still there after the client exited.
 `sequence` sends its steps with every number kept, so a step at `x: 0` is
 not dropped the way an `InputRequest` encoding would drop it.
 
+**`loupe tap` and `loupe sequence` drive a server once from a shell**, with
+the same `-url`, `-token` and `-agent` (default `cli`) as `loupe mcp`, plus
+`-target` (or `LOUPE_TARGET`) and `-session` (or `LOUPE_SESSION`):
+
+```sh
+loupe tap -target emulator-5554 -text "Sign in"
+loupe tap -target emulator-5554 -desc Back -index 1
+loupe tap -target emulator-5554 540 1200
+echo '[{"action":"tap","match":{"text":"Email"}},{"action":"text","text":"a@b.co"}]' |
+  loupe sequence -target emulator-5554
+```
+
+`loupe tap` takes `-text`, `-id`, `-desc`, `-contains`, `-index` and
+`-wait` (ms) for a match. Both print the answer on success and the error
+with exit 1 otherwise. Neither claims the target: a one-shot command has
+no later moment to release it. Against a target an agent session has
+claimed, pass that session's ID with `-session` to act as it; with none,
+the claim refuses the command with 409 `claimedBy`.
+
 Point an MCP config at a copy of the binary, not at `./loupe`: a client
 holds the executable open for its whole session, and `make build` then
 fails with ETXTBSY, which is why the supervisor runs from `.run/`.

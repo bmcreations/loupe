@@ -183,6 +183,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "sessions" {
 		os.Exit(runSessions(os.Args[2:]))
 	}
+	// `loupe tap` and `loupe sequence` drive a running server once each.
+	if len(os.Args) > 1 && os.Args[1] == "tap" {
+		os.Exit(runTap(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "sequence" {
+		os.Exit(runSequence(os.Args[2:]))
+	}
 	tightenOutput(os.Stdout)
 	tightenOutput(os.Stderr)
 	def := config.Default()

@@ -248,3 +248,19 @@ func (c *Client) ReleaseAll(ctx context.Context) {
 		cancel()
 	}
 }
+
+// UseSession replaces the random session ID this client was made with, so a
+// one-shot command acts as the agent session that holds the claim.
+func (c *Client) UseSession(id string) {
+	if id != "" {
+		c.session = id
+	}
+}
+
+// Post sends body to path for target without claiming it first: for a
+// one-shot command, which would otherwise leave a claim with nothing to
+// release it.
+func (c *Client) Post(ctx context.Context, path, target string, body []byte) (json.RawMessage, error) {
+	b, _, err := c.do(ctx, http.MethodPost, path, url.Values{"target": {target}}, "application/json", bytes.NewReader(body))
+	return b, err
+}

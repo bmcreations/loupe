@@ -49,6 +49,11 @@ the file beats the default.** The file is described under Configuration below.
 | `-no-ios-devices` | `false` | Skip physical iPhone and iPad discovery through devicectl |
 | `-xcrunner` | `.build/xcrunner` | XCUITest runner (`make xcrunner TEAM=...`); iPhones below iOS 27 take touches through it over a cable |
 
+`loupe mcp`, `loupe pair`, `loupe sessions`, `loupe tap` and `loupe sequence`
+are clients of a running server, with flags of their own and no banner.
+`loupe tap` and `loupe sequence` are in `docs/agent-api.md` beside
+`loupe mcp`.
+
 ## Configuration
 
 The settings file is `~/Library/Application Support/loupe/config.json`, or
