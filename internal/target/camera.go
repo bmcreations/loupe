@@ -153,13 +153,18 @@ func runningAVDArgs(ctx context.Context, avd string) []string {
 // as a boot flag, `-camera-back imagefile:<path>`, and reads the file each
 // time the camera opens; the console and the gRPC API have no call that
 // swaps it on a running emulator. It trusts the file's extension, so the
-// image is always staged as PNG.
+// image is always staged as PNG, laid out for the emulator's crop
+// (camera_emulator.go).
 func (e *Emulator) SetCamera(ctx context.Context, png []byte) (CameraApplies, error) {
 	path, err := cameraFile("avd-" + e.cfg.AVD)
 	if err != nil {
 		return "", err
 	}
-	if err := writeCameraFile(path, png); err != nil {
+	staged, err := emulatorCameraImage(png, backCameraOrientation(e.cfg.Dir))
+	if err != nil {
+		return "", err
+	}
+	if err := writeCameraFile(path, staged); err != nil {
 		return "", err
 	}
 	if args := runningAVDArgs(ctx, e.cfg.AVD); args != nil && bootedWithCamera(args, path) {

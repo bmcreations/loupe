@@ -289,8 +289,16 @@ and `outcome`.
   the reverse ("The emulator hardware cannot load snapshot: loupe-warm"),
   so turning the camera image on or off costs one cold boot, 14 to 15s on
   `loupe_camera` against 3.4s from the snapshot; loupe saves `loupe-warm`
-  again after it, and a new image at the same path loads warm. The stock
-  camera shows the image upright and cropped to fill. On `loupe_camera`
+  again after it, and a new image at the same path loads warm. Left to
+  itself the emulator shows the image off center: with the back sensor at
+  90 degrees (the default, and every AVD here) it center-crops to the
+  sensor's 4:3, then gives the app only the left 3:4 of that crop. A
+  1920x1080 grid showed x 240-1050 and nothing right of center; Flipcash's
+  Scan tab showed the left half of an image. So loupe stages a 1280x960
+  canvas with the image fitted whole into its left 3:4 on white, and the
+  app sees the whole image, centered and upright (stock camera and Flipcash
+  on `Pixel_7a_API_36`, emulator 37.2.12). Other `hw.camera.back.orientation`
+  values are staged as sent, unmeasured. On `loupe_camera`
   (Pixel 6, API 36) a QR, then a swap and a clear, each showed in the
   stock camera app after a reopen.
 
@@ -314,7 +322,7 @@ and `outcome`.
   file: apps with the shim see black, and later launches are plain ones.
   Frames are 1920x1080, `activeFormat`'s size, landscape as a back
   camera's are: the image is held upright and fitted whole on white, so a
-  code is never cropped (the emulator crops to fill instead). Known
+  code is never cropped, as on an emulator. Known
   differences from a phone: `videoRotationAngle` is kept but not applied;
   QR bounds are in that landscape frame's coordinates, and the preview
   layer's conversions are not faked; metadata is QR only, and asking for
