@@ -23,6 +23,25 @@ func (m *Manager) SetEmulatorPause(d time.Duration) {
 	m.emulatorPause = d
 }
 
+// SetClaimed sets the check for a live claim on a target.
+func (m *Manager) SetClaimed(f func(id string) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.claimed = f
+}
+
+// WakeEmulator resumes the emulator behind id if it is paused and restarts
+// its idle clock. It does nothing for any other target.
+func (m *Manager) WakeEmulator(ctx context.Context, id string) {
+	t, ok := m.Target(id)
+	if !ok {
+		return
+	}
+	if e, ok := t.(*target.Emulator); ok {
+		_ = e.Resume(ctx)
+	}
+}
+
 // SetEmulatorShutdown sets how long a headless emulator goes unused before
 // it is shut down, or 0 for never. Like the pause, it applies at once.
 func (m *Manager) SetEmulatorShutdown(d time.Duration) {
@@ -49,7 +68,7 @@ func (m *Manager) PauseIdleEmulators(ctx context.Context) {
 // pauseIdle is one pass. An emulator is paused or shut down only when it
 // runs headless, so one with its window on the Mac, which someone may be
 // looking at, never is; when no session is open on it, which covers viewers
-// and recordings; and when nothing else has reached it for the setting. An
+// and recordings; when no agent holds a claim on it; and when nothing else has reached it for the setting. An
 // emulator with a session has its clock restarted instead, so nothing
 // happens to it the moment the session closes. Both settings count from the
 // last use, so a paused emulator keeps ageing towards the shutdown.
@@ -63,6 +82,14 @@ func (m *Manager) pauseIdle(ctx context.Context) {
 			continue
 		}
 		if _, open := m.sessions[id]; open {
+			e.MarkUsed()
+			continue
+		}
+		// An agent's claim holds the emulator awake: its raw adb install or
+		// shell reaches the device without passing through loupe, and hangs
+		// on a paused VM. Like a session, it restarts the clock, so the
+		// pause comes a full period after the claim lapses.
+		if m.claimed != nil && m.claimed(id) {
 			e.MarkUsed()
 			continue
 		}

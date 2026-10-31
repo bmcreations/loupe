@@ -6,7 +6,11 @@ simulators and physical iPhones are in `docs/ios.md`.
 ## AVD targets
 
 Every installed AVD is a target, booted or not, with the id `avd:<name>`. The
-picker shows its OS, API level and form without booting it.
+picker shows its OS, API level and form without booting it. The AVD directory
+is rescanned on each `GET /api/targets` and on any `avd:<name>` the server does
+not know (at most every 2 seconds), so an AVD made with `avdmanager` or Android
+Studio appears and boots without a restart. A removed AVD stays listed until
+a restart; delete through `DELETE /api/devices`.
 
 ### Running emulators
 
@@ -62,8 +66,10 @@ emulator is never touched, since it may be on someone's screen.
 All three are also in the config file and `/api/config`, and apply immediately.
 
 An emulator counts as in use while it has a session (a viewer or a recording)
-or a `/api/logcat?follow=1`, and for any call that reaches it. A claim reaches
-no device and wakes nothing.
+or a `/api/logcat?follow=1`, and for any call that reaches it. A live claim
+also holds it: neither the pause nor the shutdown touches a claimed emulator
+(the clock restarts while the claim lasts), and taking a claim resumes one
+that is paused. A claim lapses 10 minutes after its holder's last call.
 
 - **Paused** means the VM is stopped and its CPU use drops to near zero (about
   0.3%). The next call that needs the device, or an open, resumes it in about
@@ -75,7 +81,8 @@ no device and wakes nothing.
   open while the idle shutdown runs is refused instead of booting into it.
 - Only loupe resumes a paused emulator. Android Studio's Run, `adb install` or
   `adb shell` from a terminal hangs on a paused emulator until a loupe call
-  wakes it.
+  wakes it. Claim the emulator first (`POST /api/claims`) to keep it awake
+  for that work; `emulatorPauseSec` 0 turns the pause off.
 
 ### Shut down, delete and reset
 

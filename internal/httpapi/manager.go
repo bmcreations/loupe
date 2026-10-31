@@ -42,6 +42,14 @@ type Manager struct {
 	// emulatorPause is how long a headless emulator goes unused before it is
 	// paused, or 0 for never. See emupause.go.
 	emulatorPause time.Duration
+	// claimed reports whether a target has a live claim. Nil means none do.
+	// A claimed emulator is never paused or shut down by the idle clock.
+	claimed func(id string) bool
+	// rescanAVDs re-reads the AVD directory and registers any AVD not yet a
+	// target, so one made by avdmanager or Android Studio appears without a
+	// restart. Nil means no rescan. rescanAt throttles it.
+	rescanAVDs func()
+	rescanAt   time.Time
 	// emulatorShutdown is how long one goes unused before it is shut down,
 	// or 0 for never.
 	emulatorShutdown time.Duration
@@ -1439,9 +1447,50 @@ func (m *Manager) Info(ctx context.Context, id string) (TargetInfo, bool) {
 // non-nil interface value is not nil and the caller's check would pass.
 func (m *Manager) Target(id string) (target.Target, bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	t, ok := m.targets[m.canonical(id)]
+	m.mu.Unlock()
+	if !ok && strings.HasPrefix(id, "avd:") && m.RescanAVDs() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		t, ok = m.targets[m.canonical(id)]
+	}
 	return t, ok
+}
+
+// Registered reports whether id is a registered target. Unlike Target it
+// never rescans the AVD directory, so the rescan itself may call it.
+func (m *Manager) Registered(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.targets[m.canonical(id)]
+	return ok
+}
+
+// avdRescanEvery bounds how often an unknown avd: id or a listing triggers a
+// scan of the AVD directory.
+const avdRescanEvery = 2 * time.Second
+
+// SetAVDRescan sets the function that re-reads the AVD directory and
+// registers what is new.
+func (m *Manager) SetAVDRescan(f func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rescanAVDs = f
+}
+
+// RescanAVDs looks for AVDs created outside loupe, at most once per
+// avdRescanEvery. It reports whether it scanned.
+func (m *Manager) RescanAVDs() bool {
+	m.mu.Lock()
+	f := m.rescanAVDs
+	if f == nil || time.Since(m.rescanAt) < avdRescanEvery {
+		m.mu.Unlock()
+		return false
+	}
+	m.rescanAt = time.Now()
+	m.mu.Unlock()
+	f()
+	return true
 }
 
 // Session looks up the running session for a target, if one exists. Unlike

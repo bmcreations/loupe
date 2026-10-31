@@ -156,6 +156,16 @@ func (e *Emulator) wake(ctx context.Context, serial string) error {
 	return nil
 }
 
+// Resume wakes the emulator if it is paused and restarts its idle clock. An
+// emulator that is not running is left alone.
+func (e *Emulator) Resume(ctx context.Context) error {
+	serial := e.Serial()
+	if serial == "" {
+		return nil
+	}
+	return e.wake(ctx, serial)
+}
+
 // PauseIfIdle pauses the emulator when nothing has reached it for idle and
 // nothing holds it. It reports whether it paused. The caller decides that
 // the emulator is one to pause at all: headless, with no session.

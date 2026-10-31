@@ -34,6 +34,8 @@ type Server struct {
 	trace *trace.Writer
 	// claims holds agents' claims and the hands-off set (claims.go).
 	claims *claimBook
+	// bgBoots holds the ids of AVDs with a wait=0 boot running.
+	bgBoots sync.Map
 	// exts is the registry /api/ext/ passes through to (extension.go).
 	exts *extensionRegistry
 	// flags holds what people flagged for agents (flags.go).
@@ -140,6 +142,7 @@ func NewServer(mgr *Manager, web fs.FS, tracer *trace.Writer) *Server {
 	s.exts = newExtensionRegistry()
 	s.flags = newFlagStore()
 	mgr.SetTrace(tracer)
+	mgr.SetClaimed(s.claims.held)
 	s.build, s.indexHTML, s.appJS = stampIndex(web)
 	return s
 }
@@ -294,7 +297,7 @@ var routes = []route{
 	{"/api/avds/profiles", []string{http.MethodGet}, (*Server).handleAVDProfiles, ""},
 	{"/api/devices/options", []string{http.MethodGet}, (*Server).handleDeviceOptions, ""},
 	{"/api/devices/shutdown", []string{http.MethodPost}, (*Server).handleDeviceShutdown, ""},
-	{"/api/devices/boot", []string{http.MethodPost}, (*Server).handleDeviceBoot, ""},
+	{"/api/devices/boot", []string{http.MethodGet, http.MethodPost}, (*Server).handleDeviceBoot, ""},
 	{"/api/devices/reset", []string{http.MethodPost}, (*Server).handleDeviceReset, ""},
 	{"/api/devices", []string{http.MethodPost, http.MethodDelete}, (*Server).handleDevices, ""},
 	{"/api/devices/handsoff", []string{http.MethodPost}, (*Server).handleHandsOff, ""},
@@ -435,6 +438,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 	// ?local=1 is how a hub polls this server: only its own rows, so two
 	// servers that peer with each other do not list each other's rows back.
+	s.mgr.RescanAVDs()
 	rows := s.mgr.Targets
 	if r.URL.Query().Get("local") == "1" {
 		rows = s.mgr.LocalTargets

@@ -102,6 +102,10 @@ type Emulator struct {
 	// or attaches. See BootingAs.
 	bootingAs atomic.Value
 
+	// boot is what the last boot this server started recorded, readable
+	// while that boot holds mu. See bootstatus.go.
+	boot bootState
+
 	// pause is whether the VM is stopped for being idle. See emulatorpause.go.
 	pause pauseState
 	// desc is the running device's last description, which Describe answers
@@ -224,7 +228,7 @@ func (e *Emulator) ensureBooted(ctx context.Context) (*ADBTarget, error) {
 		if err := e.wake(ctx, in.Info().Serial); err != nil {
 			return nil, err
 		}
-		return in, e.adb.WaitForBoot(ctx, in.Info().Serial, e.cfg.BootBudget)
+		return in, e.adb.WaitForBoot(ctx, in.Info().Serial, e.bootBudget(ctx))
 	}
 
 	// Running, but not mapped yet: the manager maps on its own schedule, and
@@ -233,7 +237,7 @@ func (e *Emulator) ensureBooted(ctx context.Context) (*ADBTarget, error) {
 		if err := e.wake(ctx, d.Serial); err != nil {
 			return nil, err
 		}
-		if err := e.adb.WaitForBoot(ctx, d.Serial, e.cfg.BootBudget); err != nil {
+		if err := e.adb.WaitForBoot(ctx, d.Serial, e.bootBudget(ctx)); err != nil {
 			return nil, err
 		}
 		return e.Attach(d), nil
@@ -294,8 +298,13 @@ func (e *Emulator) ensureBooted(ctx context.Context) (*ADBTarget, error) {
 	}
 	exited := make(chan struct{})
 	e.bootingAs.Store("emulator-" + strconv.Itoa(port))
+	e.boot.started.Store(started.UnixNano())
+	e.boot.pid.Store(int64(cmd.Process.Pid))
+	e.boot.logPath.Store(logPath)
+	e.boot.alive.Store(true)
 	go func() {
 		_ = cmd.Wait()
+		e.boot.alive.Store(false)
 		e.bootingAs.Store("")
 		close(exited)
 	}()
@@ -365,11 +374,11 @@ func (e *Emulator) keepWarm(ctx context.Context, serial, snapshot, logPath strin
 // under this AVD's name is the bug choosing ports at boot exists to prevent.
 func (e *Emulator) awaitBoot(ctx context.Context) (*ADBTarget, error) {
 	serial := "emulator-" + strconv.Itoa(e.port)
-	if err := e.adb.WaitForBoot(ctx, serial, e.cfg.BootBudget); err != nil {
+	if err := e.adb.WaitForBoot(ctx, serial, e.bootBudget(ctx)); err != nil {
 		if closed(e.exited) {
-			return nil, fmt.Errorf("emulator %s exited while booting: %w (check that -gpu %s is supported on this host)", e.cfg.AVD, err, e.cfg.GPU)
+			return nil, e.bootFailure(fmt.Errorf("emulator %s exited while booting: %w (check that -gpu %s is supported on this host)", e.cfg.AVD, err, e.cfg.GPU), serial)
 		}
-		return nil, err
+		return nil, e.bootFailure(err, serial)
 	}
 	name, err := e.adb.AVDName(ctx, serial)
 	if err != nil {
