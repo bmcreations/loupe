@@ -51,6 +51,7 @@ var toolRoutes = []toolRoute{
 	{"camera", http.MethodPost, "/api/camera"},
 	{"drop", http.MethodPost, "/api/drop"},
 	{"boot", http.MethodPost, "/api/devices/boot"},
+	{"boot_status", http.MethodGet, "/api/devices/boot"},
 	{"release", http.MethodDelete, "/api/claims"},
 	{"flags", http.MethodGet, "/api/flags"},
 	{"flag", http.MethodGet, "/api/flags"},
@@ -158,6 +159,11 @@ type launchIn struct {
 type urlIn struct {
 	Targeted
 	URL string `json:"url" jsonschema:"a deep link, universal link or https URL, handed to whatever the device has registered for it"`
+}
+
+type bootIn struct {
+	Targeted
+	Wait string `json:"wait,omitempty" jsonschema:"how long to wait for the device to come up: a duration (90s, 10m) or seconds, at most 15m; the server defaults to 4m. 0 starts the boot and returns at once, to poll with boot_status"`
 }
 
 type logcatIn struct {
@@ -395,11 +401,22 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "boot",
-		Description: "Boot a shut-down AVD or iOS simulator without opening a stream, and return its row once it is up. Already running returns at once.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in Targeted) (*mcp.CallToolResult, any, error) {
+		Description: "Boot a shut-down AVD or iOS simulator without opening a stream, and return its row once it is up. Already running returns at once. A boot that outruns wait is an error, not a failed boot: the emulator keeps booting, and boot_status reports on it. The claim holds for as long as the boot runs.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in bootIn) (*mcp.CallToolResult, any, error) {
+		q := url.Values{"target": {in.Target}}
+		if in.Wait != "" {
+			q.Set("wait", in.Wait)
+		}
 		return jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
-			return c.postJSON(ctx, "/api/devices/boot", url.Values{"target": {in.Target}}, nil)
+			return c.postJSON(ctx, "/api/devices/boot", q, nil)
 		}))
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "boot_status",
+		Description: "How an AVD's boot is going: state (up, booting, stopped), whether the emulator process is alive, adb's state, sys.boot_completed and the boot log's path. For a boot started with wait 0 or one that outran its wait. Reads only; it claims nothing.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in Targeted) (*mcp.CallToolResult, any, error) {
+		return jsonResult(c.getJSON(ctx, "/api/devices/boot", url.Values{"target": {in.Target}}))
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
