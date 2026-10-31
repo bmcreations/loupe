@@ -169,3 +169,44 @@ func readINI(path string) (map[string]string, error) {
 	}
 	return kv, sc.Err()
 }
+
+// RepairAVDTarget fixes an AVD whose <name>.ini says `target=android-0` (or
+// has no numeric target) by reading the API level from config.ini's system
+// image path. It returns the target it wrote, or "" when nothing changed.
+func RepairAVDTarget(dir string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+	ini := strings.TrimSuffix(filepath.Clean(dir), ".avd") + ".ini"
+	kv, err := readINI(ini)
+	if err != nil {
+		return "", err
+	}
+	if apiLevelFrom(kv["target"], "") > 0 {
+		return "", nil
+	}
+	cfg, err := readINI(filepath.Join(dir, "config.ini"))
+	if err != nil {
+		return "", err
+	}
+	n := apiLevelFrom("", cfg["image.sysdir.1"])
+	if n == 0 {
+		return "", nil
+	}
+	raw, err := os.ReadFile(ini)
+	if err != nil {
+		return "", err
+	}
+	want := fmt.Sprintf("android-%d", n)
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	found := false
+	for i, l := range lines {
+		if k, _, ok := strings.Cut(l, "="); ok && strings.TrimSpace(k) == "target" {
+			lines[i], found = "target="+want, true
+		}
+	}
+	if !found {
+		lines = append(lines, "target="+want)
+	}
+	return want, writeFileAtomic(ini, []byte(strings.Join(lines, "\n")+"\n"))
+}

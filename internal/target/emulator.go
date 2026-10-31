@@ -3,6 +3,7 @@ package target
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -268,6 +269,15 @@ func (e *Emulator) ensureBooted(ctx context.Context) (*ADBTarget, error) {
 		port = p
 	}
 
+	// Some AVD creators write `target=android-0` for a minor-API image
+	// ("android-37.0"); the emulator then turns off hvf and the boot never
+	// finishes. Repair the line from the image path before launching.
+	if fixed, err := RepairAVDTarget(e.cfg.Dir); err != nil {
+		log.Printf("emulator %s: repair target: %v", e.cfg.AVD, err)
+	} else if fixed != "" {
+		log.Printf("emulator %s: set target=%s (was API 0)", e.cfg.AVD, fixed)
+	}
+
 	snapshot, wipe := bootFrom(e.cfg.Dir)
 	window := e.cfg.Window != nil && e.cfg.Window()
 	args := emulatorArgs(e.cfg.AVD, port, e.cfg.GPU, snapshot, window)
@@ -281,6 +291,9 @@ func (e *Emulator) ensureBooted(ctx context.Context) (*ADBTarget, error) {
 	// pipe with no reader would kill it on its next write.
 	logPath := emulatorLog(e.cfg.AVD)
 	if logPath != "" {
+		// Keep the previous boot's log: a retry would otherwise erase the
+		// only record of why the last boot failed.
+		_ = os.Rename(logPath, logPath+".1")
 		if f, err := os.Create(logPath); err == nil {
 			cmd.Stdout, cmd.Stderr = f, f
 			defer f.Close()
