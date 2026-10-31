@@ -73,7 +73,8 @@ func (s *Server) deviceLife(w http.ResponseWriter, r *http.Request, action strin
 		writeJSON(w, status, resp)
 	}
 	ti, listed := s.mgr.Info(r.Context(), id)
-	if !lifeAllowed(ti, action) {
+	booting := action == "shutdown" && !lifeAllowed(ti, action) && bootInProgress(r.Context(), t, ti)
+	if !lifeAllowed(ti, action) && !booting {
 		reason := notSupportedReason(ti, id, action)
 		if !listed {
 			reason = fmt.Sprintf("%s is not in the target list", id)
@@ -142,7 +143,9 @@ func (s *Server) deviceLife(w http.ResponseWriter, r *http.Request, action strin
 		// Only a shutdown keeps state: a delete has nothing to resume. A
 		// failed save is traced by the target and does not stop the
 		// shutdown, which is what was asked for.
-		if ss, ok := t.(target.StateSaver); ok {
+		// A boot that never came up has nothing worth resuming, and
+		// saving it would make the next quickboot resume a half-booted VM.
+		if ss, ok := t.(target.StateSaver); ok && !booting {
 			saved, _ = ss.SaveState(ctx)
 		}
 		err = st.Stop(ctx)
@@ -170,6 +173,18 @@ func (s *Server) deviceLife(w http.ResponseWriter, r *http.Request, action strin
 	}
 	fresh, _ := s.mgr.Info(r.Context(), id)
 	writeJSON(w, http.StatusOK, fresh)
+}
+
+// bootInProgress reports whether an AVD's emulator process is alive though
+// the target has not attached, as when a boot outran ?wait= and adb still
+// calls it offline. The picker offers shutdown only once a device attaches,
+// so without this a stuck boot could only be stopped by its pid.
+func bootInProgress(ctx context.Context, t target.Target, ti TargetInfo) bool {
+	if !strings.HasPrefix(ti.ID, "avd:") || ti.State == "creating" || !ti.Available {
+		return false
+	}
+	br, ok := t.(target.BootReporter)
+	return ok && br.BootStatus(ctx).ProcessAlive
 }
 
 // lifeAllowed reports whether the target takes the action. Reset is not a

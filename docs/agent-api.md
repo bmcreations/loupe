@@ -388,7 +388,7 @@ reason. They are arbitrated like `launch`, so `humanHeld`, `claimedBy` and
 |---|---|---|
 | `POST /api/devices/boot?target=[&wait=]` | Boots without opening a stream. A running target answers 200 at once. `wait` is how long to hold the request: a duration (`90s`, `10m`) or seconds, default 4 minutes, at most 15 minutes. `wait=0` starts the boot in the background and answers at once. | 200 `TargetInfo` once up; 202 `BootStatus` for `wait=0`; 504 when `wait` ran out first |
 | `GET /api/devices/boot?target=avd:<name>` | How an AVD's boot is going, without waking or arbitrating anything. | 200 `BootStatus` |
-| `POST /api/devices/shutdown?target=` | Stops the target. Refused if it is already `bootsOnOpen`. | 200 `TargetInfo` |
+| `POST /api/devices/shutdown?target=` | Stops the target. Refused if it is already `bootsOnOpen`, unless an emulator process for the AVD is still booting; that stop saves no snapshot. | 200 `TargetInfo` |
 | `DELETE /api/devices?target=` | Stops it if running, then deletes it. | 204 |
 | `POST /api/devices/reset?target=avd:<name>` | Stops the AVD without saving, discards `loupe-warm` and wipes its data on the next boot. Works on a stopped AVD. A simulator is 422 `notSupported`. | 200 `TargetInfo` |
 
