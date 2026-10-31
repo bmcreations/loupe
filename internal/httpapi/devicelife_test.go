@@ -39,6 +39,8 @@ type lifeTarget struct {
 	// and wait for them.
 	holdDelete, holdStop chan struct{}
 	entered              chan struct{}
+	// holdBoot, when set, makes Boot signal bootEntered and wait for it.
+	holdBoot, bootEntered chan struct{}
 }
 
 func (l *lifeTarget) BootsOnOpen() bool { return l.boots }
@@ -63,6 +65,10 @@ func (l *lifeTarget) ResetState(context.Context) error {
 
 func (l *lifeTarget) Boot(ctx context.Context) error {
 	l.bootCalls.Add(1)
+	if l.holdBoot != nil {
+		l.bootEntered <- struct{}{}
+		<-l.holdBoot
+	}
 	if l.bootWaitsForCtx {
 		<-ctx.Done()
 	}
@@ -688,5 +694,103 @@ func TestBootStatusOfANonEmulatorIs422(t *testing.T) {
 	w := doRecord(s, http.MethodGet, "/api/devices/boot?target=avd:a", nil)
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("GET boot = %d %s; want 422", w.Code, w.Body.String())
+	}
+}
+
+// bootClaimServer is a lifeServer for avd:a with a claim book on a clock the
+// test moves, and avd:a claimed by agent a.
+func bootClaimServer(t *testing.T) (*Server, *lifeTarget, *time.Time) {
+	t.Helper()
+	s, lt := newLifeServer(t, "avd:a", nil)
+	lt.boots = true
+	lt.holdBoot = make(chan struct{})
+	lt.bootEntered = make(chan struct{})
+	s.claims = newClaimBook(nil)
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	s.claims.now = func() time.Time { return now }
+	if _, holder := s.claims.take("avd:a", "a", "s1", ""); holder != nil {
+		t.Fatalf("claim refused: %+v", holder)
+	}
+	return s, lt, &now
+}
+
+// A boot that waits longer than the lease keeps its caller's claim: the
+// caller makes no other call while it waits, so nothing else renews it.
+func TestABootWaitHoldsTheCallersClaim(t *testing.T) {
+	s, lt, now := bootClaimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "s1"}
+	done := make(chan *httptest.ResponseRecorder)
+	go func() { done <- doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a&wait=15m", a) }()
+	<-lt.bootEntered
+
+	*now = now.Add(claimLease + 2*time.Minute)
+	if r := s.claims.refusal("avd:a", "b", "s2"); r == nil || r.Code != ErrCodeClaimed {
+		t.Fatalf("mid-boot refusal for another agent = %+v; want claimedBy", r)
+	}
+	if got := s.claims.list(); len(got) != 1 || got[0].IdleMs != 0 {
+		t.Fatalf("claims mid-boot = %+v; want one, not idle", got)
+	}
+
+	close(lt.holdBoot)
+	if w := <-done; w.Code != http.StatusOK {
+		t.Fatalf("boot = %d %s", w.Code, w.Body.String())
+	}
+	// The boot's end renews the claim, so a full lease runs from there.
+	*now = now.Add(claimLease - time.Minute)
+	if !s.claims.held("avd:a") {
+		t.Fatal("claim lapsed within a lease of the boot ending")
+	}
+	*now = now.Add(2 * time.Minute)
+	if s.claims.held("avd:a") {
+		t.Fatal("claim outlived its lease after the boot")
+	}
+}
+
+// wait=0 holds the claim until the background boot ends.
+func TestABackgroundBootHoldsTheCallersClaim(t *testing.T) {
+	s, lt, now := bootClaimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "s1"}
+	if w := doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a&wait=0", a); w.Code != http.StatusAccepted {
+		t.Fatalf("boot wait=0 = %d %s", w.Code, w.Body.String())
+	}
+	<-lt.bootEntered
+	*now = now.Add(claimLease + time.Minute)
+	if !s.claims.held("avd:a") {
+		t.Fatal("claim lapsed during the background boot")
+	}
+	close(lt.holdBoot)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.claims.mu.Lock()
+		holds := s.claims.claims["avd:a"].holds
+		s.claims.mu.Unlock()
+		if holds == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the background boot never let go of the claim")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	*now = now.Add(claimLease + time.Minute)
+	if s.claims.held("avd:a") {
+		t.Fatal("claim outlived its lease after the background boot")
+	}
+}
+
+// Only the holder's boot holds the claim; another agent's is refused before
+// it boots anything, and a caller with no claim holds nothing.
+func TestABootHoldsOnlyTheHoldersClaim(t *testing.T) {
+	s, _, _ := bootClaimServer(t)
+	b := map[string]string{HeaderAgent: "b", HeaderSession: "s2"}
+	if w := doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a", b); w.Code != http.StatusConflict {
+		t.Fatalf("other agent's boot = %d %s; want 409", w.Code, w.Body.String())
+	}
+	s.claims.hold("avd:a", "b", "s2")()
+	s.claims.mu.Lock()
+	holds := s.claims.claims["avd:a"].holds
+	s.claims.mu.Unlock()
+	if holds != 0 {
+		t.Fatalf("holds = %d after a non-holder's hold; want 0", holds)
 	}
 }

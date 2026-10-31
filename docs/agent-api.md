@@ -419,6 +419,12 @@ the process alive is a hung emulator, not a slow one; read `logPath`, then shut
 it down. `wait` bounds only the HTTP call. After a server restart the emulator is found
 by name, as for any AVD loupe did not start.
 
+A boot holds its caller's claim on the target until the boot ends, `wait=0`'s
+background boot included, so a `wait` longer than the 10-minute lease does not
+lose the device to another agent. `idleMs` reads 0 while it holds, and the
+lease starts again when the boot returns. A boot from an agent with no claim
+holds nothing.
+
 Viewers get `MsgEnded` before the session closes. An AVD booted this way is
 paused and shut down by the idle clock like any other. With
 `emulatorKeepState` on, shutdown saves the AVD's state first. A boot lifts the
@@ -623,8 +629,9 @@ claimed AVD (a claim restarts its idle clock, so the pause comes one
 emulator that is already paused. Raw `adb install` or `adb shell` against a
 claimed emulator therefore does not hang. The lease lapses 10 minutes after
 the holder's last call to loupe, so a longer raw-adb job should keep calling
-(`GET /api/claims` renews nothing; any `?target=` call does). `/api/targets`
-reports `paused: true` on a paused emulator.
+(`GET /api/claims` renews nothing; any `?target=` call does). A boot the
+holder is waiting on holds the claim until it ends (see Device lifecycle).
+`/api/targets` reports `paused: true` on a paused emulator.
 
 While a claim lasts, any other agent's input on the target answers 409
 `code: "claimedBy"` with the holder in `claim`, before anything reaches the

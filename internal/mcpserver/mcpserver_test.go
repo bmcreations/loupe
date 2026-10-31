@@ -476,3 +476,42 @@ func TestAPointAtZeroKeepsItsZero(t *testing.T) {
 		}
 	}
 }
+
+func TestBootSendsItsWaitUnderAClaim(t *testing.T) {
+	fake := &fakeLoupe{}
+	cs, stop := connect(t, fake)
+	call(t, cs, "boot", map[string]any{"target": "avd:Pixel_10", "wait": "12m"})
+	call(t, cs, "boot", map[string]any{"target": "avd:Pixel_10"})
+	stop()
+
+	want := []string{
+		"POST /api/claims?target=avd%3APixel_10",
+		"POST /api/devices/boot?target=avd%3APixel_10&wait=12m",
+		"POST /api/devices/boot?target=avd%3APixel_10",
+		"DELETE /api/claims?target=avd%3APixel_10",
+	}
+	if got := fake.requests(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("requests:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// boot_status only reads, so it takes no claim.
+func TestBootStatusReadsWithoutClaiming(t *testing.T) {
+	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/devices/boot" {
+			return false
+		}
+		io.WriteString(w, `{"state":"booting","processAlive":true}`)
+		return true
+	}}
+	cs, stop := connect(t, fake)
+	res := call(t, cs, "boot_status", map[string]any{"target": "avd:Pixel_10"})
+	stop()
+	if res.IsError || !strings.Contains(text(res), `"state":"booting"`) {
+		t.Fatalf("result %+v", res)
+	}
+	want := []string{"GET /api/devices/boot?target=avd%3APixel_10"}
+	if got := fake.requests(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("requests %v, want %v", got, want)
+	}
+}

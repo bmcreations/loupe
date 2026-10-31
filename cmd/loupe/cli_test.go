@@ -98,6 +98,9 @@ func TestParseCLIArgs(t *testing.T) {
 		{"flags", nil, `map[]`},
 		{"tap", []string{"avd:P", "--text", "Sign in"}, `map[target:avd:P text:Sign in]`},
 		{"tap", []string{"avd:P", "-desc", "Back", "-index", "1"}, `map[desc:Back index:1 target:avd:P]`},
+		{"boot", []string{"avd:P", "--wait", "10m"}, `map[target:avd:P wait:10m]`},
+		{"boot", []string{"avd:P", "-wait", "0"}, `map[target:avd:P wait:0]`},
+		{"boot-status", []string{"avd:P"}, `map[target:avd:P]`},
 	}
 	for _, tc := range cases {
 		cmd, _ := findCLICommand(tc.cmd)

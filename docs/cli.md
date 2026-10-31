@@ -43,6 +43,7 @@ claim before input, and requests. Routes, parameters and errors are in
 | `camera` | `camera` | target path |
 | `drop` | `drop` | target x y path |
 | `boot`, `release` | `boot`, `release` | target |
+| `boot-status` | `boot_status` | target |
 | `flags` | `flags` | |
 | `flag` | `flag` | id |
 
@@ -63,6 +64,10 @@ loupe sequence avd:Pixel_10 @signin.json
 echo '[{"action":"tap","match":{"text":"Email"}},{"action":"text","text":"a@b.co"}]' |
   loupe sequence avd:Pixel_10 -
 ```
+
+`boot` takes `--wait` as `/api/devices/boot` does: `loupe boot avd:Pixel_10
+--wait 10m` waits up to ten minutes, and `--wait 0` returns at once. `loupe
+boot-status avd:Pixel_10` reports on a boot still running.
 
 `screenshot` writes the PNG to `-o`, or to stdout when stdout is a pipe. On
 a terminal without `-o` it refuses rather than print binary.

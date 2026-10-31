@@ -345,8 +345,11 @@ func (s *Server) handleDeviceBoot(w http.ResponseWriter, r *http.Request) {
 	}
 	wasRunning := !ti.BootsOnOpen
 	began := time.Now()
+	// A wait can outlast the claim's lease, and the caller makes no other
+	// call while it waits, so the boot holds the caller's claim until it ends.
+	unhold := s.claims.hold(id, c.agent, c.session)
 	if wait == 0 && !wasRunning {
-		s.bootInBackground(w, r, id, st, c, began)
+		s.bootInBackground(w, r, id, st, c, began, unhold)
 		return
 	}
 	// Not the request's context, as for a shutdown: a caller that gives up
@@ -354,6 +357,7 @@ func (s *Server) handleDeviceBoot(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), max(wait, time.Second))
 	defer cancel()
 	err := st.Boot(ctx)
+	unhold()
 	outcome := "ok"
 	if err != nil {
 		outcome = "error"
@@ -377,11 +381,15 @@ func (s *Server) handleDeviceBoot(w http.ResponseWriter, r *http.Request) {
 
 // bootInBackground answers 202 with the boot status and finishes the boot on
 // its own goroutine, bounded by bootWaitMax. A second wait=0 for a boot
-// already running starts nothing more.
-func (s *Server) bootInBackground(w http.ResponseWriter, r *http.Request, id string, st target.Starter, c inputCaller, began time.Time) {
-	if _, running := s.bgBoots.LoadOrStore(id, true); !running {
+// already running starts nothing more. unhold ends the caller's claim hold
+// when the boot does.
+func (s *Server) bootInBackground(w http.ResponseWriter, r *http.Request, id string, st target.Starter, c inputCaller, began time.Time, unhold func()) {
+	if _, running := s.bgBoots.LoadOrStore(id, true); running {
+		unhold()
+	} else {
 		go func() {
 			defer s.bgBoots.Delete(id)
+			defer unhold()
 			ctx, cancel := context.WithTimeout(context.Background(), bootWaitMax)
 			defer cancel()
 			err := st.Boot(ctx)

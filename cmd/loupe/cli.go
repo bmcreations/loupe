@@ -51,6 +51,7 @@ var cliCommands = []cliCommand{
 	{"camera", "camera", []string{"target", "path"}},
 	{"drop", "drop", []string{"target", "x", "y", "path"}},
 	{"boot", "boot", []string{"target"}},
+	{"boot-status", "boot_status", []string{"target"}},
 	{"release", "release", []string{"target"}},
 	{"flags", "flags", nil},
 	{"flag", "flag", []string{"id"}},

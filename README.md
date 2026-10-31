@@ -59,7 +59,9 @@ finds it in the accessibility tree and taps its center, and `--id` and
 rather than guessed at. Coordinates still work, in device pixels, the ones
 `ui` reports in each node's `center`. `sequence` runs several steps in one
 call, and stops at the first that fails. Drive from the accessibility tree
-rather than from the video.
+rather than from the video. `boot` starts a shut-down AVD or simulator, with
+`--wait` for how long to wait (`0` returns at once), and `boot-status` reports
+on an AVD boot still running.
 [docs/cli.md](docs/cli.md) covers the commands, [docs/mcp.md](docs/mcp.md)
 the tools, and [docs/agent-api.md](docs/agent-api.md) every HTTP route.
 
