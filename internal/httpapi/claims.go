@@ -78,6 +78,9 @@ type claim struct {
 	since, seen          time.Time
 	// saved is the seen last written to the file.
 	saved time.Time
+	// holds counts the holder's requests still running that keep the claim
+	// alive however long they take, such as a boot waiting on ?wait=.
+	holds int
 }
 
 // savedClaim is a claim as the file holds it.
@@ -252,7 +255,7 @@ func (b *claimBook) live(id string) *claim {
 	if c == nil {
 		return nil
 	}
-	if idle := b.now().Sub(c.seen); idle >= claimLease {
+	if idle := b.now().Sub(c.seen); idle >= claimLease && c.holds == 0 {
 		delete(b.claims, id)
 		b.trace(map[string]any{"action": "claimExpired", "target": id, "agent": c.agent, "session": c.session, "idleMs": idle.Milliseconds()})
 		return nil
@@ -261,9 +264,14 @@ func (b *claimBook) live(id string) *claim {
 }
 
 func (b *claimBook) info(id string, c *claim) *ClaimInfo {
+	idle := b.now().Sub(c.seen)
+	if c.holds > 0 {
+		// The holder is waiting on loupe, not idle.
+		idle = 0
+	}
 	return &ClaimInfo{
 		Target: id, Agent: c.agent, Session: c.session, Link: c.link,
-		Since: c.since, IdleMs: b.now().Sub(c.seen).Milliseconds(),
+		Since: c.since, IdleMs: idle.Milliseconds(),
 	}
 }
 
@@ -344,6 +352,40 @@ func (b *claimBook) seen(id, agent, session string) {
 		if c.seen.Sub(c.saved) >= claimSaveEvery {
 			b.saveClaims()
 		}
+	}
+}
+
+// hold keeps the caller's claim on id from lapsing until the returned func
+// runs, which renews it. A request that waits on the device longer than the
+// lease, such as a boot with a long ?wait=, calls it so the holder does not
+// lose the device to its own wait. A caller without the claim holds nothing.
+func (b *claimBook) hold(id, agent, session string) func() {
+	key := callerKey(agent, session)
+	if b == nil || key == "" {
+		return func() {}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	c := b.live(id)
+	if c == nil || c.key() != key {
+		return func() {}
+	}
+	c.holds++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			b.mu.Lock()
+			defer b.mu.Unlock()
+			c.holds--
+			// A claim released or replaced during the hold is not renewed.
+			if b.claims[id] != c {
+				return
+			}
+			c.seen = b.now()
+			if c.seen.Sub(c.saved) >= claimSaveEvery {
+				b.saveClaims()
+			}
+		})
 	}
 }
 
