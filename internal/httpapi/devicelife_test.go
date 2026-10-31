@@ -43,6 +43,14 @@ type lifeTarget struct {
 
 func (l *lifeTarget) BootsOnOpen() bool { return l.boots }
 
+// stuckBootTarget is a lifeTarget whose emulator process is alive but never
+// attached, as a boot adb still calls offline.
+type stuckBootTarget struct{ *lifeTarget }
+
+func (stuckBootTarget) BootStatus(context.Context) target.BootStatus {
+	return target.BootStatus{State: target.BootStateBooting, ProcessAlive: true, PID: 42}
+}
+
 func (l *lifeTarget) SaveState(context.Context) (bool, error) {
 	l.saves.Add(1)
 	return true, nil
@@ -391,6 +399,24 @@ func TestShutdownOfAnAVDThatIsNotRunningIs422(t *testing.T) {
 	}
 	if lt.stops.Load() != 0 {
 		t.Error("Stop was called on an AVD that is not running")
+	}
+}
+
+func TestShutdownStopsABootThatNeverCameUpWithoutSavingIt(t *testing.T) {
+	m := NewManager(target.Options{})
+	lt := &lifeTarget{describingTarget: describingTarget{id: "avd:stuck"}, boots: true}
+	m.Register(stuckBootTarget{lt})
+	s := &Server{mgr: m}
+	t.Cleanup(m.Shutdown)
+	w := doRecord(s, http.MethodPost, "/api/devices/shutdown?target=avd:stuck", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("shutdown = %d %s; want 200", w.Code, w.Body.String())
+	}
+	if n := lt.stops.Load(); n != 1 {
+		t.Errorf("Stop called %d times, want 1", n)
+	}
+	if n := lt.saves.Load(); n != 0 {
+		t.Errorf("saved state %d times for a boot that never came up, want 0", n)
 	}
 }
 
