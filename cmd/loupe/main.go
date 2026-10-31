@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -418,9 +419,13 @@ func main() {
 		// startup and again after /api/avds creates one, so a new AVD is in
 		// the picker without a restart. One deleted after the scan began is
 		// skipped, since the scan could still read its .ini.
+		var registerMu sync.Mutex
 		registerAVDs = func(scannedAt time.Time, installed []target.AVD) {
+			// Serialized: the rescan runs from request handlers.
+			registerMu.Lock()
+			defer registerMu.Unlock()
 			for _, a := range installed {
-				if _, ok := mgr.Target("avd:" + a.Name); ok {
+				if mgr.Registered("avd:" + a.Name) {
 					continue
 				}
 				e := target.NewEmulator(adb, target.EmulatorConfig{
@@ -444,6 +449,14 @@ func main() {
 			}
 		}
 		registerAVDs(scannedAt, installed)
+		// An AVD made by avdmanager or Android Studio after startup shows up
+		// on the next listing, or the first boot that names it.
+		mgr.SetAVDRescan(func() {
+			at := time.Now()
+			if found, err := target.ScanAVDs(target.AVDHome()); err == nil {
+				registerAVDs(at, found)
+			}
+		})
 		// -avd boots at startup, so the first viewer does not wait out a boot.
 		// An AVD it names that the scan did not find is still tried: the
 		// emulator's own lookup may know somewhere this one does not.

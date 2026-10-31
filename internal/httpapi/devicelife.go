@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -233,6 +234,49 @@ func (s *Server) lifeEnd(id string) { s.mgr.lifeEnd(id) }
 // has to outlast that.
 const bootTimeout = 4 * time.Minute
 
+// bootWaitMax caps ?wait= on a boot, and bounds the background boot that
+// wait=0 starts.
+const bootWaitMax = 15 * time.Minute
+
+// parseBootWait reads ?wait= as a Go duration ("90s", "10m") or a bare number
+// of seconds. Absent is bootTimeout. Zero means do not wait.
+func parseBootWait(v string) (time.Duration, error) {
+	if v == "" {
+		return bootTimeout, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		secs, serr := strconv.ParseFloat(v, 64)
+		if serr != nil {
+			return 0, fmt.Errorf("?wait= must be a duration (90s, 10m) or seconds, not %q", v)
+		}
+		d = time.Duration(secs * float64(time.Second))
+	}
+	if d < 0 || d > bootWaitMax {
+		return 0, fmt.Errorf("?wait= must be between 0 and %s", bootWaitMax)
+	}
+	return d, nil
+}
+
+// handleDeviceBootStatus is GET /api/devices/boot?target=avd:<name>: how an
+// AVD's boot is going (process alive, adb state, sys.boot_completed, log
+// path), for polling a boot started with wait=0 or one that timed out. It
+// reads only; it neither wakes a paused emulator nor takes a claim into account.
+func (s *Server) handleDeviceBootStatus(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.agentTarget(w, r)
+	if !ok {
+		return
+	}
+	br, ok := t.(target.BootReporter)
+	if !ok {
+		writeJSON(w, http.StatusUnprocessableEntity, ErrorResponse{
+			Error: fmt.Sprintf("%s has no boot status; only avd: targets do", t.ID()), Code: ErrCodeNotSupported,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, br.BootStatus(r.Context()))
+}
+
 // handleDeviceBoot is POST /api/devices/boot?target=: boot an AVD or a
 // simulator without opening a stream, and answer once it is up. One already
 // running answers the same 200. It is arbitrated like /api/input, and it is
@@ -240,6 +284,15 @@ const bootTimeout = 4 * time.Minute
 // An AVD booted this way has no session, so the idle pause and shutdown
 // count from the boot.
 func (s *Server) handleDeviceBoot(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		s.handleDeviceBootStatus(w, r)
+		return
+	}
+	wait, werr := parseBootWait(r.URL.Query().Get("wait"))
+	if werr != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: werr.Error()})
+		return
+	}
 	t, ok := s.agentTarget(w, r)
 	if !ok {
 		return
@@ -277,9 +330,13 @@ func (s *Server) handleDeviceBoot(w http.ResponseWriter, r *http.Request) {
 	}
 	wasRunning := !ti.BootsOnOpen
 	began := time.Now()
+	if wait == 0 && !wasRunning {
+		s.bootInBackground(w, r, id, st, c, began)
+		return
+	}
 	// Not the request's context, as for a shutdown: a caller that gives up
 	// must not leave a boot half done.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), bootTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), max(wait, time.Second))
 	defer cancel()
 	err := st.Boot(ctx)
 	outcome := "ok"
@@ -290,9 +347,42 @@ func (s *Server) handleDeviceBoot(w http.ResponseWriter, r *http.Request) {
 		"platform": platform, "tookMs": time.Since(began).Milliseconds(), "outcome": outcome, "wasRunning": wasRunning,
 	})
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
+		// A boot that ran out of ?wait= is not a failed boot: the emulator
+		// is still tracked and the error says how to poll it.
+		status := http.StatusBadGateway
+		if ctx.Err() != nil {
+			status = http.StatusGatewayTimeout
+		}
+		writeJSON(w, status, ErrorResponse{Error: err.Error()})
 		return
 	}
 	fresh, _ := s.mgr.Info(r.Context(), id)
 	writeJSON(w, http.StatusOK, fresh)
+}
+
+// bootInBackground answers 202 with the boot status and finishes the boot on
+// its own goroutine, bounded by bootWaitMax. A second wait=0 for a boot
+// already running starts nothing more.
+func (s *Server) bootInBackground(w http.ResponseWriter, r *http.Request, id string, st target.Starter, c inputCaller, began time.Time) {
+	if _, running := s.bgBoots.LoadOrStore(id, true); !running {
+		go func() {
+			defer s.bgBoots.Delete(id)
+			ctx, cancel := context.WithTimeout(context.Background(), bootWaitMax)
+			defer cancel()
+			err := st.Boot(ctx)
+			outcome := "ok"
+			if err != nil {
+				outcome = "error"
+			}
+			s.traceInputWith(r, id, "boot", c, err, map[string]any{
+				"platform": "android", "tookMs": time.Since(began).Milliseconds(), "outcome": outcome, "background": true,
+			})
+		}()
+	}
+	if br, ok := st.(target.BootReporter); ok {
+		writeJSON(w, http.StatusAccepted, br.BootStatus(r.Context()))
+		return
+	}
+	fresh, _ := s.mgr.Info(r.Context(), id)
+	writeJSON(w, http.StatusAccepted, fresh)
 }

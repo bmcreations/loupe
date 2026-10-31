@@ -142,6 +142,9 @@ var endpoints = []endpoint{
 	{"POST /api/devices/reset 409", dirResponse, httpapi.ErrorResponse{}},
 	// 200 also when the target was already running.
 	{"POST /api/devices/boot 200", dirResponse, httpapi.TargetInfo{}},
+	// wait=0: the boot runs in the background and the answer is its status.
+	{"POST /api/devices/boot 202", dirResponse, target.BootStatus{}},
+	{"GET /api/devices/boot", dirResponse, target.BootStatus{}},
 	// 409 with code "busy" (a shut down or delete of the target is running) or "humanHeld".
 	{"POST /api/devices/boot 409", dirResponse, httpapi.ErrorResponse{}},
 	{"POST /api/devices/handsoff 200", dirResponse, httpapi.HandsOffResponse{}},

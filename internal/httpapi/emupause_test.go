@@ -288,3 +288,62 @@ func TestPauseIdleWithShutdownOffStopsNothing(t *testing.T) {
 		t.Fatalf("calls %v with both settings off", got)
 	}
 }
+
+// An agent's claim holds the emulator awake: raw adb from the agent's shell
+// hangs on a paused VM, and a claimed one is not shut down under it either.
+func TestPauseIdleSkipsAClaimedEmulatorUntilTheClaimLapses(t *testing.T) {
+	restore := headlessAVDs
+	headlessAVDs = func(context.Context) map[string]bool {
+		return map[string]bool{"claimed": true, "free": true}
+	}
+	t.Cleanup(func() { headlessAVDs = restore })
+
+	adb, stops := pauseADB(t)
+	m := NewManager(target.Options{})
+	claimed := attachedEmulator(m, adb, "claimed", "emulator-5554")
+	free := attachedEmulator(m, adb, "free", "emulator-5556")
+	holds := true
+	m.SetClaimed(func(id string) bool { return holds && id == claimed.ID() })
+	m.SetEmulatorPause(300 * time.Millisecond)
+	time.Sleep(350 * time.Millisecond)
+
+	m.pauseIdle(context.Background())
+
+	if got := stops(); len(got) != 1 || got[0] != "emulator-5556" {
+		t.Fatalf("stopped %v, want only the unclaimed emulator-5556", got)
+	}
+	if claimed.Paused() || !free.Paused() {
+		t.Fatalf("paused: claimed %v free %v, want only free", claimed.Paused(), free.Paused())
+	}
+
+	// The skip restarted the clock, so a lapsed claim does not pause it at once.
+	holds = false
+	m.pauseIdle(context.Background())
+	if claimed.Paused() {
+		t.Fatal("paused right after the claim lapsed; the idle clock should have restarted")
+	}
+	time.Sleep(350 * time.Millisecond)
+	m.pauseIdle(context.Background())
+	if !claimed.Paused() {
+		t.Fatal("not paused a full period after the claim lapsed")
+	}
+}
+
+func TestPauseIdleSkipsAClaimedEmulatorForShutdownToo(t *testing.T) {
+	restore := headlessAVDs
+	headlessAVDs = func(context.Context) map[string]bool { return map[string]bool{"claimed": true} }
+	t.Cleanup(func() { headlessAVDs = restore })
+
+	adb, calls := killADB(t, nil)
+	m := NewManager(target.Options{})
+	e := attachedEmulator(m, adb, "claimed", "emulator-5554")
+	m.SetClaimed(func(id string) bool { return id == e.ID() })
+	m.SetEmulatorShutdown(time.Nanosecond)
+	time.Sleep(time.Millisecond)
+
+	m.pauseIdle(context.Background())
+
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("calls %v, want none for a claimed emulator", got)
+	}
+}

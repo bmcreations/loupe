@@ -422,6 +422,13 @@ func (b *claimBook) list() []ClaimInfo {
 	return out
 }
 
+// held reports whether id has a live claim. It does not renew it.
+func (b *claimBook) held(id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.live(id) != nil
+}
+
 // decorate fills each row's claim, hands-off and driving fields.
 func (b *claimBook) decorate(rows []TargetInfo) {
 	if b == nil {
@@ -528,6 +535,11 @@ func (s *Server) handleClaims(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// A claim keeps the emulator out of the idle pause (see pauseIdle), so one
+	// the clock paused before the claim is resumed now: raw `adb install` on
+	// a paused VM hangs. Best effort; the pause pass never starts on a claimed
+	// emulator, so a failed resume is not a claim failure.
+	s.mgr.WakeEmulator(r.Context(), id)
 	writeJSON(w, http.StatusOK, got)
 }
 

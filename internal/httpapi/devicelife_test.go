@@ -32,6 +32,9 @@ type lifeTarget struct {
 	// savedBeforeStop is how many saves Stop found already made.
 	savedBeforeStop atomic.Int32
 	boots           bool
+	// bootWaitsForCtx makes Boot block until its context ends, as a boot that
+	// outruns ?wait= does.
+	bootWaitsForCtx bool
 	// holdDelete and holdStop, when set, make Delete or Stop signal entered
 	// and wait for them.
 	holdDelete, holdStop chan struct{}
@@ -50,8 +53,11 @@ func (l *lifeTarget) ResetState(context.Context) error {
 	return nil
 }
 
-func (l *lifeTarget) Boot(context.Context) error {
+func (l *lifeTarget) Boot(ctx context.Context) error {
 	l.bootCalls.Add(1)
+	if l.bootWaitsForCtx {
+		<-ctx.Done()
+	}
 	return l.bootErr
 }
 
@@ -597,4 +603,64 @@ func TestBootWhileAShutdownRunsIs409Busy(t *testing.T) {
 	}
 	close(lt.holdStop)
 	<-done
+}
+
+// wait=0 answers 202 at once and finishes the boot in the background; a
+// second wait=0 while it runs starts nothing more.
+func TestBootWithWaitZeroAnswers202AndBootsInTheBackground(t *testing.T) {
+	s, lt := newLifeServer(t, "avd:a", nil)
+	lt.boots = true
+	w := doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a&wait=0", nil)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("boot wait=0 = %d %s; want 202", w.Code, w.Body.String())
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for lt.bootCalls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if lt.bootCalls.Load() != 1 {
+		t.Fatalf("Boot called %d times, want 1", lt.bootCalls.Load())
+	}
+}
+
+func TestBootWaitMustBeADuration(t *testing.T) {
+	s, lt := newLifeServer(t, "avd:a", nil)
+	for _, v := range []string{"soon", "-1s", "99h"} {
+		w := doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a&wait="+v, nil)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("wait=%s: %d %s; want 400", v, w.Code, w.Body.String())
+		}
+	}
+	if lt.bootCalls.Load() != 0 {
+		t.Error("a bad wait reached Boot")
+	}
+}
+
+func TestParseBootWait(t *testing.T) {
+	for in, want := range map[string]time.Duration{"": bootTimeout, "0": 0, "90": 90 * time.Second, "90s": 90 * time.Second, "10m": 10 * time.Minute} {
+		if got, err := parseBootWait(in); err != nil || got != want {
+			t.Errorf("parseBootWait(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+}
+
+// A boot that outruns its wait is a 504, not a failure of the emulator.
+func TestBootTimeoutIs504(t *testing.T) {
+	s, lt := newLifeServer(t, "avd:a", nil)
+	lt.boots = true
+	lt.bootErr = context.DeadlineExceeded
+	lt.bootWaitsForCtx = true
+	w := doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a&wait=1s", nil)
+	if w.Code != http.StatusGatewayTimeout {
+		t.Errorf("boot = %d %s; want 504", w.Code, w.Body.String())
+	}
+}
+
+// GET reports on a target that has no boot status as 422, not a panic.
+func TestBootStatusOfANonEmulatorIs422(t *testing.T) {
+	s, _ := newLifeServer(t, "avd:a", nil)
+	w := doRecord(s, http.MethodGet, "/api/devices/boot?target=avd:a", nil)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("GET boot = %d %s; want 422", w.Code, w.Body.String())
+	}
 }

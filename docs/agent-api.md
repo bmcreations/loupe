@@ -386,7 +386,8 @@ reason. They are arbitrated like `launch`, so `humanHeld`, `claimedBy` and
 
 | Route | Effect | Answer |
 |---|---|---|
-| `POST /api/devices/boot?target=` | Boots without opening a stream. A running target answers 200 at once. | 200 `TargetInfo` once up |
+| `POST /api/devices/boot?target=[&wait=]` | Boots without opening a stream. A running target answers 200 at once. `wait` is how long to hold the request: a duration (`90s`, `10m`) or seconds, default 4 minutes, at most 15 minutes. `wait=0` starts the boot in the background and answers at once. | 200 `TargetInfo` once up; 202 `BootStatus` for `wait=0`; 504 when `wait` ran out first |
+| `GET /api/devices/boot?target=avd:<name>` | How an AVD's boot is going, without waking or arbitrating anything. | 200 `BootStatus` |
 | `POST /api/devices/shutdown?target=` | Stops the target. Refused if it is already `bootsOnOpen`. | 200 `TargetInfo` |
 | `DELETE /api/devices?target=` | Stops it if running, then deletes it. | 204 |
 | `POST /api/devices/reset?target=avd:<name>` | Stops the AVD without saving, discards `loupe-warm` and wipes its data on the next boot. Works on a stopped AVD. A simulator is 422 `notSupported`. | 200 `TargetInfo` |
@@ -397,7 +398,26 @@ Other errors:
 |---|---|---|
 | 409 | `busy` | A shutdown or delete of that target is already running. |
 | 409 | `recording` | A recording is in progress (response has its `id`). It is never ended as a side effect. |
+| 400 | | `wait` is not a duration or is out of range. |
 | 502 | | The boot, stop or delete failed. |
+| 504 | | The boot outran `wait`; the emulator is still tracked (see below). |
+
+`BootStatus` has `state` (`up`, `booting`, `stopped`), `processAlive` and `pid`
+(an emulator process for that AVD, whoever started it), `serial`, `adbState`
+(adb's word, such as `offline`, or `absent`), `bootCompleted`
+(`sys.boot_completed`, read only while adb says `device` and the VM is not
+paused), `elapsedMs` and `logPath`, the file the emulator's stdout and stderr go
+to (`~/Library/Caches/loupe/emulator-<name>.log`). A target that is not an AVD
+answers 422 `notSupported`.
+
+A boot that runs past `wait` (or past the emulator's own 3-minute budget when
+no `wait` bounds it) does not kill the emulator. loupe keeps tracking the
+process: the 504 or 502 error names its pid, the log path and the log's last
+lines, a later `boot` waits on the same process, and `POST
+/api/devices/shutdown` stops it. A boot that leaves adb showing `offline` with
+the process alive is a hung emulator, not a slow one; read `logPath`, then shut
+it down. `wait` bounds only the HTTP call. After a server restart the emulator is found
+by name, as for any AVD loupe did not start.
 
 Viewers get `MsgEnded` before the session closes. An AVD booted this way is
 paused and shut down by the idle clock like any other. With
@@ -596,6 +616,15 @@ agent sessions off one device. It is a lease:
 | `POST /api/claims?target=` | Claims the target for the caller (`X-Loupe-Agent`, `X-Loupe-Session`). A body `{"agent","session","link"}` may say the same. `link` is an https URL of at most 512 bytes. |
 | `DELETE /api/claims?target=` | Releases it. Someone else's needs `?force=1`, which is what the picker's Release sends. |
 | `GET /api/claims` | Lists claims. |
+
+A claim also keeps an emulator awake. The idle pause and idle shutdown skip a
+claimed AVD (a claim restarts its idle clock, so the pause comes one
+`emulatorPauseSec` after the claim lapses), and taking a claim resumes an
+emulator that is already paused. Raw `adb install` or `adb shell` against a
+claimed emulator therefore does not hang. The lease lapses 10 minutes after
+the holder's last call to loupe, so a longer raw-adb job should keep calling
+(`GET /api/claims` renews nothing; any `?target=` call does). `/api/targets`
+reports `paused: true` on a paused emulator.
 
 While a claim lasts, any other agent's input on the target answers 409
 `code: "claimedBy"` with the holder in `claim`, before anything reaches the
