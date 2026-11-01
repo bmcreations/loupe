@@ -382,6 +382,12 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		if path != "" {
 			if bps, ok := sess.StableBitRate(time.Now(), pathStableFor); ok {
 				s.mgr.paths.put(path, bps)
+				s.trace.Record(map[string]any{"kind": "bitrate", "target": targetID, "gate": "resumeSaved", "rate": bps})
+			} else {
+				// The rate had not held for pathStableFor, so the path keeps
+				// what it had.
+				s.trace.Record(map[string]any{"kind": "bitrate", "target": targetID, "gate": "resumeNotSaved",
+					"why": "rateNotHeld", "current": sess.CurrentBitRate(), "stableForMs": pathStableFor.Milliseconds()})
 			}
 		}
 		sess.RemoveViewer(viewerID)
@@ -630,6 +636,9 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					continue
 				}
 				s.trace.Record(rec)
+				if r, ok := healthTrack.TakeLoss(); ok {
+					sess.NoteDelivery(viewerID, r)
+				}
 				if !checkPeerWindow() {
 					return
 				}

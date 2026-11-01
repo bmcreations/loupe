@@ -15,14 +15,16 @@ type fakeCounters struct {
 	media uint64
 	shed  uint64
 	await uint64
-	cs    map[string]any
-	csAt  time.Time
+	// stale and abandon are the cumulative stale and abandon sheds, part of shed.
+	stale, abandon uint64
+	cs             map[string]any
+	csAt           time.Time
 }
 
 func (f fakeCounters) MediaCount() uint64 { return f.media }
 func (f fakeCounters) ShedCount() uint64  { return f.shed }
 func (f fakeCounters) ShedBreakdown() session.ShedCounts {
-	return session.ShedCounts{AwaitKey: f.await}
+	return session.ShedCounts{AwaitKey: f.await, Stale: f.stale, Abandon: f.abandon}
 }
 func (f fakeCounters) ClientStatsAt() (map[string]any, time.Time) { return f.cs, f.csAt }
 

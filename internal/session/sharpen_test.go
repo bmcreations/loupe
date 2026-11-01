@@ -101,8 +101,8 @@ func TestSharpenBoostsOneKeyframeThenRestoresTheSteadyRate(t *testing.T) {
 	var reps []BitrateReport
 	s.SetBitrateObserver(func(r BitrateReport) { mu.Lock(); reps = append(reps, r); mu.Unlock() })
 
-	s.sharpen()
-	s.sharpen() // a second while the first is in force does nothing
+	s.sharpen(nil)
+	s.sharpen(nil) // a second while the first is in force does nothing
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && len(st.rates()) < 2 {
 		time.Sleep(10 * time.Millisecond)
@@ -131,8 +131,75 @@ func TestSharpenBoostsOneKeyframeThenRestoresTheSteadyRate(t *testing.T) {
 func TestSharpenSkipsAnEncoderThatCannotChangeRateLive(t *testing.T) {
 	st := &sharpenStream{liveStream: &liveStream{swapStream: newSwapStream(), live: false}}
 	s, _ := openLive(t, target.KindSimulator, st)
-	s.sharpen()
+	s.sharpen(nil)
 	if len(st.rates()) != 0 || st.keys != 0 {
 		t.Fatalf("sharpened an encoder with no live bitrate: rates %v, keys %d", st.rates(), st.keys)
+	}
+}
+
+// A still period after motion that is not sharpened says why, once.
+func TestASkippedSharpenSaysWhyOncePerStillPeriod(t *testing.T) {
+	var sh Sharpener
+	now, frames := time.Unix(1000, 0), uint64(0)
+	var reasons []string
+	step := func(fps int, span time.Duration, healthy bool) {
+		var carry float64
+		for el := time.Duration(0); el < span; el += sharpenTick {
+			carry += float64(fps) * sharpenTick.Seconds()
+			n := uint64(carry)
+			carry -= float64(n)
+			frames += n
+			now = now.Add(sharpenTick)
+			sh.Observe(now, frames, healthy)
+			if r := sh.Skipped(); r != "" {
+				reasons = append(reasons, r)
+			}
+		}
+	}
+	step(2, 3*time.Second, true)
+	step(60, 3*time.Second, true)
+	step(0, 5*time.Second, false) // still, but the link is not healthy
+	if len(reasons) != 1 || reasons[0] != "unhealthy" {
+		t.Fatalf("reasons %v, want one \"unhealthy\" for a 5s still period", reasons)
+	}
+
+	// Motion again re-arms, and a still period inside sharpenMinGap of a
+	// sharpen is skipped as too soon.
+	reasons = nil
+	step(60, 3*time.Second, true)
+	step(0, 2*time.Second, true) // sharpens
+	if len(reasons) != 0 {
+		t.Fatalf("reasons %v for a period that sharpened", reasons)
+	}
+	step(60, 2*time.Second, true)
+	step(0, 2*time.Second, true)
+	if len(reasons) != 1 || reasons[0] != "tooSoon" {
+		t.Fatalf("reasons %v, want one \"tooSoon\"", reasons)
+	}
+}
+
+func TestSharpenBlockedNamesTheGate(t *testing.T) {
+	st := &sharpenStream{liveStream: &liveStream{swapStream: newSwapStream(), live: true}}
+	s, _ := openLive(t, target.KindSimulator, st)
+	now := time.Now()
+	if got := s.sharpenBlocked(now, time.Second); got != "shed" {
+		t.Errorf("recent shed: %q, want shed", got)
+	}
+	if got := s.sharpenBlocked(now, time.Minute); got != "rateNotHeld" {
+		t.Errorf("fresh session: %q, want rateNotHeld", got)
+	}
+	if got := s.sharpenBlocked(now.Add(time.Hour), time.Minute); got != "rtt" {
+		t.Errorf("no rtt reading: %q, want rtt", got)
+	}
+}
+
+func TestASharpenReportCarriesItsInputs(t *testing.T) {
+	st := &sharpenStream{liveStream: &liveStream{swapStream: newSwapStream(), live: true}}
+	s, _ := openLive(t, target.KindSimulator, st)
+	var got BitrateReport
+	s.SetBitrateObserver(func(r BitrateReport) { got = r })
+	s.sharpen(map[string]any{"recentFrames": uint64(1), "motionFrames": uint64(34)})
+	if got.Gate != GateSharpen || got.Detail["motionFrames"] != uint64(34) {
+		t.Fatalf("report %+v, want a sharpen with its inputs", got)
 	}
 }

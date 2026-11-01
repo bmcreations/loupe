@@ -1,6 +1,9 @@
 package session
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Bounds and thresholds for adaptive bitrate.
 //
@@ -243,6 +246,35 @@ const (
 	// a relaunched encoder from restarting over and over.
 	delayCutPeriod = 10 * time.Minute
 
+	// lossDeliveredFraction is the share of produced frames a viewer must have
+	// decoded for a sample to read as loss when the sample also holds a fresh
+	// loss event (a stale shed or an abandon). lossDwell is how many
+	// consecutive such samples cut. Samples are a second each, so one abandon
+	// and the keyframe wait behind it, which is one sample, never cuts.
+	//
+	// The 13:23 trace on 5G: round trip flat at 100-130ms, so the delay gate
+	// never fired, while the link policed instead of queueing. Health read
+	// "delivered 23 of 60", "30 of 58", "26 of 60" for seconds on end, each
+	// second carrying a stale shed or an abandon and the 13-33 keyframe-wait
+	// frames behind it. The wait frames are never sent, so the cut reads the
+	// event, not the wait, as the loss: a second path counts what was sent
+	// whole and not decoded, plus abandons (lossSentFraction).
+	lossDeliveredFraction = 0.7
+	lossDwell             = 2
+	lossSentFraction      = 0.3
+	// lossMinFrames is the fewest frames a reading must cover to be judged.
+	lossMinFrames = 10
+
+	// lossCutGoodput, lossCutBlind and lossCutMax are delayCutGoodput,
+	// delayCutBlind and delayCutMax for the loss cut.
+	lossCutGoodput = 0.8
+	lossCutBlind   = 0.7
+	lossCutMax     = 0.85
+
+	// floorSizeHits is how many consecutive undercarried windows at the
+	// bitrate floor step the picture down.
+	floorSizeHits = 2
+
 	// awaitHealthyGrace is how long the link must have read healthy before
 	// keyframe waits stop counting toward the starved and undercarried gates.
 	awaitHealthyGrace = 3 * time.Second
@@ -262,11 +294,15 @@ type bitrateWindows struct {
 	// maxDelayCuts is how many delay-based cuts (GateDelay) fit in
 	// delayCutPeriod. A relaunch is a visible restart, so it gets fewer.
 	maxDelayCuts int
+	// sizeAtFloor lets the undercarried gate ask for a smaller picture once
+	// the bitrate cannot go lower: the size ladder only exists on a stream
+	// that resizes live.
+	sizeAtFloor bool
 }
 
 var (
 	relaunchWindows = bitrateWindows{settle: settleWindow, up: upWindow, maxChanges: maxAdaptiveChanges, recover: recoverWindow, maxDelayCuts: 3}
-	liveWindows     = bitrateWindows{settle: liveSettleWindow, up: liveUpWindow, maxChanges: maxLiveAdaptiveChanges, recover: liveRecoverWindow, capPeriod: liveCapPeriod, maxDelayCuts: 8}
+	liveWindows     = bitrateWindows{settle: liveSettleWindow, up: liveUpWindow, maxChanges: maxLiveAdaptiveChanges, recover: liveRecoverWindow, capPeriod: liveCapPeriod, maxDelayCuts: 8, sizeAtFloor: true}
 )
 
 // BitrateSample is one interval's worth of session counters.
@@ -291,6 +327,57 @@ type BitrateSample struct {
 	// controller tell a recovered link from a slow one without waiting for
 	// shed counters or a smoothed rtt to say so.
 	RTT, BaseRTT time.Duration
+	// Delivery is the newest client report's delivery reading, when one
+	// arrived in the interval (Valid is false otherwise).
+	Delivery DeliveryReading
+}
+
+// DeliveryReading is what a viewer's newest report says about delivery,
+// paired with the server's counters for the same second (httpapi's
+// healthTracker does the pairing). Counts are rates per second.
+type DeliveryReading struct {
+	Valid bool
+	// Produced is frames the encoder made, Delivered the frames the client
+	// decoded, Allowance the shortfall that is report-clock phase, not loss.
+	Produced, Delivered, Allowance float64
+	// Sent is frames handed to the transport whole: produced less every shed,
+	// keyframe waits included, since those were never sent.
+	Sent float64
+	// Events are frames lost to a stale shed or an abandon (each starts a
+	// keyframe wait), Abandons the part of them reset mid-flight.
+	Events, Abandons float64
+}
+
+// DeliveredFraction is decoded over produced with the phase allowance
+// forgiven, or 1 when the reading covers too few frames to judge.
+func (r DeliveryReading) DeliveredFraction() float64 {
+	if r.Produced < lossMinFrames {
+		return 1
+	}
+	return math.Min(1, (r.Delivered+r.Allowance)/r.Produced)
+}
+
+// SentLossFraction is what the client failed to receive of what was sent,
+// plus abandons, over everything attempted. A keyframe wait is not in either
+// side: one abandon cascading into thirty waits counts once.
+func (r DeliveryReading) SentLossFraction() float64 {
+	attempted := r.Sent + r.Abandons
+	if attempted < lossMinFrames {
+		return 0
+	}
+	failed := r.Abandons + math.Max(0, r.Sent-r.Delivered-r.Allowance)
+	return failed / attempted
+}
+
+// lossy reports a reading that argues for a smaller encoder: few frames
+// decoded with a fresh loss event behind it, or much of what was sent not
+// decoded.
+func (r DeliveryReading) lossy() bool {
+	if !r.Valid || r.Produced < lossMinFrames {
+		return false
+	}
+	return (r.DeliveredFraction() < lossDeliveredFraction && r.Events >= 0.5) ||
+		r.SentLossFraction() > lossSentFraction
 }
 
 // BitrateGate names the branch a decision came out of.
@@ -351,9 +438,18 @@ const (
 	// above baseline: a queue building on the link. It does not count against
 	// the change cap and does not move the picture size.
 	GateDelay BitrateGate = "delay"
+	// GateLoss is a cut taken because the viewer decoded under
+	// lossDeliveredFraction of what was produced, with a fresh stale shed or
+	// abandon behind it, for lossDwell samples while the round trip stayed
+	// flat: a link that drops rather than queues. Like GateDelay it does not
+	// count against the change cap and does not move the picture size.
+	GateLoss BitrateGate = "loss"
 	// GateSharpen is a one-frame quality boost after motion stopped
 	// (sharpen.go). It changes no steady rate.
 	GateSharpen BitrateGate = "sharpen"
+	// GateSharpenSkipped is a still period after motion that did not sharpen,
+	// with the reason in Detail ("why"). Reported once per still period.
+	GateSharpenSkipped BitrateGate = "sharpenSkipped"
 	// GateDown and GateUp are the two decisions.
 	GateDown BitrateGate = "down"
 	GateUp   BitrateGate = "up"
@@ -404,6 +500,10 @@ type BitrateReport struct {
 	// that was made and then did not happen is not the same as one that was
 	// never made, and without this the trace cannot tell them apart.
 	Err string
+	// Detail is the inputs behind a decision the gate name alone does not
+	// carry (a delay or loss cut, a sharpen, a skipped sharpen). The manager
+	// copies it into the trace record.
+	Detail map[string]any
 }
 
 // BitrateAdapter decides when the encoder is producing more than the link can
@@ -462,6 +562,16 @@ type BitrateAdapter struct {
 	badBusy  time.Duration
 	// delayAt holds when each delay cut was made, pruned to delayCutPeriod.
 	delayAt []time.Time
+	// lossRun counts consecutive lossy samples, and lossBytes and lossBusy
+	// the bytes and time of the run's intervals (every one is busy). lossAt
+	// holds when each loss cut was made, pruned to delayCutPeriod.
+	lossRun   int
+	lossBytes uint64
+	lossBusy  time.Duration
+	lossAt    []time.Time
+	// floorHits counts consecutive undercarried windows that could not lower
+	// the bitrate because it was at its floor.
+	floorHits int
 	// interval is the span of the sample being folded in.
 	interval time.Duration
 	// afterDelay is set by a delay cut and cleared by the next step up. While
@@ -527,6 +637,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 		// to the change, so the first measured window is a full one.
 		rep := a.report(now, GateSettling)
 		a.clearBad()
+		a.clearLoss()
 		a.reset(now)
 		return 0, rep
 	}
@@ -534,6 +645,10 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	// the windows. It runs after the settle check so a cut is judged on
 	// intervals measured at the new rate.
 	if next, rep := a.delayCut(now, s); next != 0 {
+		return next, rep
+	}
+	// Then loss: the round trip is flat but the viewer is not decoding.
+	if next, rep := a.lossCut(now, s); next != 0 {
 		return next, rep
 	}
 	// Fast recovery runs ahead of the cap: a session that spent its changes
@@ -651,6 +766,15 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 			next := goodput
 			if next < minAdaptiveBitRate {
 				next = minAdaptiveBitRate
+			}
+			if a.windows.sizeAtFloor && float64(a.current-next)/float64(a.current) < minChangeFraction {
+				// The bitrate cannot go lower, so the picture is the only
+				// lever left. One window at the floor could be a blip; the
+				// second is not.
+				a.floorHits++
+				if a.floorHits >= floorSizeHits {
+					return a.commitSize(now, GateUndercarried)
+				}
 			}
 			return a.commit(now, next, GateUndercarried)
 		}
@@ -783,6 +907,7 @@ func (a *BitrateAdapter) commit(now time.Time, next int, gate BitrateGate) (int,
 	}
 	a.current = next
 	a.healthyFor = 0
+	a.floorHits = 0
 	if gate == GateUp {
 		a.afterDelay = false
 	}
@@ -820,6 +945,7 @@ func (a *BitrateAdapter) Reset(now time.Time) {
 	a.healthyFor = 0
 	a.rttOKFor = 0
 	a.clearBad()
+	a.clearLoss()
 }
 
 func (a *BitrateAdapter) reset(now time.Time) {
@@ -935,6 +1061,21 @@ func (a *BitrateAdapter) delayCut(now time.Time, s BitrateSample) (int, BitrateR
 		return 0, BitrateReport{}
 	}
 
+	a.delayAt = append(a.delayAt, now)
+	runMs, runBytes := a.badBusy.Milliseconds(), a.badBytes
+	since := now.Sub(a.badSince).Milliseconds()
+	n, rep := a.commitCut(now, next, GateDelay)
+	rep.Detail = map[string]any{
+		"rttMs": s.RTT.Milliseconds(), "baseMs": s.BaseRTT.Milliseconds(),
+		"badForMs": since, "runMs": runMs, "runBytes": runBytes,
+	}
+	return n, rep
+}
+
+// commitCut carries out a delay or loss cut: not counted against the change
+// cap, no size change, and recovery waits for delivery as well as the round
+// trip.
+func (a *BitrateAdapter) commitCut(now time.Time, next int, gate BitrateGate) (int, BitrateReport) {
 	from := a.current
 	if !a.lastRecover.IsZero() && now.Sub(a.lastRecover) < recoverHuntWindow {
 		a.holdUntil = now.Add(recoverHold)
@@ -943,11 +1084,104 @@ func (a *BitrateAdapter) delayCut(now time.Time, s BitrateSample) (int, BitrateR
 	a.healthyFor = 0
 	a.rttOKFor = 0
 	a.afterDelay = true
-	a.delayAt = append(a.delayAt, now)
 	a.lastChange = now
-	rep := a.report(now, GateDelay)
+	rep := a.report(now, gate)
 	rep.From, rep.To = from, next
 	a.clearBad()
+	a.clearLoss()
 	a.reset(now)
 	return next, rep
 }
+
+// commitSize reports a decision that moves the picture and not the bitrate:
+// From and To are both the current rate. It counts against the change cap.
+func (a *BitrateAdapter) commitSize(now time.Time, gate BitrateGate) (int, BitrateReport) {
+	a.floorHits = 0
+	a.changes++
+	a.changedAt = append(a.changedAt, now)
+	a.lastChange = now
+	rep := a.report(now, gate)
+	rep.From, rep.To = a.current, a.current
+	a.reset(now)
+	return a.current, rep
+}
+
+func (a *BitrateAdapter) clearLoss() {
+	a.lossRun, a.lossBytes, a.lossBusy = 0, 0, 0
+}
+
+// lossCut decides the loss-based cut for one interval. The round trip is
+// flat on a link that polices rather than queues, so the delay gate stays
+// quiet while retransmits miss the frame deadline, abandons force keyframes
+// and the frames behind them are shed.
+//
+// It needs lossDwell consecutive lossy readings while busy and not queueing.
+// An interval without a fresh reading neither extends nor ends the run. It
+// aims at lossCutGoodput of what the run's intervals carried, else a
+// multiplicative decrease, never moves the picture size, and is not counted
+// against the change cap. Its rate limit is the delay cut's, kept separately.
+func (a *BitrateAdapter) lossCut(now time.Time, s BitrateSample) (int, BitrateReport) {
+	busy := s.Frames > 0 && a.interval > 0 && float64(s.Frames) >= busyFrameRate*a.interval.Seconds()
+	if !busy || delayBad(s.RTT, s.BaseRTT) {
+		a.clearLoss()
+		return 0, BitrateReport{}
+	}
+	if !s.Delivery.Valid {
+		if a.lossRun > 0 {
+			a.lossBytes += s.Bytes
+			a.lossBusy += a.interval
+		}
+		return 0, BitrateReport{}
+	}
+	if !s.Delivery.lossy() {
+		a.clearLoss()
+		return 0, BitrateReport{}
+	}
+	a.lossRun++
+	a.lossBytes += s.Bytes
+	a.lossBusy += a.interval
+	if a.lossRun < lossDwell {
+		return 0, BitrateReport{}
+	}
+	cutoff := now.Add(-delayCutPeriod)
+	keep := a.lossAt[:0]
+	for _, t := range a.lossAt {
+		if t.After(cutoff) {
+			keep = append(keep, t)
+		}
+	}
+	a.lossAt = keep
+	if len(a.lossAt) >= a.windows.maxDelayCuts || a.current <= minAdaptiveBitRate {
+		return 0, BitrateReport{}
+	}
+
+	next := int(lossCutBlind * float64(a.current))
+	carried := 0
+	if a.lossBusy > 0 {
+		carried = int(float64(a.lossBytes) * 8 / a.lossBusy.Seconds())
+		next = int(lossCutGoodput * float64(carried))
+	}
+	if max := int(lossCutMax * float64(a.current)); next > max {
+		next = max
+	}
+	if next < minAdaptiveBitRate {
+		next = minAdaptiveBitRate
+	}
+	if float64(a.current-next)/float64(a.current) < minChangeFraction {
+		return 0, BitrateReport{}
+	}
+	runMs, runBytes := a.lossBusy.Milliseconds(), a.lossBytes
+	a.lossAt = append(a.lossAt, now)
+	n, rep := a.commitCut(now, next, GateLoss)
+	d := s.Delivery
+	rep.Detail = map[string]any{
+		"rttMs": s.RTT.Milliseconds(), "baseMs": s.BaseRTT.Milliseconds(),
+		"produced": round1(d.Produced), "delivered": round1(d.Delivered), "sent": round1(d.Sent),
+		"events": round1(d.Events), "abandons": round1(d.Abandons),
+		"deliveredFrac": round3(d.DeliveredFraction()), "sentLossFrac": round3(d.SentLossFraction()),
+		"runMs": runMs, "runBytes": runBytes, "carriedBps": carried, "run": lossDwell,
+	}
+	return n, rep
+}
+
+func round1(f float64) float64 { return math.Round(f*10) / 10 }

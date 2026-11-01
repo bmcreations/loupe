@@ -76,7 +76,19 @@ type Sharpener struct {
 	quietEnd  time.Time
 	lastFire  time.Time
 	fireCount int
+
+	// skip is why the last Observe saw a still period after motion and did
+	// not sharpen, reported once per still period ("" otherwise): "unhealthy"
+	// or "tooSoon". skipNoted is set once it has been, until motion re-arms.
+	skip      string
+	skipNoted bool
+	// recent and motion are the frame counts the last decision read.
+	recent, motion uint64
 }
+
+// Skipped reports why the last Observe declined a detected still period, or
+// "" when it did not, or has already said so for this period.
+func (h *Sharpener) Skipped() string { return h.skip }
 
 // framesSince is how many frames arrived after t, reading the history point at
 // or before t (or the oldest one when the history is shorter).
@@ -95,6 +107,7 @@ func (h *Sharpener) framesSince(t time.Time, now uint64) uint64 {
 // whether to sharpen now. healthy is the caller's verdict that the link is
 // good enough to afford one larger frame.
 func (h *Sharpener) Observe(now time.Time, frames uint64, healthy bool) bool {
+	h.skip = ""
 	h.hist = append(h.hist, sharpenPoint{now, frames})
 	cut := now.Add(-(sharpenMotionLookback + sharpenStill + time.Second))
 	for len(h.hist) > 1 && h.hist[1].at.Before(cut) {
@@ -108,9 +121,10 @@ func (h *Sharpener) Observe(now time.Time, frames uint64, healthy bool) bool {
 	}
 	if recent >= sharpenRearmFrames {
 		h.armed = true
+		h.skipNoted = false
 		return false
 	}
-	if !h.armed || recent > sharpenStillFrames || !healthy {
+	if !h.armed || recent > sharpenStillFrames {
 		return false
 	}
 	// Enough history to have seen the stillness: the oldest point must be at
@@ -122,14 +136,28 @@ func (h *Sharpener) Observe(now time.Time, frames uint64, healthy bool) bool {
 	if motion < sharpenMotionFrames {
 		return false
 	}
+	h.recent, h.motion = recent, motion
+	if !healthy {
+		h.noteSkip("unhealthy")
+		return false
+	}
 	if !h.lastFire.IsZero() && now.Sub(h.lastFire) < sharpenMinGap {
+		h.noteSkip("tooSoon")
 		return false
 	}
 	h.armed = false
+	h.skipNoted = false
 	h.lastFire = now
 	h.quietEnd = now.Add(sharpenQuiet)
 	h.fireCount++
 	return true
+}
+
+func (h *Sharpener) noteSkip(why string) {
+	if !h.skipNoted {
+		h.skipNoted = true
+		h.skip = why
+	}
 }
 
 // sharpenLoop runs the sharpener for a session whose encoder takes a bitrate
@@ -151,45 +179,54 @@ func (s *Session) sharpenLoop() {
 			if total != lastShed || shedAt.IsZero() {
 				lastShed, shedAt = total, now
 			}
-			healthy := s.sharpenHealthy(now, now.Sub(shedAt))
-			if sh.Observe(now, s.framesIn.Load(), healthy) {
-				s.sharpen()
+			why := s.sharpenBlocked(now, now.Sub(shedAt))
+			if sh.Observe(now, s.framesIn.Load(), why == "") {
+				s.sharpen(map[string]any{"recentFrames": sh.recent, "motionFrames": sh.motion})
+			} else if skip := sh.Skipped(); skip != "" {
+				// One record per still period that was not sharpened, which
+				// is what tells a skipped sharpen from one never considered.
+				if skip == "unhealthy" {
+					skip = why
+				}
+				s.reportBitrate(BitrateReport{Gate: GateSharpenSkipped, Current: s.CurrentBitRate(),
+					Detail: map[string]any{"why": skip, "recentFrames": sh.recent, "motionFrames": sh.motion}})
 			}
 		}
 	}
 }
 
-// sharpenHealthy is the gate that keeps the extra frame off a struggling link:
+// sharpenBlocked is the gate that keeps the extra frame off a struggling link:
 // every viewer's current round trip near baseline and fresh, nothing shed for
 // sharpenShedQuiet, no viewer awaiting a keyframe, and the steady rate stable.
-func (s *Session) sharpenHealthy(now time.Time, shedQuiet time.Duration) bool {
+// It returns what blocked the sharpen, or "" when none did.
+func (s *Session) sharpenBlocked(now time.Time, shedQuiet time.Duration) string {
 	if shedQuiet < sharpenShedQuiet {
-		return false
+		return "shed"
 	}
 	if _, ok := s.StableBitRate(now, sharpenStableFor); !ok {
-		return false
+		return "rateNotHeld"
 	}
 	cur, base := s.linkRTT(now)
 	if cur <= 0 || !linkHealthy(cur, base) {
-		return false
+		return "rtt"
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.viewers) == 0 {
-		return false
+		return "noViewer"
 	}
 	for _, v := range s.viewers {
 		if v.needsKey {
-			return false
+			return "awaitKey"
 		}
 	}
-	return true
+	return ""
 }
 
 // sharpen raises the encoder's rate, asks for a keyframe, and restores the
 // steady rate after sharpenHold. The restore reads the session's rate when it
 // runs, so a controller change made in the meantime is the one that stands.
-func (s *Session) sharpen() {
+func (s *Session) sharpen(detail map[string]any) {
 	s.streamMu.Lock()
 	lb, ok := s.stream.(target.LiveBitRater)
 	if !ok || !lb.LiveBitRate() || s.closing || s.ended || s.relaunching || s.sharpening {
@@ -210,7 +247,7 @@ func (s *Session) sharpen() {
 	s.streamMu.Unlock()
 
 	_ = stream.RequestKeyframe()
-	s.reportBitrate(BitrateReport{Gate: GateSharpen, Current: steady, Boost: boost})
+	s.reportBitrate(BitrateReport{Gate: GateSharpen, Current: steady, Boost: boost, Detail: detail})
 
 	time.AfterFunc(sharpenHold, func() {
 		s.streamMu.Lock()

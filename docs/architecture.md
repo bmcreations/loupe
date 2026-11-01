@@ -226,10 +226,31 @@ How it decides:
   stepped up. A delay cut within 45s of a fast step up turns fast recovery off
   for two minutes. A single spike, or a slow round trip on a near-idle screen,
   does not cut.
+- **Loss cut (immediate):** the delay cut cannot see a link that drops instead
+  of queueing (5G policing, 13:23 trace: round trip flat at 100-130ms, "delivered
+  23 of 60" for seconds on end). When the viewer decoded under 0.7 of what was
+  produced (after the report-phase allowance), with a fresh stale shed or abandon
+  in the same second, for 2 consecutive reports while busy and the round trip is
+  not over the delay line, the rate is cut at once. The event is required so one
+  abandon and the 13-33 keyframe-wait frames behind it (one report) is one loss,
+  not many: wait frames are never sent and are in neither count. A second path
+  reads what was sent whole and not decoded, plus abandons, over what was
+  attempted, above 0.3 (frames sent whole and not decoded need no event). A
+  second without a client report neither extends nor ends the run. It aims at
+  0.8 of the bytes carried during the run, else 0.7 of the current rate, never
+  more than 0.85 of it; it does not change the picture size, does not count
+  against the change cap, and has the delay cut's limit (8 per 10 minutes, 3 for
+  a relaunched encoder) counted separately. Recovery waits for keyframe waits to
+  clear, as after a delay cut. The reading comes from `healthTracker`
+  (`TakeLoss`) through `Session.NoteDelivery`; the worst viewer's wins.
 - **Down:** on sustained shedding the new rate is the measured goodput, floored
   at 250 kbps. On a starved link it is goodput again, and one step at most
   halves the rate. A link carrying under half the current rate while the viewer
-  waits on keyframes for a fifth of the window steps down too.
+  waits on keyframes for a fifth of the window steps down too, in rate only: a
+  simulator's picture is resized by this gate only once the rate is at its
+  250 kbps floor (two undercarried windows there, a size-only step that leaves
+  the rate alone). The 13:24:33 cut had taken 4 Mbps to 1.68 Mbps and 416x904
+  together.
 - **Up:** after 60s with almost no shedding and almost no keyframe waiting, by
   half, with a 12s settle after each change and at most six changes per session.
 - **Fast recovery:** when each viewer's current round trip (not the smoothed
@@ -246,7 +267,7 @@ How it decides:
 
 **A simulator also steps down in size as the rate falls**, because a low rate
 over a large picture comes out as blocks. After each live rate change from the
-windowed gates (not a delay cut) the size is picked from a ladder (native, then
+windowed gates (not a delay or loss cut, and the undercarried gate only at the floor) the size is picked from a ladder (native, then
 1080, 900, 720, 540) so each pixel gets at least 0.07 bits; the ladder stops at
 900 because simcap has no runtime fps control. A relaunched encoder instead
 lowers the capture rate (60, 30, 20, 15) at the same bits-per-pixel target
@@ -282,6 +303,17 @@ do not re-arm it; three frames in 400ms do), at least 5s apart, and only while
 the rate has held for 20s, every viewer's round trip is near baseline, nothing
 has been shed for 3s and no viewer awaits a keyframe (`sharpen.go`). Android
 (scrcpy) and synthetic encoders cannot change rate live, so they are skipped.
+
+**The trace names what the controller did and why.** Every second is a
+`kind:"bitrate"` record with its gate. Delay and loss cuts carry their inputs
+(`rttMs`, `baseMs`, `produced`, `delivered`, `sent`, `events`, `abandons`,
+`deliveredFrac`, `sentLossFrac`, `runMs`, `runBytes`, `carriedBps`); a sharpen
+carries `recentFrames` and `motionFrames`. A still period after motion that did
+not sharpen writes one `sharpenSkipped` record with `why`: `shed`,
+`rateNotHeld`, `rtt`, `noViewer`, `awaitKey` or `tooSoon`. Opening a session
+writes `resume` (with `remembered`) or `resumeSkipped` (`why`: `noPath`,
+`nothingRemembered`, `notBelowCeiling`); a viewer leaving writes `resumeSaved`
+or `resumeNotSaved`. A size-only step has `sizeOnly:true`.
 
 Health forgives up to three decoder rejections within 3s of a parameter set (a
 resize leaves frames of the old size in flight), counts keyframe waits only

@@ -149,6 +149,10 @@ type viewer struct {
 	// is still slow; see NoteLinkRTT.
 	linkNowNs, linkBaseNs, linkAt atomic.Int64
 
+	// delivery is the newest delivery reading not yet read by the bitrate
+	// controller (see NoteDelivery).
+	delivery atomic.Pointer[DeliveryReading]
+
 	// scrollMu guards scrollAccH, scrollAccV, scrollLastX, scrollLastY and
 	// scrollTimer. ViewerScroll runs on this viewer's own read loop, but the
 	// trailing flush that ends a burst runs on a time.AfterFunc goroutine, so
@@ -617,6 +621,36 @@ func (s *Session) NoteLinkRTT(viewerID uint64, now, base time.Duration) {
 	v.linkNowNs.Store(int64(now))
 	v.linkBaseNs.Store(int64(base))
 	v.linkAt.Store(time.Now().UnixNano())
+}
+
+// NoteDelivery records what a viewer's newest client report says about
+// delivery. The bitrate controller reads each reading once.
+func (s *Session) NoteDelivery(viewerID uint64, r DeliveryReading) {
+	s.mu.RLock()
+	v := s.viewers[viewerID]
+	s.mu.RUnlock()
+	if v == nil || !r.Valid {
+		return
+	}
+	v.delivery.Store(&r)
+}
+
+// takeDelivery returns the worst unread delivery reading across viewers, the
+// lowest delivered fraction, or an invalid one when none arrived.
+func (s *Session) takeDelivery() DeliveryReading {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var worst DeliveryReading
+	for _, v := range s.viewers {
+		r := v.delivery.Swap(nil)
+		if r == nil {
+			continue
+		}
+		if !worst.Valid || r.DeliveredFraction() < worst.DeliveredFraction() {
+			worst = *r
+		}
+	}
+	return worst
 }
 
 // RecordClientStats stores the most recent metrics reported by a viewer.

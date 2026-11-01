@@ -54,6 +54,10 @@ type healthSample struct {
 	// phaseAllowance).
 	landedPerSec float64
 	delivered    float64
+	// sentPerSec, eventsPerSec and abandonPerSec are the same tick's frames
+	// that were handed to the transport whole, frames lost to a stale shed or
+	// an abandon, and abandons alone. They feed the loss reading (TakeLoss).
+	sentPerSec, eventsPerSec, abandonPerSec float64
 }
 
 // healthTick is what one call to healthTracker.Sample hands back: the
@@ -89,8 +93,9 @@ type healthTracker struct {
 	lastShed  uint64
 	// lastAwait is the cumulative keyframe-wait shed at the last tick, so the
 	// capacity shed rate can leave those frames out (see sampleAt).
-	lastAwait uint64
-	lastTick  time.Time
+	lastAwait              uint64
+	lastStale, lastAbandon uint64
+	lastTick               time.Time
 
 	// configAt is when this viewer was last sent a parameter set, which a
 	// resize or relaunch produces. Zero until one has been.
@@ -100,6 +105,13 @@ type healthTracker struct {
 	// A fresh report landing this tick is paired against it rather than this
 	// tick's own rate -- see the pairing comment in sampleAt.
 	prevProducedPerSec float64
+	// prevSent, prevEvents and prevAbandon are the previous tick's rates for
+	// the same pairing.
+	prevSent, prevEvents, prevAbandon float64
+
+	// loss is the reading the newest fresh report produced, handed out once by
+	// TakeLoss.
+	loss session.DeliveryReading
 
 	// lastReportAt is when the last CONSUMED (fresh, post-attach) client
 	// report was recorded, the zero value until the first one arrives. rttMs
@@ -162,12 +174,14 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 	// race outright rather than bounding it with a clamp.
 	media := counters.MediaCount()
 	shed := counters.ShedCount()
-	await := counters.ShedBreakdown().AwaitKey
+	by := counters.ShedBreakdown()
+	await := by.AwaitKey
 
 	if !t.have {
 		t.lastMedia = media
 		t.lastShed = shed
 		t.lastAwait = await
+		t.lastStale, t.lastAbandon = by.Stale, by.Abandon
 		t.have = true
 	}
 
@@ -184,6 +198,9 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 	capacityShed := shedRate - min(shedRate, awaitRate)
 
 	elapsed := now.Sub(t.lastTick)
+	staleN := diffUint64(by.Stale, t.lastStale)
+	abandonN := diffUint64(by.Abandon, t.lastAbandon)
+	t.lastStale, t.lastAbandon = by.Stale, by.Abandon
 
 	t.lastMedia = media
 	t.lastShed = shed
@@ -193,6 +210,15 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 	curProducedPerSec := 0.0
 	if elapsed > 0 {
 		curProducedPerSec = float64(mediaProduced) / elapsed.Seconds()
+	}
+	// Frames that went out whole: produced less every shed, which includes
+	// the keyframe-wait frames that were never sent. Read apart from the
+	// counters' load order, so it can dip below zero by a frame or two.
+	curSent, curEvents, curAbandon := 0.0, 0.0, 0.0
+	if elapsed > 0 {
+		curSent = math.Max(0, float64(mediaProduced)-float64(shedRate)) / elapsed.Seconds()
+		curEvents = float64(staleN+abandonN) / elapsed.Seconds()
+		curAbandon = float64(abandonN) / elapsed.Seconds()
 	}
 
 	cs, csAt := counters.ClientStatsAt()
@@ -219,7 +245,8 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 		// single time, which is exactly what stretched the idle-to-motion
 		// transition into a multi-tick "degraded" read before this fix
 		// (finding 2).
-		t.push(healthSample{producedPerSec: t.prevProducedPerSec, landedPerSec: curProducedPerSec, delivered: float64(delivered)})
+		t.push(healthSample{producedPerSec: t.prevProducedPerSec, landedPerSec: curProducedPerSec, delivered: float64(delivered),
+			sentPerSec: t.prevSent, eventsPerSec: t.prevEvents, abandonPerSec: t.prevAbandon})
 
 		errs, _ := cs["decodeErrors"].(float64)
 		// The count is per page load, not per viewer: a reconnect keeps what
@@ -239,6 +266,10 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 		t.lastReportAt = csAt
 	}
 	t.prevProducedPerSec = curProducedPerSec
+	t.prevSent, t.prevEvents, t.prevAbandon = curSent, curEvents, curAbandon
+	if fresh {
+		t.noteLoss()
+	}
 
 	// reportAge is derived fresh every tick from lastReportAt, not stored:
 	// that is what makes a report going stale and a report resuming the same
@@ -281,6 +312,31 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 		Delivered:    t.lastDelivered,
 		Input:        in,
 	}
+}
+
+// noteLoss builds the loss reading from the judged stretch, which ends with
+// the report just consumed.
+func (t *healthTracker) noteLoss() {
+	var r session.DeliveryReading
+	for _, s := range t.judged() {
+		r.Produced += s.producedPerSec
+		r.Delivered += s.delivered
+		r.Sent += s.sentPerSec
+		r.Events += s.eventsPerSec
+		r.Abandons += s.abandonPerSec
+	}
+	r.Allowance = t.phaseAllowance()
+	r.Valid = true
+	t.loss = r
+}
+
+// TakeLoss hands out the delivery reading of the newest consumed client report,
+// once. A tick with no fresh report returns false, so a reading is never
+// counted twice.
+func (t *healthTracker) TakeLoss() (session.DeliveryReading, bool) {
+	r := t.loss
+	t.loss = session.DeliveryReading{}
+	return r, r.Valid
 }
 
 // decodeGrace is how long after a parameter set a single decoder rejection is

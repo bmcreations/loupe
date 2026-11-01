@@ -24,9 +24,55 @@ func TestADelayCutChangesBitrateButNotSize(t *testing.T) {
 		t.Fatalf("a delay cut resized to %v", st.sizes)
 	}
 
-	s.applyBitrate(767_000, BitrateReport{Gate: GateUndercarried, From: 800_000, To: 767_000})
+	s.applyBitrate(767_000, BitrateReport{Gate: GateStarved, From: 800_000, To: 767_000})
 	if len(st.sizes) == 0 {
 		t.Fatal("a windowed cut no longer reaches the size ladder")
+	}
+}
+
+func TestALossCutChangesBitrateButNotSize(t *testing.T) {
+	st := &resizeStream{liveStream: &liveStream{swapStream: newSwapStream(), live: true}}
+	s, _ := openLive(t, target.KindSimulator, st)
+	s.mu.Lock()
+	s.init.CodedWidth, s.init.CodedHeight = 664, 1440
+	s.mu.Unlock()
+	s.applyBitrate(1_900_000, BitrateReport{Gate: GateLoss, From: 3_000_000, To: 1_900_000})
+	if got := st.rates(); len(got) != 1 || got[0] != 1_900_000 {
+		t.Fatalf("encoder rates %v, want [1900000]", got)
+	}
+	if len(st.sizes) != 0 {
+		t.Fatalf("a loss cut resized to %v", st.sizes)
+	}
+}
+
+// The 13:24:33 cut took 4 Mbps to 1.68 Mbps and the picture to 416x904 in one
+// step. The undercarried gate now cuts the rate first and steps the size only
+// when the rate is at its floor.
+func TestUndercarriedCutsRateWithoutResizingUntilTheFloor(t *testing.T) {
+	st := &resizeStream{liveStream: &liveStream{swapStream: newSwapStream(), live: true}}
+	s, _ := openLive(t, target.KindSimulator, st)
+	s.mu.Lock()
+	s.init.CodedWidth, s.init.CodedHeight = 664, 1440
+	s.mu.Unlock()
+
+	s.applyBitrate(1_680_000, BitrateReport{Gate: GateUndercarried, From: 3_000_000, To: 1_680_000})
+	if len(st.sizes) != 0 {
+		t.Fatalf("an undercarried cut above the floor resized to %v", st.sizes)
+	}
+	s.applyBitrate(minAdaptiveBitRate, BitrateReport{Gate: GateUndercarried, From: 400_000, To: minAdaptiveBitRate})
+	if len(st.sizes) == 0 {
+		t.Fatal("an undercarried cut to the floor no longer reaches the size ladder")
+	}
+
+	// A size-only step at the floor leaves the encoder's rate alone.
+	st.sizes = nil
+	before := len(st.rates())
+	s.applyBitrate(minAdaptiveBitRate, BitrateReport{Gate: GateUndercarried, From: minAdaptiveBitRate, To: minAdaptiveBitRate})
+	if len(st.rates()) != before {
+		t.Errorf("a size-only step set the rate again: %v", st.rates())
+	}
+	if len(st.sizes) == 0 {
+		t.Error("a size-only step at the floor did not resize")
 	}
 }
 

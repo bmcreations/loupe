@@ -314,7 +314,14 @@ func (s *Session) adaptLoop(a *BitrateAdapter) {
 // applyBitrate carries out one controller decision and reports it.
 func (s *Session) applyBitrate(next int, rep BitrateReport) {
 	was := s.CurrentBitRate()
-	live, err := s.changeBitRate(next)
+	var live bool
+	var err error
+	if next == was && rep.Gate == GateUndercarried {
+		// A size-only step: the bitrate is at its floor (commitSize).
+		live = s.liveBitRate()
+	} else {
+		live, err = s.changeBitRate(next)
+	}
 	rep.Live = live
 	if err != nil {
 		rep.Err = err.Error()
@@ -324,7 +331,7 @@ func (s *Session) applyBitrate(next int, rep BitrateReport) {
 	}
 	// A delay cut aims at the queue, not at the picture: the size stays where
 	// it is and only the windowed gates move it.
-	if live && rep.Gate != GateDelay {
+	if live && s.sizeFollowsRate(next, rep) {
 		edge, err := s.resizeForBitRate(next)
 		rep.MaxSize = edge
 		if err != nil {
@@ -337,6 +344,21 @@ func (s *Session) applyBitrate(next int, rep BitrateReport) {
 		how = "live"
 	}
 	fmt.Printf("[session %s] bitrate %d -> %d (%s, %s)\n", s.ID, was, next, how, rep.Gate)
+}
+
+// sizeFollowsRate reports whether a live change of bitrate may move the
+// picture size. Delay and loss cuts aim at the link, not the picture. The
+// undercarried gate cuts the rate first and steps the size only once the rate
+// cannot go lower: a smaller picture costs sharpness for good, and the same
+// goodput will carry the same picture once the rate is right.
+func (s *Session) sizeFollowsRate(next int, rep BitrateReport) bool {
+	switch rep.Gate {
+	case GateDelay, GateLoss:
+		return false
+	case GateUndercarried:
+		return next <= minAdaptiveBitRate
+	}
+	return true
 }
 
 // bitrateSampler turns the session's cumulative counters into the per-interval
@@ -391,6 +413,7 @@ func (b *bitrateSampler) next(s *Session, now time.Time) (BitrateSample, bool) {
 	}
 	sample.Bytes = bytes
 	sample.RTT, sample.BaseRTT = s.linkRTT(now)
+	sample.Delivery = s.takeDelivery()
 	return sample, true
 }
 
@@ -476,7 +499,7 @@ func (s *Session) SetBitrateObserver(fn func(BitrateReport)) { s.onBitrate = fn 
 func (s *Session) SetResizeObserver(fn func(oldW, oldH, newW, newH int)) { s.onResize = fn }
 
 func (s *Session) reportBitrate(rep BitrateReport) {
-	if rep.To != 0 && rep.Err == "" {
+	if rep.To != 0 && rep.To != rep.From && rep.Err == "" {
 		s.mu.Lock()
 		s.bitrateLog = append(s.bitrateLog, BitrateChange{At: time.Now(), From: rep.From, To: rep.To})
 		if len(s.bitrateLog) > 256 {

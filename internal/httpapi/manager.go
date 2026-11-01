@@ -995,9 +995,18 @@ func (m *Manager) AcquireFrom(ctx context.Context, targetID, path string) (*sess
 	began := time.Now()
 
 	ceiling, resumed := opts.BitRate, 0
+	// resumeWhy names why a session did not open at a remembered rate, and
+	// remembered is the rate the path had, or 0.
+	resumeWhy, remembered := "noPath", 0
 	if adaptive && path != "" {
-		if bps, ok := m.paths.get(path); ok && bps > 0 && bps < opts.BitRate {
-			opts.BitRate, resumed = bps, bps
+		resumeWhy = "nothingRemembered"
+		if bps, ok := m.paths.get(path); ok && bps > 0 {
+			remembered = bps
+			if bps < opts.BitRate {
+				opts.BitRate, resumed = bps, bps
+			} else {
+				resumeWhy = "notBelowCeiling"
+			}
 		}
 	}
 
@@ -1200,11 +1209,23 @@ func (m *Manager) AcquireFrom(ctx context.Context, targetID, path string) (*sess
 		})
 		if resumed != 0 {
 			m.trace.Record(map[string]any{
-				"kind":    "bitrate",
-				"target":  targetID,
-				"gate":    "resume",
-				"current": resumed,
-				"ceiling": ceiling,
+				"kind":       "bitrate",
+				"target":     targetID,
+				"gate":       "resume",
+				"current":    resumed,
+				"ceiling":    ceiling,
+				"remembered": remembered,
+			})
+		} else {
+			// One record per session opened, which is rare, so the opening
+			// at the full rate says why it was not a resume.
+			m.trace.Record(map[string]any{
+				"kind":       "bitrate",
+				"target":     targetID,
+				"gate":       "resumeSkipped",
+				"why":        resumeWhy,
+				"current":    ceiling,
+				"remembered": remembered,
 			})
 		}
 		// The return value is the difference between a controller that ran and
@@ -1619,6 +1640,9 @@ func (m *Manager) recordBitrate(targetID string, rep session.BitrateReport) {
 	if rep.To != 0 {
 		rec["from"], rec["to"] = rep.From, rep.To
 		rec["live"] = rep.Live
+		if rep.From == rep.To {
+			rec["sizeOnly"] = true
+		}
 		if rep.MaxSize != 0 {
 			rec["maxSize"] = rep.MaxSize
 		}
@@ -1628,6 +1652,9 @@ func (m *Manager) recordBitrate(targetID string, rep session.BitrateReport) {
 	}
 	if rep.Err != "" {
 		rec["err"] = rep.Err
+	}
+	for k, v := range rep.Detail {
+		rec[k] = v
 	}
 	m.trace.Record(rec)
 }
