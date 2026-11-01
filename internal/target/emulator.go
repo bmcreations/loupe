@@ -72,7 +72,7 @@ func (c EmulatorConfig) withDefaults() EmulatorConfig {
 // that serial.
 //
 // Which serial is decided by the AVD's name, never by its port. The manager
-// maps each running emulator to an AVD through ro.boot.qemu.avd_name and calls
+// maps each running emulator to an AVD through its console name and calls
 // Attach, so an AVD started by Android Studio on any port is the same target
 // as one this server booted, and a port reused by a different AVD is not
 // mistaken for this one.
@@ -131,7 +131,7 @@ func (e *Emulator) Label() string {
 	return name + " (emulator)"
 }
 
-// AVD is the name ro.boot.qemu.avd_name reports while this AVD runs.
+// AVD is the name the emulator console reports while this AVD runs.
 func (e *Emulator) AVD() string { return e.cfg.AVD }
 
 // Serial is the adb serial this AVD is running as, or "" while it is not.
@@ -393,7 +393,7 @@ func (e *Emulator) awaitBoot(ctx context.Context) (*ADBTarget, error) {
 		}
 		return nil, e.bootFailure(err, serial)
 	}
-	name, err := e.adb.AVDName(ctx, serial)
+	name, err := nameEmulator(ctx, e.adb, serial)
 	if err != nil {
 		return nil, err
 	}
