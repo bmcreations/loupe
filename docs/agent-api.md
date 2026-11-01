@@ -620,7 +620,7 @@ agent sessions off one device. It is a lease:
 | Route | Effect |
 |---|---|
 | `POST /api/claims?target=` | Claims the target for the caller (`X-Loupe-Agent`, `X-Loupe-Session`). A body `{"agent","session","link"}` may say the same. `link` is an https URL of at most 512 bytes. |
-| `DELETE /api/claims?target=` | Releases it. Someone else's needs `?force=1`, which is what the picker's Release sends. |
+| `DELETE /api/claims?target=` | Releases it. Someone else's needs `?force=1`, which is what the picker's Release sends. Works on a target that is no longer listed; `DELETE /api/devices` releases the device's claim itself. |
 | `GET /api/claims` | Lists claims. |
 
 A claim also keeps an emulator awake. The idle pause and idle shutdown skip a

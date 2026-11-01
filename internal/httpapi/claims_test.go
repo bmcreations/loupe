@@ -314,3 +314,25 @@ func TestARefusedAgentIsNotShownDriving(t *testing.T) {
 		t.Fatalf("drivenBy = %q after a refusal", rows[0].DrivenBy)
 	}
 }
+
+// A device that went away under its claim, deleted outside loupe or never
+// coming back, still lets the holder release the claim.
+func TestAClaimOnATargetThatIsGoneCanBeReleased(t *testing.T) {
+	s, _ := claimServer(t)
+	a := map[string]string{HeaderAgent: "claude", HeaderSession: "s1"}
+	b := map[string]string{HeaderAgent: "claude", HeaderSession: "s2"}
+	s.claims.take("avd:gone", "claude", "s1", "")
+
+	if rec := claimReq(s, http.MethodDelete, "target=avd:gone", "", b); rec.Code != http.StatusConflict {
+		t.Fatalf("another session's release = %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	if rec := claimReq(s, http.MethodDelete, "target=avd:gone", "", a); rec.Code != http.StatusNoContent {
+		t.Fatalf("holder's release = %d %s, want 204", rec.Code, rec.Body.String())
+	}
+	if got := s.claims.list(); len(got) != 0 {
+		t.Fatalf("claims after release = %+v", got)
+	}
+	if rec := claimReq(s, http.MethodDelete, "target=avd:gone", "", a); rec.Code != http.StatusNotFound {
+		t.Fatalf("release with no target and no claim = %d, want 404", rec.Code)
+	}
+}

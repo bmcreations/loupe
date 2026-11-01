@@ -183,6 +183,25 @@ func TestDeleteStopsDeletesAndUnregisters(t *testing.T) {
 	}
 }
 
+// A deleted device takes its claim with it, or the claim would name a target
+// nothing can release it through.
+func TestDeleteReleasesTheClaim(t *testing.T) {
+	s, _ := newLifeServer(t, "avd:a", nil)
+	s.claims = newClaimBook(nil)
+	s.claims.take("avd:a", "claude", "s1", "")
+	r := httptest.NewRequest(http.MethodDelete, "/api/devices?target=avd:a", nil)
+	r.Header.Set(HeaderAgent, "claude")
+	r.Header.Set(HeaderSession, "s1")
+	w := httptest.NewRecorder()
+	s.handleDevices(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d %s", w.Code, w.Body.String())
+	}
+	if got := s.claims.list(); len(got) != 0 {
+		t.Fatalf("claims after delete = %+v", got)
+	}
+}
+
 func TestShutdownRefusesWhileRecording(t *testing.T) {
 	m := NewManager(target.Options{})
 	lt := &lifeTarget{describingTarget: describingTarget{id: "avd:a"}}
