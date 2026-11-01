@@ -105,7 +105,8 @@ works; loupe does not overwrite it.
 reads it:
 
 ```sh
-loupe pair -label "phone"                 # prints a link, a QR code, the code and its expiry
+loupe pair -label "phone"                 # prints the code and its expiry
+loupe pair -link -label "phone"           # also a link and a QR code, for an app not released yet
 loupe pair -can-pair -label "desktop"     # the paired device may pair others
 loupe pair -bearer -label "mcp on ci"     # mints and redeems; prints only the lsn_ token on stdout
 loupe sessions                            # table of sessions
