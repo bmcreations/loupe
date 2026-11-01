@@ -24,7 +24,72 @@ const (
 	// the larger size just as the adapter has decided the link is clean, and
 	// one that only just fit could shed and send it straight back down.
 	upSizeMargin = 1.5
+
+	// heldEdge is the smallest longest-edge a live resize steps down to on a
+	// stream whose frame rate cannot be lowered (see fpsForBitRate), unless
+	// the configured size is already smaller.
+	//
+	// The ladder used to keep going to 540 on any short bitrate. Twice in the
+	// 5G trace it took a phone simulator from 664x1440 (and 496x1080) straight
+	// to 248x544, which looks very blurry, on a bitrate cut that was itself a
+	// misread (goodput measured on an idle screen). When capacity really is
+	// short the better trade is fewer frames, not fewer pixels. A simulator
+	// cannot trade that way: simcap takes -fps at launch only (stdin has just
+	// the 0x80 bitrate and 0x81 size commands) and a simulator is never
+	// relaunched, so the size is the only lever it has. 900 keeps a phone at
+	// about 415x900, a rung above the 328x720 the trace showed carrying
+	// 2.1 Mbps readably, and the ladder stops there rather than at 540.
+	heldEdge = 900
 )
+
+// fpsRungs are the frame rates a stream that can be relaunched steps through,
+// highest first. The session's configured rate is always the top rung.
+var fpsRungs = []int{60, 30, 20, 15}
+
+// fpsForBitRate picks the frame rate for a stream of w x h pixels running at
+// bps, given the rate it was opened with (base) and the one it runs at now
+// (cur). It is sizeForBitRate's rule turned the other way: it holds the
+// picture size and gives up frames first, because at the same bits a pixel a
+// 30fps stream carries twice the bits in each frame of a 60fps one. It stops
+// at the 15fps floor; below that the picture is a slideshow and the size
+// ladder is the next lever.
+//
+// Dropping frames here means the encoder is asked for fewer: the device caps
+// capture (scrcpy max_fps) and the encoder never sees the rest. Dropping them
+// after encoding would break the references of the inter-frames that follow.
+func fpsForBitRate(bps, base, cur, w, h int) int {
+	if base <= 0 || bps <= 0 || w <= 0 || h <= 0 {
+		return base
+	}
+	rungs := []int{base}
+	for _, r := range fpsRungs {
+		if r < base {
+			rungs = append(rungs, r)
+		}
+	}
+	fits := func(fps int, margin float64) bool {
+		return float64(bps)/(float64(fps)*float64(w)*float64(h)) >= targetBitsPerPixel*margin
+	}
+	near := rungs[0]
+	for _, r := range rungs {
+		if abs(r-cur) < abs(near-cur) {
+			near = r
+		}
+	}
+	cur = near
+	for _, r := range rungs {
+		margin := 1.0
+		if r > cur {
+			// Same hysteresis as a step up in size: a rate that only just
+			// fits would shed and come straight back down.
+			margin = upSizeMargin
+		}
+		if fits(r, margin) {
+			return r
+		}
+	}
+	return rungs[len(rungs)-1]
+}
 
 // sizeRungs are the longest edges the ladder steps through, largest first.
 // The configured size is always the top rung, whatever its value. 540 is the
@@ -134,6 +199,9 @@ func (s *Session) resizeForBitRate(bps int) (int, error) {
 		fps = target.DefaultMaxFPS
 	}
 	edge := sizeForBitRate(bps, top, fps, float64(short)/float64(long), long)
+	if floor := min(top, heldEdge); edge < floor {
+		edge = floor
+	}
 	px := edge
 	if px == top {
 		px = 0

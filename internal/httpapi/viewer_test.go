@@ -116,9 +116,9 @@ const observedKeyframeWrite = 1187 * time.Millisecond
 func TestAKeyframeGetsLongerThanAPictureItReplaces(t *testing.T) {
 	const base = 380 * time.Millisecond
 
-	picture := deadlineFor(false, false, base)
-	key := deadlineFor(true, false, base)
-	cfg := deadlineFor(false, true, base)
+	picture := deadlineFor(false, false, base, 0)
+	key := deadlineFor(true, false, base, 0)
+	cfg := deadlineFor(false, true, base, 0)
 
 	if key <= picture {
 		t.Errorf("keyframe deadline %v does not exceed the picture deadline %v", key, picture)
@@ -627,5 +627,31 @@ func TestViewerStopRecordsTheInnermostType(t *testing.T) {
 	rec := v.record()
 	if rec["errType"] != "*fmt.wrapError" || rec["innerType"] != "*errors.errorString" {
 		t.Errorf("errType %v innerType %v", rec["errType"], rec["innerType"])
+	}
+}
+
+// The 5G trace: base 80-110ms with rttNowMs spikes to 400ms, 2.1 Mbps carried
+// and nothing shed, yet frames missed their send deadline. A write that spans a
+// 400ms spike on a 100ms path must still fit, and a wild reading must not
+// stretch the deadline past the cap.
+func TestFrameDeadlineRidesOutAnRTTSpike(t *testing.T) {
+	const base = 100 * time.Millisecond
+	// Normal write plus the spike's excess: ~30ms on the wire, 300ms more
+	// while the round trip reads 400ms.
+	const spikeWrite = 30*time.Millisecond + 300*time.Millisecond
+	if got := frameDeadlineWith(base, 400*time.Millisecond); got < spikeWrite+100*time.Millisecond {
+		t.Errorf("deadline %v on a 100ms path in a 400ms spike leaves under 100ms over a %v write", got, spikeWrite)
+	}
+	if got, want := frameDeadlineWith(base, 0), frameDeadlineFor(base); got != want {
+		t.Errorf("unknown current rtt changed the deadline: %v, want %v", got, want)
+	}
+	if got, want := frameDeadlineWith(base, 90*time.Millisecond), frameDeadlineFor(base); got != want {
+		t.Errorf("rtt under the baseline changed the deadline: %v, want %v", got, want)
+	}
+	if got := frameDeadlineWith(base, 30*time.Second); got > frameDeadlineFor(base)+frameJitterCap {
+		t.Errorf("a wild rtt stretched the deadline to %v", got)
+	}
+	if got := frameDeadlineWith(30*time.Second, 40*time.Second); got != frameDeadlineCap {
+		t.Errorf("deadline %v on a 30s baseline, want the cap %v", got, frameDeadlineCap)
 	}
 }

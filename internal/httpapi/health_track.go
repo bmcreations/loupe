@@ -14,6 +14,7 @@ import (
 type healthCounters interface {
 	MediaCount() uint64
 	ShedCount() uint64
+	ShedBreakdown() session.ShedCounts
 	ClientStatsAt() (map[string]any, time.Time)
 }
 
@@ -86,7 +87,14 @@ type healthTracker struct {
 	have      bool
 	lastMedia uint64
 	lastShed  uint64
+	// lastAwait is the cumulative keyframe-wait shed at the last tick, so the
+	// capacity shed rate can leave those frames out (see sampleAt).
+	lastAwait uint64
 	lastTick  time.Time
+
+	// configAt is when this viewer was last sent a parameter set, which a
+	// resize or relaunch produces. Zero until one has been.
+	configAt time.Time
 
 	// prevProducedPerSec is the PREVIOUS tick's normalised production rate.
 	// A fresh report landing this tick is paired against it rather than this
@@ -154,20 +162,32 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 	// race outright rather than bounding it with a clamp.
 	media := counters.MediaCount()
 	shed := counters.ShedCount()
+	await := counters.ShedBreakdown().AwaitKey
 
 	if !t.have {
 		t.lastMedia = media
 		t.lastShed = shed
+		t.lastAwait = await
 		t.have = true
 	}
 
 	mediaProduced := diffUint64(media, t.lastMedia)
 	shedRate := uint64(diffUint64(shed, t.lastShed))
+	// Keyframe waits are the echo of an earlier shed or abandon, which is
+	// already counted under its own reason, and they last until a keyframe
+	// lands. In the 5G trace a few frames missed their deadline, the abandon
+	// started a wait, and the ~13 frames a second shed behind it read
+	// "degraded shed 13/s" on a link carrying 2.1 Mbps with nothing else
+	// wrong. Health judges the causes; a wait that really is a link too slow
+	// for a keyframe still reads bad through the delivery ratio.
+	awaitRate := uint64(diffUint64(await, t.lastAwait))
+	capacityShed := shedRate - min(shedRate, awaitRate)
 
 	elapsed := now.Sub(t.lastTick)
 
 	t.lastMedia = media
 	t.lastShed = shed
+	t.lastAwait = await
 	t.lastTick = now
 
 	curProducedPerSec := 0.0
@@ -238,12 +258,20 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 		Produced:  int(math.Round(sumProduced)),
 		Delivered: int(math.Round(sumDelivered)),
 		Allowance: int(math.Round(t.phaseAllowance())),
-		ShedRate:  shedRate,
+		ShedRate:  capacityShed,
 		BaseMs:    baseMs,
 		RttMs:     t.lastRttMs,
 		ReportAge: reportAge,
 
 		DecodeErrors: t.decodeErrorRate,
+	}
+	// One rejection just after a parameter set is the old size's last frame
+	// reaching the new decoder, not a decoder failing. Both resizes in the
+	// trace were followed by exactly one "decoder rejected 1 frames" that
+	// marked a healthy link bad. Two or more, or one outside the grace, still
+	// read bad.
+	if in.DecodeErrors == 1 && !t.configAt.IsZero() && now.Sub(t.configAt) < decodeGrace {
+		in.DecodeErrors = 0
 	}
 
 	return healthTick{
@@ -254,6 +282,14 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 		Input:        in,
 	}
 }
+
+// decodeGrace is how long after a parameter set a single decoder rejection is
+// forgiven. The client reports once a second on its own clock, so a rejection
+// from the switch can reach a tick up to about two seconds later.
+const decodeGrace = 3 * time.Second
+
+// NoteConfig records that this viewer was just sent a parameter set.
+func (t *healthTracker) NoteConfig(now time.Time) { t.configAt = now }
 
 func (t *healthTracker) push(s healthSample) {
 	t.window = append(t.window, s)

@@ -156,6 +156,29 @@ const (
 	// hides no real starvation. The idle test's 10fps clears it.
 	minWindowFrameRate = 6
 
+	// busyFrameRate, minBusyTime and minBusyFraction decide whether a window
+	// measured the link or measured the screen. Goodput is bytes over the time
+	// the encoder produced in, but an encoder producing two frames a second of
+	// a static screen is "producing", and what it sends then is what the
+	// screen needed, not what the link can carry.
+	//
+	// The 12:15:50 cut in the 5G trace: ~10s of static screen at ~2 frames a
+	// second and 5-150 kbps actually sent, then a burst and a short keyframe
+	// wait after an abandon. The undercarried gate read goodput 535 kbps
+	// against a 4 Mbps encoder and cut to it, and the size ladder took the
+	// phone from 664x1440 to 248x544. The link was carrying 2.1 Mbps at 60fps
+	// at the time.
+	//
+	// An interval is busy when it produced at least busyFrameRate frames a
+	// second. Moving content runs at the encoder's 30-60fps and the idle test's
+	// 10fps still counts; a static screen sits at 2-3. Goodput is taken over
+	// busy intervals only, and only once there are minBusyTime of them making
+	// up at least minBusyFraction of the active time. Below that there is no
+	// capacity measurement, and the gates that aim at goodput decline.
+	busyFrameRate   = 10
+	minBusyTime     = 2 * time.Second
+	minBusyFraction = 0.5
+
 	// recoverRTTFactor and recoverRTTSlack define a link that is clearly
 	// healthy: the current round trip (not the smoothed one, which lags a
 	// recovery by seconds) within the larger of recoverRTTFactor times the
@@ -279,6 +302,9 @@ const (
 	// the viewer spends a meaningful share of the window awaiting keyframes,
 	// below what either the shed or the starved gate reads as bad.
 	GateUndercarried BitrateGate = "undercarried"
+	// GateIdle is a window whose busy time was too short or too small a share
+	// of its active time for goodput to measure the link (see busyFrameRate).
+	GateIdle BitrateGate = "idle"
 	// GateRecover is a step up taken early because the link has been clearly
 	// healthy for recoverWindow. It does not count against the change cap.
 	GateRecover BitrateGate = "recover"
@@ -316,6 +342,9 @@ type BitrateReport struct {
 	ActiveMs int64
 	// AwaitMs is how much of ActiveMs held a keyframe wait.
 	AwaitMs int64
+	// BusyMs is how much of ActiveMs produced at busyFrameRate or more, the
+	// time GoodputBps is measured over. GoodputBps is 0 when it is too little.
+	BusyMs  int64
 	Changes int
 	// Live is set when the change was applied to the running encoder rather
 	// than by relaunching it.
@@ -352,6 +381,17 @@ type BitrateAdapter struct {
 	// produces nothing for as long as nobody touches it (trap 20).
 	lastSample time.Time
 	active     time.Duration
+
+	// busy and busyBytes are the part of active in which the encoder produced
+	// at busyFrameRate or more, and the bytes sent in it. See goodput.
+	busy      time.Duration
+	busyBytes uint64
+
+	// rttOKFor is how long the current rtt has read near baseline whatever
+	// was shed, where healthyFor also needs nothing shed. A keyframe wait
+	// that follows our own abandon reads healthyFor 0 because the abandon is a
+	// shed, so healthyFor cannot tell the wait from a starved link.
+	rttOKFor time.Duration
 
 	// healthyFor is how long the link has read clearly healthy without
 	// interruption (see linkHealthy), and healthyAt is when it was last
@@ -401,6 +441,10 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	if s.Frames > 0 && !a.lastSample.IsZero() {
 		if dt := now.Sub(a.lastSample); dt > 0 {
 			a.active += dt
+			if float64(s.Frames) >= busyFrameRate*dt.Seconds() {
+				a.busy += dt
+				a.busyBytes += s.Bytes
+			}
 			if s.AwaitKey > 0 {
 				a.awaiting += dt
 			}
@@ -453,12 +497,19 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 
 	// A keyframe wait is a consequence of an earlier drop, so it argues for a
 	// smaller encoder only while the link still looks slow. Once the current
-	// rtt is back near baseline with nothing shed, the wait is draining the
-	// backlog the slow stretch left, and cutting the bitrate for it punishes
-	// a link that has already recovered.
-	awaitIsSignal := a.healthyFor < awaitHealthyGrace
+	// rtt is back near baseline the wait is draining the backlog the slow
+	// stretch left, and cutting the bitrate for it punishes a link that has
+	// already recovered.
+	//
+	// It reads the rtt alone, not healthyFor, which also needs nothing shed:
+	// the abandon that started the wait is itself a shed, so after one the
+	// healthy stretch is zero for exactly the wait it caused, and in the 5G
+	// trace the precondition never held while health read degraded on that
+	// wait.
+	awaitIsSignal := a.rttOKFor < awaitHealthyGrace
 
-	if awaitIsSignal && awaitFrac >= starvedAwaitFraction && a.awaitTimeFrac() >= starvedAwaitFraction {
+	if awaitIsSignal && awaitFrac >= starvedAwaitFraction && a.awaitTimeFrac() >= starvedAwaitFraction &&
+		a.goodput() > 0 {
 		// Aim at the measured goodput, with a halving as the ceiling on the
 		// step rather than the step itself.
 		//
@@ -490,10 +541,16 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 		// measurement rather than a guess at a multiplier.
 		goodput := a.goodput()
 		if goodput <= 0 {
-			// No interval in this window both produced frames and spanned any
-			// time, so there is nothing measuring the link. Declining is the
-			// honest answer; a zero here would relaunch at the floor.
-			rep := a.report(now, GateNoFrames)
+			// Nothing measured the link: no interval both produced frames
+			// and spanned any time, or too little of the window was busy for
+			// its bytes to say what the link carries (busyFrameRate).
+			// Declining is the honest answer; a zero here would relaunch at
+			// the floor.
+			gate := GateNoFrames
+			if a.active > 0 {
+				gate = GateIdle
+			}
+			rep := a.report(now, gate)
 			a.reset(now)
 			return 0, rep
 		}
@@ -566,6 +623,7 @@ func (a *BitrateAdapter) report(now time.Time, gate BitrateGate) BitrateReport {
 	}
 	rep.ActiveMs = a.active.Milliseconds()
 	rep.AwaitMs = a.awaiting.Milliseconds()
+	rep.BusyMs = a.busy.Milliseconds()
 	rep.GoodputBps = a.goodput()
 	return rep
 }
@@ -579,6 +637,13 @@ func (a *BitrateAdapter) trackHealth(now time.Time, s BitrateSample) {
 	a.healthyAt = now
 	if s.Frames == 0 && s.Shed == 0 {
 		return
+	}
+	if linkHealthy(s.RTT, s.BaseRTT) {
+		if dt > 0 && dt < 5*time.Second {
+			a.rttOKFor += dt
+		}
+	} else {
+		a.rttOKFor = 0
 	}
 	if linkHealthy(s.RTT, s.BaseRTT) && s.Shed == 0 {
 		if dt > 0 && dt < 5*time.Second {
@@ -677,6 +742,7 @@ func (a *BitrateAdapter) recentChanges(now time.Time) int {
 func (a *BitrateAdapter) Reset(now time.Time) {
 	a.reset(now)
 	a.healthyFor = 0
+	a.rttOKFor = 0
 }
 
 func (a *BitrateAdapter) reset(now time.Time) {
@@ -684,6 +750,8 @@ func (a *BitrateAdapter) reset(now time.Time) {
 	a.lastSample = now
 	a.active = 0
 	a.awaiting = 0
+	a.busy = 0
+	a.busyBytes = 0
 	a.acc = BitrateSample{}
 }
 
@@ -695,13 +763,19 @@ func (a *BitrateAdapter) awaitTimeFrac() float64 {
 	return a.awaiting.Seconds() / a.active.Seconds()
 }
 
-// goodput is the rate the link carried over the time the encoder was producing,
-// which is the rate a relaunch should aim at. Dividing by the whole window
-// instead understates it by the idle fraction, and bitrate.go uses this figure
-// directly as the new encoder bitrate.
+// goodput is the rate the link carried over the time the encoder was busy,
+// which is the rate a relaunch should aim at, or zero when the window did not
+// measure the link. Dividing by the whole window instead understates it by the
+// idle fraction, and bitrate.go uses this figure directly as the new encoder
+// bitrate.
+//
+// Active time is not enough either: a static screen produces a couple of tiny
+// frames a second, so bytes over active time is what the screen needed rather
+// than what the link can carry (see busyFrameRate). Only busy intervals count,
+// and there must be enough of them to trust.
 func (a *BitrateAdapter) goodput() int {
-	if a.active <= 0 {
+	if a.busy < minBusyTime || a.busy.Seconds() < minBusyFraction*a.active.Seconds() {
 		return 0
 	}
-	return int(float64(a.acc.Bytes) * 8 / a.active.Seconds())
+	return int(float64(a.busyBytes) * 8 / a.busy.Seconds())
 }

@@ -39,7 +39,13 @@ var (
 // the launch takes, which costs the device a second encoder for that window
 // and is the price of not making a transient adb failure fatal to a session
 // that was working.
-func (s *Session) Relaunch(bitRate int) error {
+func (s *Session) Relaunch(bitRate int) error { return s.relaunch(bitRate, 0) }
+
+// relaunch is Relaunch with a frame rate to reopen at, 0 to keep the one the
+// session is running at. A bitrate cut that reopens the encoder anyway is the
+// one chance to lower the capture rate too, since scrcpy's max_fps and
+// simcap's -fps are launch options with no runtime control.
+func (s *Session) relaunch(bitRate, fps int) error {
 	if bitRate <= 0 {
 		return fmt.Errorf("relaunch: bitrate %d is not positive", bitRate)
 	}
@@ -58,6 +64,9 @@ func (s *Session) Relaunch(bitRate int) error {
 	s.streamMu.Unlock()
 
 	opts.BitRate = bitRate
+	if fps > 0 {
+		opts.MaxFPS = fps
+	}
 
 	// Not the context Open was handed. That one belongs to the HTTP request
 	// that started the session and is cancelled the moment that request
@@ -196,7 +205,30 @@ func (s *Session) changeBitRate(bitRate int) (live bool, err error) {
 	if s.target.Kind() == target.KindSimulator {
 		return false, fmt.Errorf("bitrate %d bps: simulators change bitrate live or not at all", bitRate)
 	}
-	return false, s.Relaunch(bitRate)
+	return false, s.relaunch(bitRate, s.fpsFor(bitRate))
+}
+
+// fpsFor is the frame rate a relaunch at bitRate should open at: the picture
+// size is held and frames are given up first (fpsForBitRate). It returns 0,
+// leaving the rate alone, when the picture size is not known yet.
+func (s *Session) fpsFor(bitRate int) int {
+	s.mu.Lock()
+	w, h := s.init.CodedWidth, s.init.CodedHeight
+	s.mu.Unlock()
+	s.streamMu.Lock()
+	cur := s.opts.MaxFPS
+	s.streamMu.Unlock()
+	base := s.openFPS
+	if base <= 0 {
+		base = target.DefaultMaxFPS
+	}
+	if cur <= 0 {
+		cur = base
+	}
+	if w <= 0 || h <= 0 {
+		return 0
+	}
+	return fpsForBitRate(bitRate, base, cur, w, h)
 }
 
 func (s *Session) adaptLoop(a *BitrateAdapter) {

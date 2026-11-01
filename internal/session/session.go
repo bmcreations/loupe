@@ -209,6 +209,10 @@ type Session struct {
 	// every change, so this is what the resize ladder holds the native size at.
 	openBitRate int
 
+	// openFPS is the capture rate the session opened with, the top rung of
+	// the frame-rate ladder. opts.MaxFPS follows each relaunch.
+	openFPS int
+
 	// queueLen is the fan-out channel depth for a joining viewer, sized from
 	// the capture rate this session was opened with.
 	queueLen int
@@ -397,6 +401,7 @@ func Open(ctx context.Context, id string, t target.Target, opts target.Options) 
 		stream:      stream,
 		opts:        opts,
 		openBitRate: opts.BitRate,
+		openFPS:     opts.MaxFPS,
 		viewers:     make(map[uint64]*viewer),
 		events:      newEventRing(eventRingSize),
 		gestures:    make(map[uint64]*GestureAssembler),

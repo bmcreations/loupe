@@ -47,6 +47,39 @@ func frameDeadlineFor(base time.Duration) time.Duration {
 	return frameDeadlineCap
 }
 
+// frameJitterCap bounds the extra time frameDeadlineWith grants a frame while
+// the current round trip is above the baseline.
+//
+// A phone on 5G over a direct Tailscale path read a 80-110ms baseline with
+// rttNowMs spikes of 160-400ms while the link carried 2.1 Mbps with nothing
+// shed. A write that straddles such a spike takes the spike's excess on top of
+// its normal time, and the 300ms the baseline alone gives (250 + 100/2) is
+// gone before the frame is. Allowing the excess, up to 300ms, covers the
+// observed 400ms spike on a 100ms path with no abandon. The cap is what keeps
+// latency bounded: past it a frame is stale enough that the next one is the
+// better picture, and a sustained rise is the pacer's and the staleness
+// check's to answer, not this deadline's.
+const frameJitterCap = 300 * time.Millisecond
+
+// frameDeadlineWith is frameDeadlineFor plus allowance for a round trip that
+// is momentarily above the baseline. now is the current, unsmoothed round trip
+// and may be zero when nothing has been measured, which grants no allowance.
+// The result is still bounded by frameDeadlineCap.
+func frameDeadlineWith(base, now time.Duration) time.Duration {
+	d := frameDeadlineFor(base)
+	if base > 0 && now > base {
+		extra := now - base
+		if extra > frameJitterCap {
+			extra = frameJitterCap
+		}
+		d += extra
+	}
+	if d > frameDeadlineCap {
+		return frameDeadlineCap
+	}
+	return d
+}
+
 // keyframeDeadline is the floor for a keyframe or a parameter set, and it is
 // deliberately far above frameDeadline.
 //
@@ -103,11 +136,14 @@ func keyframeDeadlineFor(base time.Duration) time.Duration {
 
 // deadlineFor returns the write deadline for one frame. Keyframes and parameter
 // sets get their own, because they are the frames nothing else can replace.
-func deadlineFor(key, config bool, base time.Duration) time.Duration {
+//
+// now is the current round trip (zero when unknown). Only pictures read it: a
+// keyframe's deadline already carries seconds of margin over any spike.
+func deadlineFor(key, config bool, base, now time.Duration) time.Duration {
 	if key || config {
 		return keyframeDeadlineFor(base)
 	}
-	return frameDeadlineFor(base)
+	return frameDeadlineWith(base, now)
 }
 
 // clientRTTMaxAge is how old a phone-reported round trip may be and still be
@@ -527,6 +563,9 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				} else {
 					pacer.ObserveRepeat(rtt)
 				}
+				if msg.Config {
+					healthTrack.NoteConfig(time.Now())
+				}
 
 				// Parameter sets and keyframes are never shed: dropping them
 				// leaves the decoder with nothing to resynchronize against.
@@ -548,7 +587,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					}
 				}
 
-				err := conn.SendFrame(msg, msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, pacer.Base())))
+				err := conn.SendFrame(msg, msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, pacer.Base(), nowRTT())))
 				delivered, fatal := frameDelivered(err)
 				if fatal {
 					stopErr = err

@@ -14,12 +14,16 @@ import (
 type fakeCounters struct {
 	media uint64
 	shed  uint64
+	await uint64
 	cs    map[string]any
 	csAt  time.Time
 }
 
-func (f fakeCounters) MediaCount() uint64                         { return f.media }
-func (f fakeCounters) ShedCount() uint64                          { return f.shed }
+func (f fakeCounters) MediaCount() uint64 { return f.media }
+func (f fakeCounters) ShedCount() uint64  { return f.shed }
+func (f fakeCounters) ShedBreakdown() session.ShedCounts {
+	return session.ShedCounts{AwaitKey: f.await}
+}
 func (f fakeCounters) ClientStatsAt() (map[string]any, time.Time) { return f.cs, f.csAt }
 
 // producedRate is diffed against the tracker's own last-seen value, not read
@@ -772,5 +776,57 @@ func TestAReloadedPagesDecodeErrorsStartOver(t *testing.T) {
 		if got, want := tick.Input.DecodeErrors, []int{0, 0, 1}[i]; got != want {
 			t.Fatalf("report %d: DecodeErrors %d, want %d", i, got, want)
 		}
+	}
+}
+
+// The 5G trace: a few frames missed their deadline, the abandon started a
+// keyframe wait, and the ~13 frames a second shed behind it read "degraded
+// shed 13/s" on a link that was otherwise fine. The wait is the echo of the
+// abandon, so it does not count toward the shed verdict; a real cause still
+// does.
+func TestAKeyframeWaitAloneDoesNotReadDegraded(t *testing.T) {
+	attachedAt := time.Unix(61000, 0)
+	tr := newHealthTracker(attachedAt, nil)
+	cs := func(now time.Time) map[string]any {
+		return map[string]any{"rttMs": 100.0, "decFps": 60.0}
+	}
+	tr.sampleAt(attachedAt.Add(time.Second), fakeCounters{media: 60, csAt: attachedAt}, 100)
+	now := attachedAt.Add(2 * time.Second)
+	tick := tr.sampleAt(now, fakeCounters{media: 120, shed: 13, await: 13, cs: cs(now), csAt: now}, 100)
+	if tick.ShedRate != 13 {
+		t.Errorf("reported ShedRate %d, want the total 13", tick.ShedRate)
+	}
+	if v, why := session.Health(tick.Input); v != "good" {
+		t.Errorf("keyframe wait alone read %s (%q)", v, why)
+	}
+	// 13 pacer sheds on top of a wait still reads degraded.
+	now = now.Add(time.Second)
+	tick = tr.sampleAt(now, fakeCounters{media: 180, shed: 39, await: 26, cs: cs(now), csAt: now}, 100)
+	if v, _ := session.Health(tick.Input); v != "degraded" {
+		t.Errorf("13/s of real shed beside a wait read %s, want degraded", v)
+	}
+}
+
+// Both resizes in the trace were followed by one "decoder rejected 1 frames",
+// the old size's last frame reaching the new decoder. One right after a
+// parameter set is forgiven; one outside the grace, or two inside it, are not.
+func TestOneDecodeErrorAfterAConfigIsForgiven(t *testing.T) {
+	attachedAt := time.Unix(62000, 0)
+	tr := newHealthTracker(attachedAt, nil)
+	report := func(sec int, errs float64) healthTick {
+		now := attachedAt.Add(time.Duration(sec) * time.Second)
+		cs := map[string]any{"rttMs": 12.0, "decFps": 60.0, "decodeErrors": errs}
+		return tr.sampleAt(now, fakeCounters{media: uint64(60 * sec), cs: cs, csAt: now}, 20)
+	}
+	report(1, 0)
+	tr.NoteConfig(attachedAt.Add(1500 * time.Millisecond))
+	if v, why := session.Health(report(2, 1).Input); v != "good" {
+		t.Errorf("one rejection after a config read %s (%q)", v, why)
+	}
+	if v, _ := session.Health(report(3, 3).Input); v != "bad" {
+		t.Errorf("two rejections read %s, want bad", v)
+	}
+	if v, _ := session.Health(report(8, 4).Input); v != "bad" {
+		t.Errorf("a rejection outside the grace read %s, want bad", v)
 	}
 }
