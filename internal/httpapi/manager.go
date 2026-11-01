@@ -336,8 +336,10 @@ func (m *Manager) SyncDevices(devices []target.DeviceInfo, build func(target.Dev
 // SyncSimulators brings the registered iOS simulators in line with a simctl
 // listing. A new one is registered; a known one takes the fresh listing, so
 // "Boots on open" follows a simulator booted or shut down from Xcode. One
-// simctl no longer lists has been deleted, and is kept and marked missing
-// for the same reason an unplugged device is.
+// simctl no longer lists has been deleted and is dropped. A deleted simulator
+// never comes back, and test runs create and delete them all day. One still
+// being watched is kept and marked missing, so its viewer can say where it
+// went, and is dropped by the first listing after its session ends.
 func (m *Manager) SyncSimulators(sims []target.SimInfo, simcap string) {
 	m.SyncSimulatorsAt(time.Now(), sims, simcap)
 }
@@ -378,9 +380,18 @@ func (m *Manager) SyncSimulatorsAt(listedAt time.Time, sims []target.SimInfo, si
 		m.setPresence(id, "device")
 	}
 	for id, t := range m.targets {
-		if _, ok := t.(*target.Simulator); ok && !seen[id] {
-			m.setPresence(id, "missing")
+		if _, ok := t.(*target.Simulator); !ok || seen[id] {
+			continue
 		}
+		if _, live := m.sessions[id]; live {
+			m.setPresence(id, "missing")
+			continue
+		}
+		delete(m.targets, id)
+		delete(m.presence, id)
+		delete(m.lastErr, id)
+		delete(m.shutAt, id)
+		m.gone[id] = time.Now()
 	}
 }
 
