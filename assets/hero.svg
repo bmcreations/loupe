@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 420" width="1280" height="420" role="img" aria-labelledby="t d">
   <title id="t">loupe</title>
-  <desc id="d">A phone screen under a magnifying loupe, with a tap landing on its Sign in button, next to the title loupe and the tagline: your Android devices, emulators and iOS simulators, live in any browser, and drivable by your agents.</desc>
+  <desc id="d">A phone screen under a magnifying loupe, with a tap landing on its Sign in button, next to the title loupe and the tagline: your Android devices, emulators and iOS simulators, live in any browser, shared with your agents.</desc>
   <style>
     .bg { fill: #F6F8FA; }
     .ink { fill: #0F172A; }
@@ -88,7 +88,7 @@
   <!-- title -->
   <text class="title ink" x="590" y="168">loupe</text>
   <text class="tag muted" x="594" y="218">Your Android devices, emulators and iOS simulators,</text>
-  <text class="tag muted" x="594" y="252">live in any browser. Your agents drive them too.</text>
+  <text class="tag muted" x="594" y="252">live in any browser, shared with your agents.</text>
 
   <g class="chipfont">
     <rect class="chip" x="594" y="290" width="186" height="38" rx="19"/>

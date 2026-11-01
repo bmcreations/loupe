@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hero.svg" alt="loupe: your Android devices, emulators and iOS simulators, live in any browser, and drivable by your agents" width="100%">
+  <img src="assets/hero.svg" alt="loupe: your Android devices, emulators and iOS simulators, live in any browser, shared with your agents" width="100%">
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 <p align="center">
   <b>The device on your desk, in your hand.</b><br>
   Stream Android devices, emulators and iOS simulators from your Mac to any browser at 60 fps, with live touch.<br>
-  Agents drive the same device through a CLI, MCP or HTTP while you watch.
+  Agents drive it through a CLI, MCP or HTTP. In the browser you see each tap coming, and your touch takes over.
 </p>
 
 ---
@@ -39,6 +39,32 @@ Without a certificate the service answers on loopback only. To reach it from
 your phone, give it TLS:
 [docs/getting-started.md](docs/getting-started.md) walks through it with
 Tailscale, then pairing a phone and connecting an agent.
+
+## Work on the same device as your agent
+
+<p align="center">
+  <img src="assets/coop.svg" alt="Three views of the web client: the banner reads claude is driving with a Take over button while the agent's cursor sits on Sign in; a finger on the screen and the banner reads claude is waiting for you; a red box around part of the screen with the Flag for agent card open" width="100%">
+</p>
+
+Open a device in the browser while an agent drives it, and the web client
+shows who has control and where the agent is about to tap.
+
+1. **The agent claims the device.** A second agent gets `claimedBy` and picks
+   another one.
+2. **In the browser, you see its cursor before it taps.** The banner reads
+   "claude is driving", and Take over gives you control. Between an agent's
+   calls the cursor stays where it last acted for 20 seconds, dimmed.
+3. **Touch the screen and you're driving.** The agent's input is refused with
+   `humanHeld` and a retry time, and the banner reads "claude is waiting for
+   you". Mark a device hands off to refuse agents entirely.
+4. **Box what's wrong and send it.** Flag for agent sends your note, the
+   screenshot and the UI tree. An interrupt stops the agent mid-task.
+
+The cursor, the banner and Take over are only in the browser. An agent
+working alone sees none of them: the CLI, MCP or HTTP just answers
+`claimedBy` or `humanHeld`. Claims and the human hold are in
+[docs/agent-api.md](docs/agent-api.md), flags and interrupts in
+[docs/flags.md](docs/flags.md).
 
 ## Drive it from a shell or an agent
 
@@ -104,12 +130,8 @@ the tools, and [docs/agent-api.md](docs/agent-api.md) every HTTP route.
   the composable that drew it, with its source line.
 - `camera` points an AVD's, simulator's or iPhone's back camera at an
   image, so a scanner can be tested without holding a phone up to a screen.
-- An agent claims a device before it drives it. Your own input holds agents
-  off, you can mark a device hands off, and viewers see an agent's cursor
-  before it taps. Between an agent's calls the cursor stays where it last
-  acted for 20 seconds, dimmed.
-- **Flags**: box an area of the screen, write a note, and send the
-  screenshot and UI tree to an agent, or interrupt one mid-task.
+- Claims, the human hold and flags let you share a device with an agent. See
+  [Work on the same device as your agent](#work-on-the-same-device-as-your-agent).
 - **Recording** writes the encoder's output to an MP4, with no re-encode.
 
 **Fits into your workflow**
