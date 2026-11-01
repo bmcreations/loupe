@@ -785,6 +785,7 @@ func main() {
 	// browser on another device (/api/handoff).
 	handoff := phoneURL(bannerCert, useTLS, *addr, authToken, advertised)
 	api.SetHandoffURL(handoff)
+	api.SetLAN(*addr, bannerCert)
 
 	go func() {
 		banner{

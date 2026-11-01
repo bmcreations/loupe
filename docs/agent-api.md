@@ -49,6 +49,7 @@ Common refusals on routes that change a device:
 | `GET`, `POST /api/clipboard` | Device clipboard |
 | `GET`, `POST /api/clipboard/shared` | Shared clipboard |
 | `GET /api/handoff` | Link that moves a session to another browser |
+| `GET /api/lan` | Addresses on the local network, and the key to check there |
 | `GET`, `POST`, `DELETE /api/overlays` | Images and boxes over the video |
 | `GET`, `POST /api/extensions` | Extension registry and proxy |
 | `GET`, `POST`, `DELETE /api/claims` | Claims |
@@ -574,6 +575,17 @@ focused, on the certificate's host and with the token. The Mac app's Continue
 in Browser opens it, copies it or shows it as a QR code. A server with no
 address another device can open (no TLS certificate) answers 404, and a fifth
 target is 400.
+
+### `GET /api/lan`
+
+Returns `{"urls", "spki"}`: `https://<address>:<port>` for each private IPv4
+address the server has now (10/8, 172.16/12, 192.168/16; not Tailscale's
+100.64/10), and the hex SHA-256 of its certificate's SubjectPublicKeyInfo.
+A native client on the same network connects to one of these URLs instead of
+the tunnel host. The certificate names the tunnel host, not the address, so the
+client checks the key against `spki`, which it read over a connection that
+verified. `urls` is empty when the server listens on loopback only, runs
+without TLS, or has no private address.
 
 ### `/api/overlays?target=<id>`
 

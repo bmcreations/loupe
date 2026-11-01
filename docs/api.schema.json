@@ -99,6 +99,9 @@
     "GET /api/handoff": {
       "$ref": "#/$defs/httpapi.HandoffResponse"
     },
+    "GET /api/lan": {
+      "$ref": "#/$defs/httpapi.LANResponse"
+    },
     "GET /api/overlays": {
       "$ref": "#/$defs/httpapi.OverlaysResponse"
     },
@@ -2775,6 +2778,23 @@
         "output",
         "bytes",
         "tookMs"
+      ],
+      "type": "object"
+    },
+    "httpapi.LANResponse": {
+      "properties": {
+        "spki": {
+          "type": "string"
+        },
+        "urls": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "urls"
       ],
       "type": "object"
     },
