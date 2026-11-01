@@ -105,7 +105,8 @@ func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
 // runPair is `loupe pair`: mint a pairing code for a person to type on a new
 // device, or with -bearer, mint one and redeem it at once for a client that
-// cannot open a link, printing the session token.
+// cannot open a link, printing the session token. The link and QR code are
+// opt-in with -link until the app that opens them is released.
 func runPair(args []string) int {
 	fs := flag.NewFlagSet("loupe pair", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -117,8 +118,9 @@ func runPair(args []string) int {
 		label   = fs.String("label", "", "a name for the paired device, shown in `loupe sessions`")
 		canPair = fs.Bool("can-pair", false, "let the paired device mint pairing codes of its own")
 		bearerF = fs.Bool("bearer", false, "redeem the code here and print a bearer session token instead")
+		linkF   = fs.Bool("link", false, "also print a link and QR code for the app (not released yet)")
 		hostF   = fs.String("host", "", "the name a phone reaches the server by, for the link (default: the name on its certificate)")
-		pngF    = fs.String("png", "", "also write the link's QR code to this PNG file")
+		pngF    = fs.String("png", "", "also write the link's QR code to this PNG file; implies -link")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -145,7 +147,24 @@ func runPair(args []string) int {
 		fmt.Println(sess.Token)
 		return 0
 	}
-	host := *hostF
+	if *linkF || *pngF != "" {
+		if err := printPairLink(c, code.Code, targets, *hostF, *pngF); err != nil {
+			fmt.Fprintln(os.Stderr, "loupe pair:", err)
+			return 1
+		}
+	}
+	fmt.Printf("code: %s\n", code.Code)
+	fmt.Printf("expires: %s (in %s); it works once\n", code.ExpiresAt.Local().Format(time.Kitchen), time.Until(code.ExpiresAt).Round(time.Second))
+	fmt.Printf("redeem: POST %s/api/pair {\"code\": \"%s\", \"kind\": \"browser\"|\"bearer\"|\"peer\"}\n", c.base, code.Code)
+	if !*linkF && *pngF == "" {
+		fmt.Fprintln(os.Stderr, "for an agent or a script, `loupe pair -bearer` prints a session token instead")
+	}
+	return 0
+}
+
+// printPairLink prints the pairing link and its QR code, and writes the QR
+// to png when it is set.
+func printPairLink(c *adminClient, code string, targets []string, host, png string) error {
 	if host == "" {
 		host = c.certName
 	}
@@ -158,22 +177,18 @@ func runPair(args []string) int {
 	}
 	// The QR uses the app's scheme, so Camera opens Handset; the text link
 	// is the same one over https, for pasting.
-	scanned := pairLink(handsetScheme, host, port, targets, code.Code)
-	fmt.Printf("link: %s\n", pairLink("https", host, port, targets, code.Code))
+	scanned := pairLink(handsetScheme, host, port, targets, code)
+	fmt.Printf("link: %s\n", pairLink("https", host, port, targets, code))
 	if qr, err := bannerQR(scanned); err == nil {
 		fmt.Print(qr)
 	}
-	if *pngF != "" {
-		if err := qrcode.WriteFile(scanned, qrcode.Medium, 512, *pngF); err != nil {
-			fmt.Fprintln(os.Stderr, "loupe pair: writing the QR:", err)
-			return 1
+	if png != "" {
+		if err := qrcode.WriteFile(scanned, qrcode.Medium, 512, png); err != nil {
+			return fmt.Errorf("writing the QR: %w", err)
 		}
-		fmt.Printf("qr: %s\n", *pngF)
+		fmt.Printf("qr: %s\n", png)
 	}
-	fmt.Printf("code: %s\n", code.Code)
-	fmt.Printf("expires: %s (in %s); it works once\n", code.ExpiresAt.Local().Format(time.Kitchen), time.Until(code.ExpiresAt).Round(time.Second))
-	fmt.Printf("redeem: POST %s/api/pair {\"code\": \"%s\", \"kind\": \"browser\"|\"bearer\"|\"peer\"}\n", c.base, code.Code)
-	return 0
+	return nil
 }
 
 // handsetScheme is the URL scheme Handset registers for pairing links.
