@@ -203,9 +203,9 @@ func TestAttachLearnsAPauseLeftByAPreviousProcess(t *testing.T) {
 	}
 }
 
-// getprop hangs on a paused guest, so naming an emulator falls back to the
-// console, or after a restart a paused emulator would never be attached.
-func TestNameEmulatorFallsBackToTheConsole(t *testing.T) {
+// getprop hangs on a paused guest, so naming an emulator asks the console,
+// or after a restart a paused emulator would never be attached.
+func TestNameEmulatorAsksTheConsoleOfAPausedEmulator(t *testing.T) {
 	f := newPauseFake(t, true)
 	name, err := nameEmulator(context.Background(), f.adb, "emulator-5554")
 	if err != nil || name != "test_avd" {
@@ -213,6 +213,45 @@ func TestNameEmulatorFallsBackToTheConsole(t *testing.T) {
 	}
 	if calls := f.calls(t); count(calls, "name") != 1 {
 		t.Fatalf("console not asked: %v", calls)
+	}
+}
+
+// nameFake is an adb whose console and getprop give their own AVD names. An
+// empty console name makes the console fail.
+func nameFake(t *testing.T, console, prop string) ADB {
+	t.Helper()
+	emu := `echo "KO: no console"; exit 1`
+	if console != "" {
+		emu = `echo ` + console + `; echo OK`
+	}
+	script := `#!/bin/sh
+case "$*" in
+  *"emu avd name"*) ` + emu + ` ;;
+  *"getprop ro.boot.qemu.avd_name"*) echo ` + prop + ` ;;
+esac
+`
+	bin := filepath.Join(t.TempDir(), "adb")
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return ADB{Path: bin}
+}
+
+// An AVD folder copied with its snapshot boots from it, and the restored RAM
+// still names the source in ro.boot.qemu.avd_name. The console names the copy.
+func TestNameEmulatorNamesACopiedAVDByItsConsole(t *testing.T) {
+	adb := nameFake(t, "copy_avd", "base_avd")
+	name, err := nameEmulator(context.Background(), adb, "emulator-5554")
+	if err != nil || name != "copy_avd" {
+		t.Fatalf("nameEmulator = %q, %v, want copy_avd", name, err)
+	}
+}
+
+func TestNameEmulatorFallsBackToGetprop(t *testing.T) {
+	adb := nameFake(t, "", "test_avd")
+	name, err := nameEmulator(context.Background(), adb, "emulator-5554")
+	if err != nil || name != "test_avd" {
+		t.Fatalf("nameEmulator = %q, %v, want test_avd", name, err)
 	}
 }
 

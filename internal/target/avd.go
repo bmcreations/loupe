@@ -13,8 +13,8 @@ import (
 // AVD is one installed Android Virtual Device, read from disk without booting
 // it. It is enough to list the AVD and describe it; only booting needs the SDK.
 type AVD struct {
-	// Name is what `emulator -avd` takes and what ro.boot.qemu.avd_name reports
-	// once it runs, which is how a running emulator is mapped back to it.
+	// Name is what `emulator -avd` takes and what its console reports once it
+	// runs, which is how a running emulator is mapped back to it.
 	Name string
 	// Dir is the .avd directory holding config.ini.
 	Dir string

@@ -305,9 +305,9 @@ func (r *releaseOnClose) Close() error {
 	return err
 }
 
-// ConsoleAVDName is the AVD name from the emulator console. It answers
-// while the VM is paused, when getprop would hang, so it is the fallback
-// for naming an emulator AVDName could not.
+// ConsoleAVDName is the AVD name from the emulator console: the AVD the
+// emulator process was started with. It answers while the VM is paused, when
+// getprop would hang.
 func (a ADB) ConsoleAVDName(ctx context.Context, serial string) (string, error) {
 	out, err := a.Emu(ctx, serial, "avd", "name")
 	if err != nil {
@@ -322,19 +322,24 @@ func (a ADB) ConsoleAVDName(ctx context.Context, serial string) (string, error) 
 	return "", fmt.Errorf("console on %s reports no avd name", serial)
 }
 
-// nameEmulator reads an emulator's AVD name through getprop, then through
-// the console when getprop fails or hangs past resolveTimeout.
+// nameEmulator reads an emulator's AVD name through the console, then
+// through getprop when the console fails or hangs past resolveTimeout.
+//
+// The console comes first because getprop can name the wrong AVD. An AVD
+// folder copied from another one, snapshot included, boots from that
+// snapshot, and ro.boot.qemu.avd_name comes back from the restored RAM with
+// the source's name while the console names the copy.
 func nameEmulator(ctx context.Context, adb ADB, serial string) (string, error) {
-	rctx, cancel := context.WithTimeout(ctx, resolveTimeout)
-	name, err := adb.AVDName(rctx, serial)
+	cctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+	name, err := adb.ConsoleAVDName(cctx, serial)
 	cancel()
 	if err == nil {
 		return name, nil
 	}
-	cctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+	rctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
-	if cname, cerr := adb.ConsoleAVDName(cctx, serial); cerr == nil {
-		return cname, nil
+	if pname, perr := adb.AVDName(rctx, serial); perr == nil {
+		return pname, nil
 	}
 	return "", err
 }

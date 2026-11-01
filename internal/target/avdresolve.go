@@ -52,9 +52,9 @@ func (r *AVDResolver) Resolve(ctx context.Context, devices []DeviceInfo) []Devic
 		if !d.Ready() {
 			continue
 		}
-		// getprop, then the console: an emulator a previous server process
+		// The console, then getprop: an emulator a previous server process
 		// paused answers only the console, and unnamed it would never attach
-		// and every open would try to boot a second copy.
+		// and every open would try to boot a second copy. See nameEmulator.
 		name, err := nameEmulator(ctx, r.adb, d.Serial)
 		if err != nil {
 			continue

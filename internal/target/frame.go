@@ -182,7 +182,7 @@ func (t *ADBTarget) skinFrame(ctx context.Context) (*DeviceFrame, error) {
 // skin.path absolutely, which is why nothing here has to find ANDROID_HOME --
 // it is routinely unset on a machine where the SDK still works fine.
 func (t *ADBTarget) skinLayout(ctx context.Context) (string, *skinNode, error) {
-	avd, err := t.adb.AVDName(ctx, t.info.Serial)
+	avd, err := nameEmulator(ctx, t.adb, t.info.Serial)
 	if err != nil {
 		return "", nil, err
 	}
