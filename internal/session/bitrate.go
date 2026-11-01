@@ -155,6 +155,38 @@ const (
 	// anything moving on screen still produces at the encoder's rate, so this
 	// hides no real starvation. The idle test's 10fps clears it.
 	minWindowFrameRate = 6
+
+	// recoverRTTFactor and recoverRTTSlack define a link that is clearly
+	// healthy: the current round trip (not the smoothed one, which lags a
+	// recovery by seconds) within the larger of recoverRTTFactor times the
+	// path baseline or the baseline plus recoverRTTSlack. The slack keeps a
+	// 5ms LAN from reading a 12ms blip as congestion.
+	recoverRTTFactor = 2.0
+	recoverRTTSlack  = 40 * time.Millisecond
+
+	// recoverWindow and liveRecoverWindow are how long the link must stay
+	// clearly healthy, with no capacity shed (pacer, stale, abandon), before
+	// the controller steps up without waiting for upWindow. A relaunch costs a
+	// restart, so it waits longer than a live change does.
+	//
+	// A trace of a Tailscale relay slowing for ~18s left a session at the
+	// floor for the 60s upWindow after the link was back, with the change cap
+	// possibly spent on the way down.
+	recoverWindow     = 10 * time.Second
+	liveRecoverWindow = 5 * time.Second
+
+	// recoverHold is how long fast recovery is off after a step down that
+	// followed a fast-recovery step up closely. It is the hysteresis: a link
+	// that cannot hold the rate fast recovery chose is left to the slow path.
+	recoverHold = 2 * time.Minute
+
+	// recoverHuntWindow is how soon after a fast step up a step down counts
+	// as the step up having been wrong.
+	recoverHuntWindow = 45 * time.Second
+
+	// awaitHealthyGrace is how long the link must have read healthy before
+	// keyframe waits stop counting toward the starved and undercarried gates.
+	awaitHealthyGrace = 3 * time.Second
 )
 
 // bitrateWindows is the part of the policy that depends on what a change
@@ -163,14 +195,16 @@ type bitrateWindows struct {
 	settle     time.Duration
 	up         time.Duration
 	maxChanges int
+	// recover is the healthy stretch fast recovery needs.
+	recover time.Duration
 	// capPeriod is how far back maxChanges counts, or zero for the whole
 	// session.
 	capPeriod time.Duration
 }
 
 var (
-	relaunchWindows = bitrateWindows{settle: settleWindow, up: upWindow, maxChanges: maxAdaptiveChanges}
-	liveWindows     = bitrateWindows{settle: liveSettleWindow, up: liveUpWindow, maxChanges: maxLiveAdaptiveChanges, capPeriod: liveCapPeriod}
+	relaunchWindows = bitrateWindows{settle: settleWindow, up: upWindow, maxChanges: maxAdaptiveChanges, recover: recoverWindow}
+	liveWindows     = bitrateWindows{settle: liveSettleWindow, up: liveUpWindow, maxChanges: maxLiveAdaptiveChanges, recover: liveRecoverWindow, capPeriod: liveCapPeriod}
 )
 
 // BitrateSample is one interval's worth of session counters.
@@ -190,6 +224,11 @@ type BitrateSample struct {
 	// Bytes is what actually reached the transport, which is the only
 	// measurement of what the link will carry.
 	Bytes uint64
+	// RTT and BaseRTT are the slowest viewer's current round trip and its
+	// path baseline, or zero when no viewer had a fresh reading. They let the
+	// controller tell a recovered link from a slow one without waiting for
+	// shed counters or a smoothed rtt to say so.
+	RTT, BaseRTT time.Duration
 }
 
 // BitrateGate names the branch a decision came out of.
@@ -240,6 +279,9 @@ const (
 	// the viewer spends a meaningful share of the window awaiting keyframes,
 	// below what either the shed or the starved gate reads as bad.
 	GateUndercarried BitrateGate = "undercarried"
+	// GateRecover is a step up taken early because the link has been clearly
+	// healthy for recoverWindow. It does not count against the change cap.
+	GateRecover BitrateGate = "recover"
 	// GateDown and GateUp are the two decisions.
 	GateDown BitrateGate = "down"
 	GateUp   BitrateGate = "up"
@@ -310,6 +352,16 @@ type BitrateAdapter struct {
 	// produces nothing for as long as nobody touches it (trap 20).
 	lastSample time.Time
 	active     time.Duration
+
+	// healthyFor is how long the link has read clearly healthy without
+	// interruption (see linkHealthy), and healthyAt is when it was last
+	// updated.
+	healthyFor time.Duration
+	healthyAt  time.Time
+	// lastRecover is when fast recovery last stepped up, and holdUntil is when
+	// it may next (see recoverHold).
+	lastRecover time.Time
+	holdUntil   time.Time
 	// awaiting is how much of active held a keyframe wait.
 	awaiting time.Duration
 }
@@ -359,6 +411,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	a.acc.Shed += s.Shed
 	a.acc.AwaitKey += s.AwaitKey
 	a.acc.Bytes += s.Bytes
+	a.trackHealth(now, s)
 
 	if !a.lastChange.IsZero() && now.Sub(a.lastChange) < a.windows.settle {
 		// Keep the window anchored to the end of the settle period rather than
@@ -366,6 +419,18 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 		rep := a.report(now, GateSettling)
 		a.reset(now)
 		return 0, rep
+	}
+	// Fast recovery runs ahead of the cap: a session that spent its changes
+	// on the way down must not stay blurry after the link is back. Its steps
+	// are not counted (commitRecover), and recoverHold bounds hunting.
+	if a.current < a.configured && a.healthyFor >= a.windows.recover && !now.Before(a.holdUntil) {
+		next := a.current * 3 / 2
+		if next > a.configured {
+			next = a.configured
+		}
+		if rn, rep := a.commitRecover(now, next); rn != 0 {
+			return rn, rep
+		}
 	}
 	if a.recentChanges(now) >= a.windows.maxChanges {
 		return 0, a.report(now, GateCapped)
@@ -386,7 +451,14 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	shedFrac := float64(a.acc.Shed) / float64(a.acc.Frames)
 	awaitFrac := float64(a.acc.AwaitKey) / float64(a.acc.Frames)
 
-	if awaitFrac >= starvedAwaitFraction && a.awaitTimeFrac() >= starvedAwaitFraction {
+	// A keyframe wait is a consequence of an earlier drop, so it argues for a
+	// smaller encoder only while the link still looks slow. Once the current
+	// rtt is back near baseline with nothing shed, the wait is draining the
+	// backlog the slow stretch left, and cutting the bitrate for it punishes
+	// a link that has already recovered.
+	awaitIsSignal := a.healthyFor < awaitHealthyGrace
+
+	if awaitIsSignal && awaitFrac >= starvedAwaitFraction && a.awaitTimeFrac() >= starvedAwaitFraction {
 		// Aim at the measured goodput, with a halving as the ceiling on the
 		// step rather than the step itself.
 		//
@@ -441,7 +513,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 		return a.commit(now, next, GateDown)
 	}
 
-	if awaitFrac >= undercarriedAwaitFraction && a.awaitTimeFrac() >= undercarriedAwaitFraction {
+	if awaitIsSignal && awaitFrac >= undercarriedAwaitFraction && a.awaitTimeFrac() >= undercarriedAwaitFraction {
 		if goodput := a.goodput(); goodput > 0 &&
 			float64(goodput) < float64(a.current)*undercarriedGoodputFraction {
 			// Aim at what the link carried, as the other two gates do. It is
@@ -498,6 +570,56 @@ func (a *BitrateAdapter) report(now time.Time, gate BitrateGate) BitrateReport {
 	return rep
 }
 
+// trackHealth extends or breaks the healthy stretch. An interval is healthy
+// when a current rtt is known and near baseline and nothing was shed for
+// capacity. An interval the encoder produced nothing in says nothing, so it
+// neither extends nor breaks the stretch.
+func (a *BitrateAdapter) trackHealth(now time.Time, s BitrateSample) {
+	dt := now.Sub(a.healthyAt)
+	a.healthyAt = now
+	if s.Frames == 0 && s.Shed == 0 {
+		return
+	}
+	if linkHealthy(s.RTT, s.BaseRTT) && s.Shed == 0 {
+		if dt > 0 && dt < 5*time.Second {
+			a.healthyFor += dt
+		}
+		return
+	}
+	a.healthyFor = 0
+}
+
+// linkHealthy reports a current rtt within recoverRTTFactor of baseline, or
+// within recoverRTTSlack of it.
+func linkHealthy(rtt, base time.Duration) bool {
+	if rtt <= 0 || base <= 0 {
+		return false
+	}
+	limit := time.Duration(recoverRTTFactor * float64(base))
+	if l := base + recoverRTTSlack; l > limit {
+		limit = l
+	}
+	return rtt <= limit
+}
+
+// commitRecover steps up for fast recovery. Unlike commit it neither counts
+// against the cap nor stays quiet on a too-small move that would loop: it
+// restarts the healthy stretch so the next step needs a fresh one.
+func (a *BitrateAdapter) commitRecover(now time.Time, next int) (int, BitrateReport) {
+	if next <= a.current || float64(next-a.current)/float64(a.current) < minChangeFraction {
+		return 0, BitrateReport{}
+	}
+	from := a.current
+	a.current = next
+	a.lastChange = now
+	a.lastRecover = now
+	rep := a.report(now, GateRecover)
+	rep.From, rep.To = from, next
+	a.reset(now)
+	a.healthyFor = 0
+	return next, rep
+}
+
 // commit accepts a proposed bitrate if the move is large enough to be worth an
 // encoder restart, and resets the window either way.
 func (a *BitrateAdapter) commit(now time.Time, next int, gate BitrateGate) (int, BitrateReport) {
@@ -516,7 +638,13 @@ func (a *BitrateAdapter) commit(now time.Time, next int, gate BitrateGate) (int,
 		return 0, rep
 	}
 	from := a.current
+	if next < from && !a.lastRecover.IsZero() && now.Sub(a.lastRecover) < recoverHuntWindow {
+		// A step down soon after a fast step up: the link could not hold what
+		// recovery chose. Leave further recovery to the slow upWindow path.
+		a.holdUntil = now.Add(recoverHold)
+	}
 	a.current = next
+	a.healthyFor = 0
 	a.changes++
 	a.changedAt = append(a.changedAt, now)
 	a.lastChange = now
@@ -546,7 +674,10 @@ func (a *BitrateAdapter) recentChanges(now time.Time) int {
 // meaningful while it is measuring something, so a caller that cannot supply a
 // sample says so here rather than feeding a zero, which reads exactly like a
 // link that carried nothing.
-func (a *BitrateAdapter) Reset(now time.Time) { a.reset(now) }
+func (a *BitrateAdapter) Reset(now time.Time) {
+	a.reset(now)
+	a.healthyFor = 0
+}
 
 func (a *BitrateAdapter) reset(now time.Time) {
 	a.windowStart = now

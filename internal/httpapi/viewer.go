@@ -227,6 +227,10 @@ func statsMsgBody(tick healthTick, verdict, healthReason string, shed uint64, ba
 	return msg
 }
 
+// staleReleaser is a transport that can reset the frames it has written but the
+// peer may not have received. The viewer loop calls it on entering needKey.
+type staleReleaser interface{ ReleaseStale() int }
+
 // keyframeRequestInterval bounds how often a viewer may ask the device for a
 // fresh keyframe. Each request costs a full intra-coded frame, and under
 // sustained shedding the request path runs once per frame, so unbounded it
@@ -412,6 +416,18 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		// needKey gates decode-unusable frames after a shed: an inter-frame
 		// whose predecessors were dropped decodes into visible garbage.
 		needKey := false
+		// startNeedKey enters needKey. On the transition it also resets the
+		// inter-frame streams already written, so they stop competing with the
+		// recovery keyframe for the link: a real trace held 32 of them
+		// in flight on a 150-200ms path while 566 frames shed awaiting a key.
+		rel, canRelease := conn.(staleReleaser)
+		startNeedKey := func() {
+			if !needKey && canRelease {
+				rel.ReleaseStale()
+			}
+			needKey = true
+			askForKey()
+		}
 		pacer := session.NewPacer()
 
 		// rttSource records which signal the last pacer sample came from, so a
@@ -441,6 +457,22 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				lastClientAt = at
 			}
 			return rtt, fresh
+		}
+
+		// nowRTT is the current round trip, unsmoothed: the transport's latest
+		// sample, else the phone's last-second figure. Recovery reads this
+		// rather than pathRTT, whose smoothing lags a recovered link.
+		nowRTT := func() time.Duration {
+			if nr, ok := conn.(interface{ NowRTT() time.Duration }); ok {
+				if d := nr.NowRTT(); d > 0 {
+					return d
+				}
+			}
+			ms, at := sess.ClientRTTNow()
+			if ms > 0 && !at.IsZero() && time.Since(at) <= clientRTTMaxAge {
+				return time.Duration(ms * float64(time.Millisecond))
+			}
+			return 0
 		}
 
 		// checkPeerWindow asks the client to move to a fresh connection when
@@ -505,14 +537,12 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 						continue
 					}
 					if !pacer.Admit() {
-						needKey = true
-						askForKey()
+						startNeedKey()
 						sess.NoteShed(session.ShedPacer)
 						continue
 					}
 					if time.Since(msg.QueuedAt) > session.StalenessFor(pacer.Base()) {
-						needKey = true
-						askForKey()
+						startNeedKey()
 						sess.NoteShed(session.ShedStale)
 						continue
 					}
@@ -532,8 +562,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					// will discard, so this breaks the decode chain exactly
 					// like a shed does -- including when the abandoned frame
 					// was the keyframe that was meant to end the last wait.
-					needKey = true
-					askForKey()
+					startNeedKey()
 					sess.NoteShed(session.ShedAbandon)
 					continue
 				}
@@ -548,6 +577,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				}
 
 			case <-stats.C:
+				sess.NoteLinkRTT(viewerID, nowRTT(), pacer.Base())
 				body, rec, err := runStatsTick(targetID, counters, healthTrack, pacer, conn, rttSource)
 				if err != nil {
 					continue

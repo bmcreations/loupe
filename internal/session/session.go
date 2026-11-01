@@ -143,6 +143,12 @@ type viewer struct {
 	joined time.Time
 	sent   atomic.Uint64
 
+	// linkNowNs, linkBaseNs and linkAt are the viewer's current round trip,
+	// its path's baseline, and when they were noted (UnixNano). The bitrate
+	// controller reads them to tell a link that has recovered from one that
+	// is still slow; see NoteLinkRTT.
+	linkNowNs, linkBaseNs, linkAt atomic.Int64
+
 	// scrollMu guards scrollAccH, scrollAccV, scrollLastX, scrollLastY and
 	// scrollTimer. ViewerScroll runs on this viewer's own read loop, but the
 	// trailing flush that ends a burst runs on a time.AfterFunc goroutine, so
@@ -297,6 +303,9 @@ type Session struct {
 	// connection that had already failed.
 	clientRTT   float64
 	clientRTTAt time.Time
+	// clientRTTNow and clientRTTNowAt are the unsmoothed counterpart.
+	clientRTTNow   float64
+	clientRTTNowAt time.Time
 
 	// framesIn counts access units the encoder produced, before any fan-out
 	// decision. It is the denominator the bitrate controller needs: framesOut
@@ -583,6 +592,21 @@ func (s *Session) ShedBreakdown() ShedCounts {
 	}
 }
 
+// NoteLinkRTT records a viewer's current round trip (not a smoothed one) and
+// its path baseline. The bitrate controller steps back up early only while
+// every viewer's current rtt sits near its baseline.
+func (s *Session) NoteLinkRTT(viewerID uint64, now, base time.Duration) {
+	s.mu.RLock()
+	v := s.viewers[viewerID]
+	s.mu.RUnlock()
+	if v == nil || now <= 0 || base <= 0 {
+		return
+	}
+	v.linkNowNs.Store(int64(now))
+	v.linkBaseNs.Store(int64(base))
+	v.linkAt.Store(time.Now().UnixNano())
+}
+
 // RecordClientStats stores the most recent metrics reported by a viewer.
 // Only the newest sample is kept: this feeds a once-per-second trace record,
 // not a history.
@@ -598,6 +622,13 @@ func (s *Session) RecordClientStats(raw map[string]any) {
 		s.clientRTT = v
 		s.clientRTTAt = time.Now()
 	}
+	// rttNowMs is the last second's pings alone, where rttMs is a display
+	// EWMA that took ~10s to fall from 1594ms after a link recovered. Recovery
+	// decisions read this one.
+	if v, ok := raw["rttNowMs"].(float64); ok && v > 0 {
+		s.clientRTTNow = v
+		s.clientRTTNowAt = time.Now()
+	}
 	s.mu.Unlock()
 }
 
@@ -607,6 +638,14 @@ func (s *Session) ClientRTT() float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.clientRTT
+}
+
+// ClientRTTNow returns the phone's last-second round trip in milliseconds and
+// when it was recorded, or zero values before one arrives.
+func (s *Session) ClientRTTNow() (float64, time.Time) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.clientRTTNow, s.clientRTTNowAt
 }
 
 // ClientRTTAt returns the same measurement together with when it was recorded,

@@ -129,6 +129,9 @@ type qConn struct {
 	bytes     atomic.Uint64 // header+payload bytes written
 	slotWait  atomic.Uint64 // longest wait for a slot, reset each report
 	lastErr   atomic.Value  // string
+	released  atomic.Uint64 // in-flight inter-frames reset to clear the way for a keyframe
+
+	inflight inflightFrames
 }
 
 // acceptStreams sorts the client's streams by their first byte: the first
@@ -190,6 +193,9 @@ func (c *qConn) Name() string { return "quic" }
 
 func (c *qConn) PathRTT() time.Duration { return c.qc.ConnectionStats().SmoothedRTT }
 
+// NowRTT is the latest RTT sample, where PathRTT is the smoothed one.
+func (c *qConn) NowRTT() time.Duration { return c.qc.ConnectionStats().LatestRTT }
+
 // SendFrame writes f on the next slot. With no slot ready it waits until the
 // deadline, as wtConn waits for stream credit: a client that has not returned
 // slots is a client that has not read its frames, which is the backpressure
@@ -236,7 +242,15 @@ func (c *qConn) SendFrame(f session.OutMsg, deadline time.Time) error {
 	}
 	c.bytes.Add(uint64(len(header) + len(payload)))
 	c.sent.Add(1)
+	c.inflight.note(f.Key || f.Config, func() { st.CancelWrite(0) })
 	return nil
+}
+
+// ReleaseStale implements staleReleaser.
+func (c *qConn) ReleaseStale() int {
+	n := c.inflight.CancelStale()
+	c.released.Add(uint64(n))
+	return n
 }
 
 func (c *qConn) abandon(st *quic.Stream, stage string, err error) error {
@@ -283,6 +297,9 @@ func (c *qConn) TransportStats() map[string]any {
 		"starved":   c.starved.Load(),
 		"bytes":     c.bytes.Load(),
 		"slotsHeld": len(c.slots),
+	}
+	if v := c.released.Load(); v > 0 {
+		m["released"] = v
 	}
 	if v := c.refused.Load(); v > 0 {
 		m["slotsRefused"] = v

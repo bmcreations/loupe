@@ -88,6 +88,8 @@ type wtConn struct {
 	// request context. It is what makes PathRTT possible.
 	qconn *quic.Conn
 
+	inflight inflightFrames
+
 	mu      sync.Mutex
 	frameID uint32
 
@@ -258,6 +260,14 @@ func (c *wtConn) PathRTT() time.Duration {
 	return c.qconn.ConnectionStats().SmoothedRTT
 }
 
+// NowRTT is the latest RTT sample, where PathRTT is the smoothed one.
+func (c *wtConn) NowRTT() time.Duration {
+	if c.qconn == nil {
+		return 0
+	}
+	return c.qconn.ConnectionStats().LatestRTT
+}
+
 // SendFrame opens a fresh unidirectional stream for one access unit and writes
 // it there. If the frame outlives its deadline before the write completes, the
 // stream is reset so the remaining bytes are never sent and the receiver
@@ -355,8 +365,12 @@ func (c *wtConn) SendFrame(f session.OutMsg, deadline time.Time) error {
 	}
 	c.stat.sent.Add(1)
 	c.lastSent.Store(time.Now().UnixNano())
+	c.inflight.note(f.Key || f.Config, func() { stream.CancelWrite(0) })
 	return nil
 }
+
+// ReleaseStale implements staleReleaser.
+func (c *wtConn) ReleaseStale() int { return c.inflight.CancelStale() }
 
 // PeerWindow implements peerWindow.
 func (c *wtConn) PeerWindow() peerSpend {

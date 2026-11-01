@@ -302,8 +302,35 @@ func (b *bitrateSampler) next(s *Session, now time.Time) (BitrateSample, bool) {
 		return BitrateSample{}, false
 	}
 	sample.Bytes = bytes
+	sample.RTT, sample.BaseRTT = s.linkRTT(now)
 	return sample, true
 }
+
+// linkRTT reports the worst current rtt and its baseline across viewers that
+// noted one in the last linkRTTMaxAge, or zeros when none did. Worst means the
+// highest ratio, because the encoder is shared and the slowest viewer sets what
+// it must fit inside.
+func (s *Session) linkRTT(now time.Time) (cur, base time.Duration) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var worst float64
+	for _, v := range s.viewers {
+		at := v.linkAt.Load()
+		n, b := time.Duration(v.linkNowNs.Load()), time.Duration(v.linkBaseNs.Load())
+		if at == 0 || n <= 0 || b <= 0 || now.Sub(time.Unix(0, at)) > linkRTTMaxAge {
+			// A viewer with no fresh reading is unknown, and unknown is not
+			// healthy.
+			return 0, 0
+		}
+		if r := float64(n) / float64(b); r >= worst {
+			worst, cur, base = r, n, b
+		}
+	}
+	return cur, base
+}
+
+// linkRTTMaxAge is how old a viewer's rtt reading may be and still count.
+const linkRTTMaxAge = 3 * time.Second
 
 // intervalBytes reports how many payload bytes reached the slowest viewer that
 // was attached for the whole interval, and whether any viewer qualified.

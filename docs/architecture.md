@@ -194,6 +194,10 @@ the file: the token has its own file and permissions.
 
 ### Adaptive bitrate
 
+(When a viewer starts waiting for a keyframe, QUIC and WebTransport also reset
+the inter-frame streams already written, so they stop competing with the
+keyframe for the link.)
+
 `bitRate` is a ceiling, not a fixed rate. When the link cannot carry what the
 encoder produces, the session relaunches the encoder lower and probes back up.
 An encoder that can change rate while running (a simulator's) is changed in
@@ -210,6 +214,12 @@ How it decides:
   waits on keyframes for a fifth of the window steps down too.
 - **Up:** after 60s with almost no shedding and almost no keyframe waiting, by
   half, with a 12s settle after each change and at most six changes per session.
+- **Fast recovery:** when each viewer's current round trip (not the smoothed
+  one) sits within 2x its baseline, or baseline plus 40ms, with nothing shed for
+  capacity, for 10s (5s live), the rate steps up by half without waiting for the
+  60s. These steps do not count against the change cap. A step down within 45s of
+  one turns fast recovery off for two minutes. Keyframe waits stop counting as a
+  down signal once the link has read healthy for 3s.
 - **A live-changing encoder** (a simulator's) settles for 2s, needs 15s clean to
   step up, and allows 24 changes in any 30 minutes.
 - **Slowest viewer wins:** the encoder is shared, so it fits inside the slower
