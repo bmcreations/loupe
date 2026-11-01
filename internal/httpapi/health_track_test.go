@@ -807,9 +807,10 @@ func TestAKeyframeWaitAloneDoesNotReadDegraded(t *testing.T) {
 	}
 }
 
-// Both resizes in the trace were followed by one "decoder rejected 1 frames",
-// the old size's last frame reaching the new decoder. One right after a
-// parameter set is forgiven; one outside the grace, or two inside it, are not.
+// Resizes in the trace were followed by "decoder rejected 1 frames" and then
+// "decoder rejected 2 frames", the old size's last frames reaching the new
+// decoder. Up to three right after a parameter set are forgiven; more inside
+// the grace, or any outside it, are not.
 func TestOneDecodeErrorAfterAConfigIsForgiven(t *testing.T) {
 	attachedAt := time.Unix(62000, 0)
 	tr := newHealthTracker(attachedAt, nil)
@@ -820,13 +821,13 @@ func TestOneDecodeErrorAfterAConfigIsForgiven(t *testing.T) {
 	}
 	report(1, 0)
 	tr.NoteConfig(attachedAt.Add(1500 * time.Millisecond))
-	if v, why := session.Health(report(2, 1).Input); v != "good" {
-		t.Errorf("one rejection after a config read %s (%q)", v, why)
+	if v, why := session.Health(report(2, 2).Input); v != "good" {
+		t.Errorf("two rejections after a config read %s (%q)", v, why)
 	}
-	if v, _ := session.Health(report(3, 3).Input); v != "bad" {
-		t.Errorf("two rejections read %s, want bad", v)
+	if v, _ := session.Health(report(3, 6).Input); v != "bad" {
+		t.Errorf("four rejections read %s, want bad", v)
 	}
-	if v, _ := session.Health(report(8, 4).Input); v != "bad" {
+	if v, _ := session.Health(report(8, 7).Input); v != "bad" {
 		t.Errorf("a rejection outside the grace read %s, want bad", v)
 	}
 }

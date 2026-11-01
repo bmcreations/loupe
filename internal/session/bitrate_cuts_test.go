@@ -20,7 +20,7 @@ func TestABurstAfterAnIdleScreenDoesNotCutToTheIdleGoodput(t *testing.T) {
 	start := time.Now()
 	a.Observe(start, BitrateSample{})
 	rtt := func(s BitrateSample) BitrateSample {
-		s.RTT, s.BaseRTT = 250*time.Millisecond, 100*time.Millisecond // inside a spike
+		s.RTT, s.BaseRTT = 180*time.Millisecond, 100*time.Millisecond // raised, but under the delay-cut line
 		return s
 	}
 	idle := rtt(BitrateSample{Frames: 2, Bytes: 20_000})

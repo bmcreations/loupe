@@ -207,7 +207,25 @@ How it decides:
 
 - **The measure is goodput:** payload bytes that actually reached a viewer, not
   bytes offered to the link. A frame the transport reset mid-flight does not
-  count as delivered.
+  count as delivered. It is taken over busy intervals only (10 or more frames a
+  second), and only once there are 2s of them making up half the active time. A
+  static screen sends 2 small frames a second, which is what the screen needed
+  rather than what the link carries, so the goodput-aimed gates decline
+  (`idle`) until a window measured the link.
+- **Delay cut (immediate):** when a viewer's current round trip stays above 2x
+  its baseline, or baseline plus 80ms, for 0.5s (two consecutive one-second
+  samples) while the screen is busy, the rate is cut at once, ahead of the
+  windows and the change cap. It aims at 0.8 of the bytes the link carried
+  during the run (a saturated link delivers its capacity), or 0.7 of the
+  current rate when keyframe waits left nothing to measure, and never leaves
+  more than 0.85 of the current rate. It does not change the picture size. It
+  does not count against the change cap, but is limited to 8 per 10 minutes
+  (3 for a relaunched encoder, which also settles 12s after each). After one,
+  fast recovery additionally needs the viewer to be free of keyframe waits, so a
+  link whose round trip came back but is still draining a backlog is not
+  stepped up. A delay cut within 45s of a fast step up turns fast recovery off
+  for two minutes. A single spike, or a slow round trip on a near-idle screen,
+  does not cut.
 - **Down:** on sustained shedding the new rate is the measured goodput, floored
   at 250 kbps. On a starved link it is goodput again, and one step at most
   halves the rate. A link carrying under half the current rate while the viewer
@@ -219,16 +237,20 @@ How it decides:
   capacity, for 10s (5s live), the rate steps up by half without waiting for the
   60s. These steps do not count against the change cap. A step down within 45s of
   one turns fast recovery off for two minutes. Keyframe waits stop counting as a
-  down signal once the link has read healthy for 3s.
+  down signal once the link has read healthy for 3s, whether or not an abandon
+  was shed in the same stretch.
 - **A live-changing encoder** (a simulator's) settles for 2s, needs 15s clean to
   step up, and allows 24 changes in any 30 minutes.
 - **Slowest viewer wins:** the encoder is shared, so it fits inside the slower
   link. An interval with no viewer attached throughout is not counted.
 
 **A simulator also steps down in size as the rate falls**, because a low rate
-over a large picture comes out as blocks. After each live rate change the size
-is picked from a ladder (native, then 1080, 900, 720, 540) so each pixel gets at
-least 0.07 bits; 540 is the floor. A step up needs 1.5 times the target, and
+over a large picture comes out as blocks. After each live rate change from the
+windowed gates (not a delay cut) the size is picked from a ladder (native, then
+1080, 900, 720, 540) so each pixel gets at least 0.07 bits; the ladder stops at
+900 because simcap has no runtime fps control. A relaunched encoder instead
+lowers the capture rate (60, 30, 20, 15) at the same bits-per-pixel target
+before anything else. A step up needs 1.5 times the target, and
 the native size returns only at the rate the session opened with. A recording
 holds the size, since the MP4 writer ends on a size change. Only simcap
 advertises `resize`, so Android and synthetic are unaffected.
@@ -243,6 +265,28 @@ go run ./cmd/linkshaper -listen 100.64.0.10:18471 -to 100.64.0.10:18470 \
     -plan "0s rate=0; 10s rate=400k delay=60ms queue=300ms"
 go run ./cmd/wtprobe -for 75s "https://100.64.0.10:18471/wt?target=synthetic"
 ```
+
+**A returning client resumes where it was.** When a viewer leaves, the
+session's rate is remembered for its path (remote IP and transport) if it had
+held for 20s. A new session opened for the same path within 30 minutes starts
+at that rate, below the configured one, and the controller climbs back to the
+configured rate by fast recovery. Unknown paths and LAN clients (private,
+loopback, link-local) start at the configured rate; the memory is in process
+and is lost on restart (`pathrate.go`). The size is not remembered.
+
+**A simulator sharpens when the screen goes still.** After motion (10 or more
+frames in the 2s before), when the screen has sent at most one frame in 400ms,
+simcap's rate is raised to 2x (up to 8 Mbps), a keyframe is requested, and the
+steady rate returns 0.8s later. One per still period (the keyframe's own frames
+do not re-arm it; three frames in 400ms do), at least 5s apart, and only while
+the rate has held for 20s, every viewer's round trip is near baseline, nothing
+has been shed for 3s and no viewer awaits a keyframe (`sharpen.go`). Android
+(scrcpy) and synthetic encoders cannot change rate live, so they are skipped.
+
+Health forgives up to three decoder rejections within 3s of a parameter set (a
+resize leaves frames of the old size in flight), counts keyframe waits only
+through the delivery ratio, and a picture gets up to 300ms of extra write
+deadline while the current round trip is above baseline.
 
 The policy lives in `bitrate.go` and the mechanism in `relaunch.go`, apart so
 the policy is cheap to test. On Android, scrcpy fixes the bitrate when the

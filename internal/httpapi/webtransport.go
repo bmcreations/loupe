@@ -648,7 +648,8 @@ func (s *Server) handleWebTransport(w http.ResponseWriter, r *http.Request) {
 	// A refusal now arrives as a closed session rather than a failed CONNECT.
 	// The client reads the reason from /api/targets either way (explainFailure),
 	// and it no longer retries the same refusal over WebSocket.
-	sess, err := s.mgr.Acquire(r.Context(), targetID)
+	path := pathKey("wt", r.RemoteAddr)
+	sess, err := s.mgr.AcquireFrom(r.Context(), targetID, path)
 	if err != nil {
 		s.trace.Record(map[string]any{"kind": "wt-error", "stage": "acquire", "err": err.Error()})
 		if errors.Is(err, ErrJustShutDown) {
@@ -670,7 +671,7 @@ func (s *Server) handleWebTransport(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.lastSent.Store(time.Now().UnixNano())
 	conn.lastRecv.Store(time.Now().UnixNano())
-	s.serveViewerWith(targetID, sess, conn, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode"))})
+	s.serveViewerWith(targetID, sess, conn, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode"))}, path)
 }
 
 // diagnoseStreams opens one stream of each direction and records how long each

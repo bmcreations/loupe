@@ -152,7 +152,43 @@ func (s *Session) AdaptBitRate() bool {
 		return false
 	}
 	go s.adaptLoop(s.newBitrateAdapter())
+	// One sharp frame after motion needs an encoder that takes a rate live.
+	if s.liveBitRate() {
+		go s.sharpenLoop()
+	}
 	return true
+}
+
+// SetBitRateCeiling sets the rate the controller may climb back to and the
+// rate the size ladder holds the native size at, for a session that was opened
+// below it (a returning client path, see httpapi's path memory). Called before
+// AdaptBitRate; without it the opening rate is both.
+func (s *Session) SetBitRateCeiling(bps int) {
+	if bps <= 0 {
+		return
+	}
+	s.streamMu.Lock()
+	s.openBitRate = bps
+	s.streamMu.Unlock()
+}
+
+// StableBitRate reports the encoder's current rate and whether it has held
+// for at least minAge, counted from the last change or from the session's
+// opening. A rate that is still being cut or climbed is not one that worked.
+func (s *Session) StableBitRate(now time.Time, minAge time.Duration) (int, bool) {
+	s.mu.RLock()
+	since := s.openedAt
+	if n := len(s.bitrateLog); n > 0 && s.bitrateLog[n-1].At.After(since) {
+		since = s.bitrateLog[n-1].At
+	}
+	s.mu.RUnlock()
+	s.streamMu.Lock()
+	rate, busy := s.opts.BitRate, s.relaunching || s.closing || s.ended
+	s.streamMu.Unlock()
+	if busy || rate <= 0 || now.Sub(since) < minAge {
+		return 0, false
+	}
+	return rate, true
 }
 
 // newBitrateAdapter picks the adapter whose windows match what a change will
@@ -161,10 +197,23 @@ func (s *Session) AdaptBitRate() bool {
 // never swapped for one that does -- a simulator is never relaunched, and a
 // device's relaunch opens another scrcpy server.
 func (s *Session) newBitrateAdapter() *BitrateAdapter {
-	if s.liveBitRate() {
-		return NewLiveBitrateAdapter(s.CurrentBitRate())
+	s.streamMu.Lock()
+	ceiling := s.openBitRate
+	s.streamMu.Unlock()
+	cur := s.CurrentBitRate()
+	if ceiling < cur {
+		ceiling = cur
 	}
-	return NewBitrateAdapter(s.CurrentBitRate())
+	var a *BitrateAdapter
+	if s.liveBitRate() {
+		a = NewLiveBitrateAdapter(ceiling)
+	} else {
+		a = NewBitrateAdapter(ceiling)
+	}
+	// A session opened below its ceiling starts there and climbs by the normal
+	// recovery rules.
+	a.current = cur
+	return a
 }
 
 // liveBitRate reports whether the current stream can change bitrate without a
@@ -257,30 +306,37 @@ func (s *Session) adaptLoop(a *BitrateAdapter) {
 				s.reportBitrate(rep)
 				continue
 			}
-			was := s.CurrentBitRate()
-			live, err := s.changeBitRate(next)
-			rep.Live = live
-			if err != nil {
-				rep.Err = err.Error()
-				s.reportBitrate(rep)
-				fmt.Printf("[session %s] bitrate %d -> %d failed: %v\n", s.ID, was, next, err)
-				continue
-			}
-			if live {
-				edge, err := s.resizeForBitRate(next)
-				rep.MaxSize = edge
-				if err != nil {
-					fmt.Printf("[session %s] maxsize %d failed: %v\n", s.ID, edge, err)
-				}
-			}
-			s.reportBitrate(rep)
-			how := "relaunch"
-			if live {
-				how = "live"
-			}
-			fmt.Printf("[session %s] bitrate %d -> %d (%s)\n", s.ID, was, next, how)
+			s.applyBitrate(next, rep)
 		}
 	}
+}
+
+// applyBitrate carries out one controller decision and reports it.
+func (s *Session) applyBitrate(next int, rep BitrateReport) {
+	was := s.CurrentBitRate()
+	live, err := s.changeBitRate(next)
+	rep.Live = live
+	if err != nil {
+		rep.Err = err.Error()
+		s.reportBitrate(rep)
+		fmt.Printf("[session %s] bitrate %d -> %d failed: %v\n", s.ID, was, next, err)
+		return
+	}
+	// A delay cut aims at the queue, not at the picture: the size stays where
+	// it is and only the windowed gates move it.
+	if live && rep.Gate != GateDelay {
+		edge, err := s.resizeForBitRate(next)
+		rep.MaxSize = edge
+		if err != nil {
+			fmt.Printf("[session %s] maxsize %d failed: %v\n", s.ID, edge, err)
+		}
+	}
+	s.reportBitrate(rep)
+	how := "relaunch"
+	if live {
+		how = "live"
+	}
+	fmt.Printf("[session %s] bitrate %d -> %d (%s, %s)\n", s.ID, was, next, how, rep.Gate)
 }
 
 // bitrateSampler turns the session's cumulative counters into the per-interval

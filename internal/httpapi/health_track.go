@@ -265,12 +265,12 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 
 		DecodeErrors: t.decodeErrorRate,
 	}
-	// One rejection just after a parameter set is the old size's last frame
+	// A few rejections (up to decodeGraceMax) just after a parameter set are the old size's last frames
 	// reaching the new decoder, not a decoder failing. Both resizes in the
 	// trace were followed by exactly one "decoder rejected 1 frames" that
 	// marked a healthy link bad. Two or more, or one outside the grace, still
 	// read bad.
-	if in.DecodeErrors == 1 && !t.configAt.IsZero() && now.Sub(t.configAt) < decodeGrace {
+	if in.DecodeErrors >= 1 && in.DecodeErrors <= decodeGraceMax && !t.configAt.IsZero() && now.Sub(t.configAt) < decodeGrace {
 		in.DecodeErrors = 0
 	}
 
@@ -287,6 +287,11 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 // forgiven. The client reports once a second on its own clock, so a rejection
 // from the switch can reach a tick up to about two seconds later.
 const decodeGrace = 3 * time.Second
+
+// decodeGraceMax is the most rejections forgiven inside decodeGrace. A resize
+// in the 5G trace was followed by "decoder rejected 2 frames": the frames
+// already in flight at the old size.
+const decodeGraceMax = 3
 
 // NoteConfig records that this viewer was just sent a parameter set.
 func (t *healthTracker) NoteConfig(now time.Time) { t.configAt = now }

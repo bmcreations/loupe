@@ -93,7 +93,8 @@ func (s *Server) ServeQUIC(qc *quic.Conn) {
 	}
 	s.trace.Record(attempt)
 
-	sess, err := s.mgr.Acquire(qc.Context(), open.Target)
+	path := pathKey("quic", qc.RemoteAddr().String())
+	sess, err := s.mgr.AcquireFrom(qc.Context(), open.Target, path)
 	if err != nil {
 		s.trace.Record(map[string]any{"kind": "quic-error", "stage": "acquire", "err": err.Error()})
 		if errors.Is(err, ErrJustShutDown) {
@@ -106,7 +107,7 @@ func (s *Server) ServeQUIC(qc *quic.Conn) {
 
 	s.trace.Record(map[string]any{"kind": "quic-open", "target": open.Target})
 	s.recordPath("quic", open.Target, qc.RemoteAddr().String())
-	s.serveViewerWith(open.Target, sess, c, session.ViewerOptions{Decodes: open.Decode})
+	s.serveViewerWith(open.Target, sess, c, session.ViewerOptions{Decodes: open.Decode}, path)
 }
 
 // qConn is the raw-QUIC transport. Frames go one per client-opened slot, with

@@ -368,14 +368,22 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 // gate, staleness, stats and tracing. Transports decide only *how* to put bytes
 // on the wire, and what they can do about a frame that has already gone stale.
 func (s *Server) serveViewer(targetID string, sess *session.Session, conn Conn) {
-	s.serveViewerWith(targetID, sess, conn, session.ViewerOptions{})
+	s.serveViewerWith(targetID, sess, conn, session.ViewerOptions{}, "")
 }
 
-// serveViewerWith is serveViewer for a client that said what it decodes.
-func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Conn, opts session.ViewerOptions) {
+// serveViewerWith is serveViewer for a client that said what it decodes, on
+// the client path path (see pathKey). When the viewer leaves, the session's
+// bitrate is remembered for that path if it had held steady, so the next
+// session from the same path starts there rather than at the configured rate.
+func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Conn, opts session.ViewerOptions, path string) {
 	viewerID, out := sess.AddViewerWith(opts)
 	defer s.awake.Hold()()
 	defer func() {
+		if path != "" {
+			if bps, ok := sess.StableBitRate(time.Now(), pathStableFor); ok {
+				s.mgr.paths.put(path, bps)
+			}
+		}
 		sess.RemoveViewer(viewerID)
 		s.mgr.Release(targetID)
 		_ = conn.Close()

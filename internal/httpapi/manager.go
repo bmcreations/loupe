@@ -28,6 +28,8 @@ var idleGrace = 15 * time.Second
 
 // Manager owns the set of known targets and the sessions running against them.
 type Manager struct {
+	// paths remembers the last stable bitrate per client path (pathrate.go).
+	paths *pathRates
 	trace *trace.Writer
 
 	mu sync.Mutex
@@ -184,6 +186,7 @@ func NewManager(opts target.Options) *Manager {
 		lifeBusy: make(map[string]bool),
 		gone:     make(map[string]time.Time),
 		overlays: newOverlayStore(),
+		paths:    newPathRates(),
 	}
 }
 
@@ -926,6 +929,14 @@ func (m *Manager) AllStats() []map[string]any {
 // Acquire returns the session for a target, starting one if needed. Every
 // successful Acquire must be paired with a Release.
 func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Session, error) {
+	return m.AcquireFrom(ctx, targetID, "")
+}
+
+// AcquireFrom is Acquire for a viewer on the client path pathKey (see
+// pathKey), "" for one with none. When it opens a new session on an adaptive
+// target, the session starts at the rate remembered for that path, below the
+// configured rate, which stays its ceiling.
+func (m *Manager) AcquireFrom(ctx context.Context, targetID, path string) (*session.Session, error) {
 	m.mu.Lock()
 	targetID = m.canonical(targetID)
 
@@ -983,6 +994,13 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 	m.mu.Unlock()
 	began := time.Now()
 
+	ceiling, resumed := opts.BitRate, 0
+	if adaptive && path != "" {
+		if bps, ok := m.paths.get(path); ok && bps > 0 && bps < opts.BitRate {
+			opts.BitRate, resumed = bps, bps
+		}
+	}
+
 	// Open outside the lock: launching scrcpy takes hundreds of milliseconds
 	// and must not block the targets listing or other sessions.
 	s, err := session.Open(ctx, targetID, t, opts)
@@ -997,6 +1015,7 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 		return nil, err
 	}
 	// Before publishing, so no viewer can join and cache init without it.
+	s.SetBitRateCeiling(ceiling)
 	s.SetClientBuffer(clientBuf)
 	if humanHold > 0 {
 		s.SetHumanHold(humanHold)
@@ -1179,6 +1198,15 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 		s.SetBitrateObserver(func(rep session.BitrateReport) {
 			m.recordBitrate(targetID, rep)
 		})
+		if resumed != 0 {
+			m.trace.Record(map[string]any{
+				"kind":    "bitrate",
+				"target":  targetID,
+				"gate":    "resume",
+				"current": resumed,
+				"ceiling": ceiling,
+			})
+		}
 		// The return value is the difference between a controller that ran and
 		// found nothing to do and one that never started, and discarding it is
 		// how the second stayed invisible.
@@ -1594,6 +1622,9 @@ func (m *Manager) recordBitrate(targetID string, rep session.BitrateReport) {
 		if rep.MaxSize != 0 {
 			rec["maxSize"] = rep.MaxSize
 		}
+	}
+	if rep.Boost != 0 {
+		rec["boost"] = rep.Boost
 	}
 	if rep.Err != "" {
 		rec["err"] = rep.Err

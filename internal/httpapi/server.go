@@ -535,7 +535,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	s.trace.Record(attempt)
 
-	sess, err := s.mgr.Acquire(r.Context(), targetID)
+	path := pathKey("ws", r.RemoteAddr)
+	sess, err := s.mgr.AcquireFrom(r.Context(), targetID, path)
 	if err != nil {
 		s.trace.Record(map[string]any{"kind": "ws-error", "stage": "acquire", "err": err.Error()})
 		if errors.Is(err, ErrJustShutDown) {
@@ -563,7 +564,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.recordPath("websocket", targetID, r.RemoteAddr)
-	s.serveViewerWith(targetID, sess, wsConn{c: conn}, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode"))})
+	s.serveViewerWith(targetID, sess, wsConn{c: conn}, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode"))}, path)
 }
 
 // dispatch routes one decoded client message. Input errors are reported but

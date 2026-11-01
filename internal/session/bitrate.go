@@ -207,6 +207,42 @@ const (
 	// as the step up having been wrong.
 	recoverHuntWindow = 45 * time.Second
 
+	// delayCutFactor and delayCutSlack define a queueing link: the current
+	// round trip (not the smoothed one) above the larger of delayCutFactor
+	// times the path baseline or the baseline plus delayCutSlack. The slack
+	// keeps a 5ms LAN from reading a 15ms blip as a queue.
+	//
+	// The 12:38 trace on 5G: base ~100ms, the phone carried ~1 Mbps against a
+	// 4 Mbps encoder, rttNow went 100 -> 507 and 570ms, and the windowed
+	// gates cut only after ~10s, during which 3 of 18 frames were delivered.
+	// A queue building is visible in the round trip long before it is in the
+	// shed counters.
+	delayCutFactor = 2.0
+	delayCutSlack  = 80 * time.Millisecond
+
+	// delayCutDwell is how long the round trip must stay above that line
+	// before it counts, so a single spike (5G reads 400ms for a moment)
+	// does not cut. Samples arrive once a second, so in practice a cut needs
+	// two consecutive samples over the line.
+	delayCutDwell = 500 * time.Millisecond
+
+	// delayCutGoodput aims a delay cut at this share of what the link carried
+	// while the round trip was over the line (a saturated link delivers its
+	// capacity), leaving headroom for the queue to drain. delayCutBlind is
+	// the multiplicative decrease when nothing measured that. delayCutMax is
+	// the largest share of the current rate a delay cut may leave, so a
+	// measurement at the current rate still cuts.
+	delayCutGoodput = 0.8
+	delayCutBlind   = 0.7
+	delayCutMax     = 0.85
+
+	// delayCutPeriod is how far back the delay-cut limit counts. These cuts
+	// are outside maxAdaptiveChanges (a session that spent its changes on a
+	// queue would stay blurry once the link was back), so they have their
+	// own limit: bitrateWindows.maxDelayCuts per delayCutPeriod, which keeps
+	// a relaunched encoder from restarting over and over.
+	delayCutPeriod = 10 * time.Minute
+
 	// awaitHealthyGrace is how long the link must have read healthy before
 	// keyframe waits stop counting toward the starved and undercarried gates.
 	awaitHealthyGrace = 3 * time.Second
@@ -223,11 +259,14 @@ type bitrateWindows struct {
 	// capPeriod is how far back maxChanges counts, or zero for the whole
 	// session.
 	capPeriod time.Duration
+	// maxDelayCuts is how many delay-based cuts (GateDelay) fit in
+	// delayCutPeriod. A relaunch is a visible restart, so it gets fewer.
+	maxDelayCuts int
 }
 
 var (
-	relaunchWindows = bitrateWindows{settle: settleWindow, up: upWindow, maxChanges: maxAdaptiveChanges, recover: recoverWindow}
-	liveWindows     = bitrateWindows{settle: liveSettleWindow, up: liveUpWindow, maxChanges: maxLiveAdaptiveChanges, recover: liveRecoverWindow, capPeriod: liveCapPeriod}
+	relaunchWindows = bitrateWindows{settle: settleWindow, up: upWindow, maxChanges: maxAdaptiveChanges, recover: recoverWindow, maxDelayCuts: 3}
+	liveWindows     = bitrateWindows{settle: liveSettleWindow, up: liveUpWindow, maxChanges: maxLiveAdaptiveChanges, recover: liveRecoverWindow, capPeriod: liveCapPeriod, maxDelayCuts: 8}
 )
 
 // BitrateSample is one interval's worth of session counters.
@@ -308,6 +347,13 @@ const (
 	// GateRecover is a step up taken early because the link has been clearly
 	// healthy for recoverWindow. It does not count against the change cap.
 	GateRecover BitrateGate = "recover"
+	// GateDelay is a cut taken because the current round trip stayed well
+	// above baseline: a queue building on the link. It does not count against
+	// the change cap and does not move the picture size.
+	GateDelay BitrateGate = "delay"
+	// GateSharpen is a one-frame quality boost after motion stopped
+	// (sharpen.go). It changes no steady rate.
+	GateSharpen BitrateGate = "sharpen"
 	// GateDown and GateUp are the two decisions.
 	GateDown BitrateGate = "down"
 	GateUp   BitrateGate = "up"
@@ -352,6 +398,8 @@ type BitrateReport struct {
 	// MaxSize is the longest edge a live change moved the encoder to
 	// (resizeForBitRate), 0 when it did not ask for one.
 	MaxSize int
+	// Boost is the rate a sharpen raised the encoder to for one frame (GateSharpen).
+	Boost int
 	// Err is set when the relaunch a decision asked for failed. A decision
 	// that was made and then did not happen is not the same as one that was
 	// never made, and without this the trace cannot tell them apart.
@@ -404,6 +452,22 @@ type BitrateAdapter struct {
 	holdUntil   time.Time
 	// awaiting is how much of active held a keyframe wait.
 	awaiting time.Duration
+
+	// badSince, badBytes and badBusy describe the current run of intervals
+	// whose round trip was over the delay line (delayBad): when it began, and
+	// the bytes and time of its busy intervals, which measure what the link
+	// carried while it queued. badSince is zero outside a run.
+	badSince time.Time
+	badBytes uint64
+	badBusy  time.Duration
+	// delayAt holds when each delay cut was made, pruned to delayCutPeriod.
+	delayAt []time.Time
+	// interval is the span of the sample being folded in.
+	interval time.Duration
+	// afterDelay is set by a delay cut and cleared by the next step up. While
+	// set, an interval with keyframe waits is not healthy, so recovery needs
+	// delivery to have resumed as well as the round trip to have come back.
+	afterDelay bool
 }
 
 // NewBitrateAdapter returns an adapter that will never exceed configured, for
@@ -450,6 +514,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 			}
 		}
 	}
+	a.interval = now.Sub(a.lastSample)
 	a.lastSample = now
 	a.acc.Frames += s.Frames
 	a.acc.Shed += s.Shed
@@ -461,8 +526,15 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 		// Keep the window anchored to the end of the settle period rather than
 		// to the change, so the first measured window is a full one.
 		rep := a.report(now, GateSettling)
+		a.clearBad()
 		a.reset(now)
 		return 0, rep
+	}
+	// A queue building on the link is answered at once, ahead of the cap and
+	// the windows. It runs after the settle check so a cut is judged on
+	// intervals measured at the new rate.
+	if next, rep := a.delayCut(now, s); next != 0 {
+		return next, rep
 	}
 	// Fast recovery runs ahead of the cap: a session that spent its changes
 	// on the way down must not stay blurry after the link is back. Its steps
@@ -645,7 +717,7 @@ func (a *BitrateAdapter) trackHealth(now time.Time, s BitrateSample) {
 	} else {
 		a.rttOKFor = 0
 	}
-	if linkHealthy(s.RTT, s.BaseRTT) && s.Shed == 0 {
+	if linkHealthy(s.RTT, s.BaseRTT) && s.Shed == 0 && !(a.afterDelay && s.AwaitKey > 0) {
 		if dt > 0 && dt < 5*time.Second {
 			a.healthyFor += dt
 		}
@@ -682,6 +754,7 @@ func (a *BitrateAdapter) commitRecover(now time.Time, next int) (int, BitrateRep
 	rep.From, rep.To = from, next
 	a.reset(now)
 	a.healthyFor = 0
+	a.afterDelay = false
 	return next, rep
 }
 
@@ -710,6 +783,9 @@ func (a *BitrateAdapter) commit(now time.Time, next int, gate BitrateGate) (int,
 	}
 	a.current = next
 	a.healthyFor = 0
+	if gate == GateUp {
+		a.afterDelay = false
+	}
 	a.changes++
 	a.changedAt = append(a.changedAt, now)
 	a.lastChange = now
@@ -743,6 +819,7 @@ func (a *BitrateAdapter) Reset(now time.Time) {
 	a.reset(now)
 	a.healthyFor = 0
 	a.rttOKFor = 0
+	a.clearBad()
 }
 
 func (a *BitrateAdapter) reset(now time.Time) {
@@ -778,4 +855,99 @@ func (a *BitrateAdapter) goodput() int {
 		return 0
 	}
 	return int(float64(a.busyBytes) * 8 / a.busy.Seconds())
+}
+
+// delayBad reports a current round trip over the delay line. Unknown readings
+// are not bad: a cut needs evidence.
+func delayBad(rtt, base time.Duration) bool {
+	if rtt <= 0 || base <= 0 {
+		return false
+	}
+	limit := time.Duration(delayCutFactor * float64(base))
+	if l := base + delayCutSlack; l > limit {
+		limit = l
+	}
+	return rtt > limit
+}
+
+func (a *BitrateAdapter) clearBad() {
+	a.badSince = time.Time{}
+	a.badBytes, a.badBusy = 0, 0
+}
+
+// delayCut decides the delay-based cut for one interval. It returns zero when
+// the round trip is not over the line, has not stayed there for
+// delayCutDwell, or the cut limit is spent.
+//
+// It aims at what the link carried during the run (a saturated link delivers
+// its capacity), else a multiplicative decrease.
+// The cut never moves the picture size (the caller skips the size ladder for
+// GateDelay), and is not counted against the change cap.
+func (a *BitrateAdapter) delayCut(now time.Time, s BitrateSample) (int, BitrateReport) {
+	// A queue only argues for a smaller encoder while the encoder is the one
+	// filling it: a near-idle screen's round trip says nothing about our rate.
+	busy := s.Frames > 0 && a.interval > 0 && float64(s.Frames) >= busyFrameRate*a.interval.Seconds()
+	if !busy || !delayBad(s.RTT, s.BaseRTT) {
+		a.clearBad()
+		return 0, BitrateReport{}
+	}
+	if a.badSince.IsZero() {
+		// The run began somewhere in the interval that ended now; counting it
+		// from the previous sample's end is the conservative reading of the
+		// dwell, so one bad sample alone never satisfies it.
+		a.badSince = now
+	}
+	// Only intervals in which every frame was offered to the link measure
+	// what it carries; a keyframe wait sends almost nothing by design.
+	if s.AwaitKey == 0 {
+		a.badBytes += s.Bytes
+		a.badBusy += a.interval
+	}
+	if now.Sub(a.badSince) < delayCutDwell {
+		return 0, BitrateReport{}
+	}
+	cutoff := now.Add(-delayCutPeriod)
+	keep := a.delayAt[:0]
+	for _, t := range a.delayAt {
+		if t.After(cutoff) {
+			keep = append(keep, t)
+		}
+	}
+	a.delayAt = keep
+	if len(a.delayAt) >= a.windows.maxDelayCuts || a.current <= minAdaptiveBitRate {
+		return 0, BitrateReport{}
+	}
+
+	var next int
+	switch {
+	case a.badBusy > 0:
+		next = int(delayCutGoodput * float64(a.badBytes) * 8 / a.badBusy.Seconds())
+	default:
+		next = int(delayCutBlind * float64(a.current))
+	}
+	if max := int(delayCutMax * float64(a.current)); next > max {
+		next = max
+	}
+	if next < minAdaptiveBitRate {
+		next = minAdaptiveBitRate
+	}
+	if float64(a.current-next)/float64(a.current) < minChangeFraction {
+		return 0, BitrateReport{}
+	}
+
+	from := a.current
+	if !a.lastRecover.IsZero() && now.Sub(a.lastRecover) < recoverHuntWindow {
+		a.holdUntil = now.Add(recoverHold)
+	}
+	a.current = next
+	a.healthyFor = 0
+	a.rttOKFor = 0
+	a.afterDelay = true
+	a.delayAt = append(a.delayAt, now)
+	a.lastChange = now
+	rep := a.report(now, GateDelay)
+	rep.From, rep.To = from, next
+	a.clearBad()
+	a.reset(now)
+	return next, rep
 }

@@ -199,6 +199,8 @@ type Session struct {
 	ended       bool
 	closing     bool
 	relaunching bool
+	// sharpening is set while a sharpen's boosted rate is in force (sharpen.go).
+	sharpening bool
 
 	// nativeEdge is the longest edge a stream opened at its native size
 	// (MaxSize 0) first encoded at, the top rung of the resize ladder.
@@ -208,6 +210,10 @@ type Session struct {
 	// openBitRate is the rate the session opened with. opts.BitRate follows
 	// every change, so this is what the resize ladder holds the native size at.
 	openBitRate int
+
+	// openedAt is when Open returned, the start of the stable stretch for a
+	// session whose bitrate has never changed (StableBitRate).
+	openedAt time.Time
 
 	// openFPS is the capture rate the session opened with, the top rung of
 	// the frame-rate ladder. opts.MaxFPS follows each relaunch.
@@ -401,6 +407,7 @@ func Open(ctx context.Context, id string, t target.Target, opts target.Options) 
 		stream:      stream,
 		opts:        opts,
 		openBitRate: opts.BitRate,
+		openedAt:    time.Now(),
 		openFPS:     opts.MaxFPS,
 		viewers:     make(map[uint64]*viewer),
 		events:      newEventRing(eventRingSize),
