@@ -332,7 +332,7 @@ func (s *Session) applyBitrate(next int, rep BitrateReport) {
 	// A delay cut aims at the queue, not at the picture: the size stays where
 	// it is and only the windowed gates move it.
 	if live && s.sizeFollowsRate(next, rep) {
-		edge, err := s.resizeForBitRate(next)
+		edge, err := s.resizeForBitRateFrom(next, was)
 		rep.MaxSize = edge
 		if err != nil {
 			fmt.Printf("[session %s] maxsize %d failed: %v\n", s.ID, edge, err)

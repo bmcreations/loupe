@@ -150,3 +150,41 @@ func TestANativeSizeStepsDownAndBack(t *testing.T) {
 		t.Fatalf("encoder sizes = %v, want [900 1080 0]", got)
 	}
 }
+
+// A step up never shrinks the picture. In the 13:58 phone trace a session
+// resumed at 2.8 Mbps on its native 664x1440 recovered to 4 Mbps and was
+// resized to 496x1080, because the ladder reads 4 Mbps at 60 fps as just
+// short of 1440 even though 1440 is where it already was.
+func TestAStepUpNeverShrinks(t *testing.T) {
+	st := &resizeStream{liveStream: &liveStream{swapStream: newSwapStream(), live: true}}
+	tgt := &liveTarget{swapTarget: swapTarget{kind: target.KindSimulator}, stream: st}
+	s, err := Open(context.Background(), "resize", tgt, target.Options{MaxFPS: 60, BitRate: 2_800_000})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	// A ceiling above the rate the step reaches, so the native-size hold
+	// does not apply and only the step-up guard keeps the size.
+	s.SetBitRateCeiling(8_000_000)
+	s.mu.Lock()
+	s.init.CodedWidth, s.init.CodedHeight = 664, 1440
+	s.mu.Unlock()
+
+	if edge, err := s.resizeForBitRate(4_000_000); err != nil || edge != 1080 {
+		t.Fatalf("plain resize at 4 Mbps = %d, %v; want the ladder's 1080", edge, err)
+	}
+	s.mu.Lock()
+	s.init.CodedWidth, s.init.CodedHeight = 664, 1440
+	s.mu.Unlock()
+	st.mu.Lock()
+	st.sizes = nil
+	st.mu.Unlock()
+	if edge, err := s.resizeForBitRateFrom(4_000_000, 2_800_000); err != nil || edge != 0 {
+		t.Fatalf("step up 2.8 -> 4 Mbps resized to %d, %v; want no resize", edge, err)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if len(st.sizes) != 0 {
+		t.Fatalf("encoder sizes = %v, want none", st.sizes)
+	}
+}

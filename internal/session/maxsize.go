@@ -159,6 +159,14 @@ func abs(n int) int {
 // reports the longest edge it asked for, 0 when the stream cannot resize. It runs after a live bitrate change: the
 // resize follows the rate, never leads it.
 func (s *Session) resizeForBitRate(bps int) (int, error) {
+	return s.resizeForBitRateFrom(bps, 0)
+}
+
+// resizeForBitRateFrom is resizeForBitRate for a change from the rate was. A
+// step up (bps > was) never makes the picture smaller: the size it already has
+// was carried at a lower rate, and the ladder's bits-per-pixel line can read a
+// higher rate as just short of it.
+func (s *Session) resizeForBitRateFrom(bps, was int) (int, error) {
 	s.mu.Lock()
 	w, h := s.init.CodedWidth, s.init.CodedHeight
 	recording := len(s.taps) > 0
@@ -201,6 +209,9 @@ func (s *Session) resizeForBitRate(bps int) (int, error) {
 	edge := sizeForBitRate(bps, top, fps, float64(short)/float64(long), long)
 	if floor := min(top, heldEdge); edge < floor {
 		edge = floor
+	}
+	if was > 0 && bps > was && edge < long {
+		return 0, nil
 	}
 	px := edge
 	if px == top {
