@@ -335,6 +335,32 @@ func (b *claimBook) release(id, agent, session string, force bool) *ClaimInfo {
 	return nil
 }
 
+// has reports whether id has a live claim.
+func (b *claimBook) has(id string) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.live(id) != nil
+}
+
+// drop removes id's claim, whoever holds it, because the target is gone.
+func (b *claimBook) drop(id, reason string) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	c := b.claims[id]
+	if c == nil {
+		return
+	}
+	delete(b.claims, id)
+	b.trace(map[string]any{"action": "release", "target": id, "agent": c.agent, "session": c.session, "reason": reason})
+	b.saveClaims()
+}
+
 // seen renews the claim when the caller holds it. Every agent endpoint calls
 // it, reads included, so an agent reading the screen keeps its claim.
 func (b *claimBook) seen(id, agent, session string) {
@@ -524,6 +550,16 @@ func (s *Server) handleClaims(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.claims.list())
 		return
 	}
+	if r.Method == http.MethodDelete {
+		// A claim outlives its target when the device goes away under it, so
+		// it can be released without one.
+		if id := r.URL.Query().Get("target"); id != "" {
+			if _, listed := s.mgr.Target(id); !listed {
+				s.releaseClaim(w, r, id)
+				return
+			}
+		}
+	}
 	t, ok := s.agentTarget(w, r)
 	if !ok {
 		return
@@ -535,15 +571,7 @@ func (s *Server) handleClaims(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodDelete {
-		force := r.URL.Query().Get("force") == "1"
-		if holder := s.claims.release(id, agent, session, force); holder != nil {
-			writeJSON(w, http.StatusConflict, ErrorResponse{
-				Error: fmt.Sprintf("%s is claimed by someone else; ?force=1 releases it anyway", id),
-				Code:  ErrCodeClaimed, Claim: holder,
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+		s.releaseClaim(w, r, id)
 		return
 	}
 	var req ClaimRequest
@@ -583,6 +611,25 @@ func (s *Server) handleClaims(w http.ResponseWriter, r *http.Request) {
 	// emulator, so a failed resume is not a claim failure.
 	s.mgr.WakeEmulator(r.Context(), id)
 	writeJSON(w, http.StatusOK, got)
+}
+
+// releaseClaim is DELETE /api/claims for id. A target that is not listed
+// and has no claim is 404, as any other call naming it is.
+func (s *Server) releaseClaim(w http.ResponseWriter, r *http.Request, id string) {
+	agent, session := agentName(r.Header.Get(HeaderAgent)), agentName(r.Header.Get(HeaderSession))
+	if _, listed := s.mgr.Target(id); !listed && !s.claims.has(id) {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("no target %q", id)})
+		return
+	}
+	force := r.URL.Query().Get("force") == "1"
+	if holder := s.claims.release(id, agent, session, force); holder != nil {
+		writeJSON(w, http.StatusConflict, ErrorResponse{
+			Error: fmt.Sprintf("%s is claimed by someone else; ?force=1 releases it anyway", id),
+			Code:  ErrCodeClaimed, Claim: holder,
+		})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // HandsOffResponse is POST /api/devices/handsoff's 200. Warning is set when

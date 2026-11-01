@@ -136,6 +136,7 @@ func (s *Server) deviceLife(w http.ResponseWriter, r *http.Request, action strin
 			err = fmt.Errorf("%s cannot be deleted", id)
 		} else if err = d.Delete(ctx); err == nil {
 			s.mgr.Unregister(id)
+			s.claims.drop(id, "deleted")
 		}
 	} else if st, ok := t.(target.Stopper); !ok {
 		err = fmt.Errorf("%s cannot be shut down", id)
