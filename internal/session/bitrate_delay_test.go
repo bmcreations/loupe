@@ -38,9 +38,10 @@ func TestAClimbingRTTCutsTheBitrateWithinASecondOrTwo(t *testing.T) {
 	if rep.Gate != GateDelay {
 		t.Errorf("gate %s, want %s", rep.Gate, GateDelay)
 	}
-	// 0.8 of the 1 Mbps the link carried while it queued.
-	if got < 700_000 || got > 900_000 {
-		t.Errorf("cut to %d, want about 800 kbps (0.8 of the carried 1 Mbps)", got)
+	// 0.8 of the carried 1 Mbps would be 800 kbps, but one step leaves at
+	// least half of the current rate; the next cut after the settle goes on.
+	if got != 2_000_000 {
+		t.Errorf("cut to %d, want 2 Mbps (the 0.5 floor on 4 Mbps)", got)
 	}
 	if a.changes != 0 {
 		t.Errorf("a delay cut counted against the change cap: %d", a.changes)
@@ -159,5 +160,44 @@ func TestADelayCutAfterAFastStepUpHoldsRecovery(t *testing.T) {
 	}
 	if !a.holdUntil.After(now) {
 		t.Error("fast recovery not held after a delay cut that followed a fast step up")
+	}
+}
+
+// The 14:22:38 trace (Handset iOS on 5G over WebSocket): 4 Mbps cut to
+// 473,113 in one step. The two bad seconds were mostly still content, 147,849
+// bytes in 2s, and 0.8 of that is 473 kbps, while the window carried 851 kbps
+// and the encoder was never close to filling 4 Mbps.
+func TestADelayCutFromAShortQuietRunIsBoundedToHalf(t *testing.T) {
+	a := NewLiveBitrateAdapter(4_000_000)
+	now := time.Now()
+	base := 121 * time.Millisecond
+	quiet := BitrateSample{Frames: 54, Bytes: 73_924, BaseRTT: base} // ~591 kbps
+	for i := 0; i < 4; i++ {
+		now = now.Add(time.Second)
+		s := quiet
+		s.RTT = 160 * time.Millisecond
+		if got, _ := a.Observe(now, s); got != 0 {
+			t.Fatalf("rtt 160ms on a 121ms base cut to %d", got)
+		}
+	}
+	var got int
+	var rep BitrateReport
+	for _, rtt := range []time.Duration{424, 400} {
+		now = now.Add(time.Second)
+		s := quiet
+		s.RTT = rtt * time.Millisecond
+		got, rep = a.Observe(now, s)
+	}
+	if rep.Gate != GateDelay || got == 0 {
+		t.Fatalf("no delay cut after two samples at 3x base: got %d gate %s", got, rep.Gate)
+	}
+	if got < 2_000_000 {
+		t.Errorf("cut 4M to %d, want no deeper than half", got)
+	}
+	if rep.Detail["capped"] != true {
+		t.Errorf("trace detail does not say the cut was bounded: %v", rep.Detail)
+	}
+	if u, _ := rep.Detail["uncappedBps"].(int); u >= 1_000_000 || u == 0 {
+		t.Errorf("uncappedBps %v, want the raw ~473 kbps aim", rep.Detail["uncappedBps"])
 	}
 }

@@ -247,8 +247,12 @@ How it decides:
   samples) while the screen is busy, the rate is cut at once, ahead of the
   windows and the change cap. It aims at 0.8 of the bytes the link carried
   during the run (a saturated link delivers its capacity), or 0.7 of the
-  current rate when keyframe waits left nothing to measure, and never leaves
-  more than 0.85 of the current rate. It does not change the picture size. It
+  current rate when keyframe waits left nothing to measure. The result is raised
+  to 0.8 of the window's carried rate when that is measured and to at least 0.5
+  of the current rate (a run of a mostly still screen reads far below what the
+  link carries: 14:22:38, 4M -> 473k from a 2s run; the trace row holds
+  `uncappedBps` and `capped`), and never leaves more than 0.85 of the current
+  rate. A queue that outlasts a cut gets the next one after the settle. It does not change the picture size. It
   does not count against the change cap, but is limited to 8 per 10 minutes
   (3 for a relaunched encoder, which also settles 12s after each). After one,
   fast recovery additionally needs the viewer to be free of keyframe waits, so a

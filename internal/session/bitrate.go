@@ -239,6 +239,16 @@ const (
 	delayCutBlind   = 0.7
 	delayCutMax     = 0.85
 
+	// delayCutFloor is the smallest share of the current rate one delay cut
+	// may leave. The run it measures is two or three seconds of whatever the
+	// encoder produced, which on a screen that is mostly still is far below
+	// what the link carries: the 14:22:38 trace cut 4 Mbps to 473 kbps from
+	// a run of 147849 bytes in 2s (0.8 x 591 kbps) while the window carried
+	// 851 kbps and the round trip had read 154-162ms against a 121ms base a
+	// second earlier. Halving is the multiplicative decrease TCP takes on a
+	// loss; a queue that persists after this cut settles gets another.
+	delayCutFloor = 0.5
+
 	// delayCutPeriod is how far back the delay-cut limit counts. These cuts
 	// are outside maxAdaptiveChanges (a session that spent its changes on a
 	// queue would stay blurry once the link was back), so they have their
@@ -1122,6 +1132,15 @@ func (a *BitrateAdapter) delayCut(now time.Time, s BitrateSample) (int, BitrateR
 	default:
 		next = int(delayCutBlind * float64(a.current))
 	}
+	uncapped := next
+	// Never below the share of the current rate one step may take, nor below
+	// what the window carried outside keyframe waits when that is measured.
+	if f := int(delayCutFloor * float64(a.current)); next < f {
+		next = f
+	}
+	if c := int(delayCutGoodput * float64(a.carried())); next < c {
+		next = c
+	}
 	if max := int(delayCutMax * float64(a.current)); next > max {
 		next = max
 	}
@@ -1139,6 +1158,7 @@ func (a *BitrateAdapter) delayCut(now time.Time, s BitrateSample) (int, BitrateR
 	rep.Detail = map[string]any{
 		"rttMs": s.RTT.Milliseconds(), "baseMs": s.BaseRTT.Milliseconds(),
 		"badForMs": since, "runMs": runMs, "runBytes": runBytes,
+		"uncappedBps": uncapped, "capped": uncapped < next,
 	}
 	return n, rep
 }
