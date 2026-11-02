@@ -23,6 +23,13 @@ const (
 	maxPathRates = 256
 )
 
+// unknownPathStartBps is the rate a session opens at, when adaptive, for a
+// non-LAN path with no remembered rate and a ceiling above it. LAN paths have
+// no key (see pathKey) and open at the ceiling. The 5G trace overloaded a
+// ~1.7 Mbps link at 4 Mbps for the first 3s; the controller's recover gate
+// steps up from here toward the ceiling.
+const unknownPathStartBps = 2_000_000
+
 // pathStableFor is how long a session's rate must have held when the viewer
 // leaves for that rate to count as one that worked. A variable so a test need
 // not wait it out.

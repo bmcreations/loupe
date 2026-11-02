@@ -19,6 +19,14 @@ const targetExcess = 150 * time.Millisecond
 // controller oscillates between flooding and starving.
 const recoverExcess = 60 * time.Millisecond
 
+// backoffHold is how long the excess must have stayed over targetExcess,
+// continuously, before the pacer backs off. Observe runs once per frame, so
+// without it a ~200ms round-trip spike across ~12 frames multiplied keep by 0.9
+// a dozen times, and every Admit refusal after that forces a keyframe wait of
+// about 20 frames on top of the spike. A queue that is really building stays
+// over target for longer than this; a burst on a 5G link does not.
+const backoffHold = 300 * time.Millisecond
+
 // The baseline is the minimum over a rolling set of short slots rather than
 // over a fixed number of samples, because a sample-counted window has no fixed
 // duration: it is fed once per frame, so on a link delivering three frames a
@@ -68,6 +76,10 @@ type Pacer struct {
 	// it was ever measured on.
 	slots     [baseSlots]time.Duration
 	slotStart time.Time
+
+	// overSince is when the excess last rose above targetExcess without
+	// dropping back under it, or zero when it is under now.
+	overSince time.Time
 
 	// now is the clock, swappable so the slot rotation can be tested without
 	// sleeping through five seconds of it.
@@ -145,10 +157,18 @@ func (p *Pacer) observe(rtt time.Duration, fresh bool) {
 	p.observeBase(rtt)
 	excess := rtt - p.base
 
+	if excess <= targetExcess {
+		p.overSince = time.Time{}
+	} else if p.overSince.IsZero() {
+		p.overSince = p.now()
+	}
+
 	switch {
 	case excess > targetExcess:
-		if !fresh {
-			return
+		// A re-read report backs off at most once (ObserveRepeat), and only
+		// once the excess has held for backoffHold.
+		if !fresh || p.now().Sub(p.overSince) < backoffHold {
+			break
 		}
 		// Scale the backoff by how far over we are, so a 3s backlog collapses
 		// the stream quickly while a slightly-over one barely moves.

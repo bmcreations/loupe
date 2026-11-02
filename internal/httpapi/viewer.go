@@ -38,10 +38,26 @@ const frameDeadlineCap = time.Second
 // Half the baseline is the one-way estimate, matching session.StalenessFor so
 // the two thresholds cannot disagree about what a healthy path costs.
 func frameDeadlineFor(base time.Duration) time.Duration {
+	return frameDeadlineFloored(frameDeadline, base)
+}
+
+// lateFrameDeadline is the floor of an inter frame's write deadline on a
+// transport that can send late (lateGate.canLate), in place of frameDeadline.
+//
+// The 5G trace had 5 inter writes abandoned with `payload: deadline exceeded`
+// near 300ms, while measured inter writes reached 296ms and keyframe writes
+// peaked at 137ms: the link is bursty, not stuck. An abandon is a dropped
+// inter frame, which forces a keyframe wait of about 20 frames, so on these
+// transports waiting is the cheaper mistake. Tied to lateWaitMax so a frame
+// the late path will still send also gets a write budget as long as that wait.
+const lateFrameDeadline = lateWaitMax
+
+// frameDeadlineFloored is frameDeadlineFor with the floor given.
+func frameDeadlineFloored(floor, base time.Duration) time.Duration {
 	if base < 0 {
 		base = 0
 	}
-	if d := frameDeadline + base/2; d < frameDeadlineCap {
+	if d := floor + base/2; d < frameDeadlineCap {
 		return d
 	}
 	return frameDeadlineCap
@@ -66,7 +82,12 @@ const frameJitterCap = 300 * time.Millisecond
 // and may be zero when nothing has been measured, which grants no allowance.
 // The result is still bounded by frameDeadlineCap.
 func frameDeadlineWith(base, now time.Duration) time.Duration {
-	d := frameDeadlineFor(base)
+	return frameDeadlineWithFloor(frameDeadline, base, now)
+}
+
+// frameDeadlineWithFloor is frameDeadlineWith with the floor given.
+func frameDeadlineWithFloor(floor, base, now time.Duration) time.Duration {
+	d := frameDeadlineFloored(floor, base)
 	if base > 0 && now > base {
 		extra := now - base
 		if extra > frameJitterCap {
@@ -139,9 +160,14 @@ func keyframeDeadlineFor(base time.Duration) time.Duration {
 //
 // now is the current round trip (zero when unknown). Only pictures read it: a
 // keyframe's deadline already carries seconds of margin over any spike.
-func deadlineFor(key, config bool, base, now time.Duration) time.Duration {
+// canLate is whether the transport can send late, which raises a picture's
+// floor to lateFrameDeadline.
+func deadlineFor(key, config, canLate bool, base, now time.Duration) time.Duration {
 	if key || config {
 		return keyframeDeadlineFor(base)
+	}
+	if canLate {
+		return frameDeadlineWithFloor(lateFrameDeadline, base, now)
 	}
 	return frameDeadlineWith(base, now)
 }
@@ -624,9 +650,9 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					}
 				}
 
-				deadline := msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, pacer.Base(), nowRTT()))
+				deadline := msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, late.canLate, pacer.Base(), nowRTT()))
 				if sentLate {
-					deadline = time.Now().Add(deadlineFor(false, false, pacer.Base(), nowRTT()))
+					deadline = time.Now().Add(deadlineFor(false, false, late.canLate, pacer.Base(), nowRTT()))
 				}
 				writeStart := time.Now()
 				err := conn.SendFrame(msg, deadline)

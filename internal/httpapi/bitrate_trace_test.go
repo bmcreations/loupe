@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -65,13 +66,14 @@ func TestOpeningRecordsWhyItWasOrWasNotAResume(t *testing.T) {
 	tgt := &optsTarget{opens: make(chan target.Options, 4)}
 	m.Register(tgt)
 
+	var opened []int
 	open := func(p string) {
 		t.Helper()
 		s, err := m.AcquireFrom(context.Background(), "stub", p)
 		if err != nil {
 			t.Fatal(err)
 		}
-		<-tgt.opens
+		opened = append(opened, (<-tgt.opens).BitRate)
 		_ = s.Close()
 		m.mu.Lock()
 		delete(m.sessions, "stub")
@@ -85,13 +87,22 @@ func TestOpeningRecordsWhyItWasOrWasNotAResume(t *testing.T) {
 	m.paths.put(phone, 800_000)
 	open(phone)
 
+	if want := []int{unknownPathStartBps, 4_000_000, 4_000_000, 800_000}; fmt.Sprint(opened) != fmt.Sprint(want) {
+		t.Fatalf("opened at %v, want %v", opened, want)
+	}
 	skipped := gateRecords(t, path, "resumeSkipped")
 	var why []any
 	for _, r := range skipped {
 		why = append(why, r["why"])
 	}
-	if len(why) != 3 || why[0] != "nothingRemembered" || why[1] != "noPath" || why[2] != "notBelowCeiling" {
+	if len(why) != 3 || why[0] != "cautiousStart" || why[1] != "noPath" || why[2] != "notBelowCeiling" {
 		t.Fatalf("resumeSkipped reasons %v", why)
+	}
+	if c := skipped[0]; c["current"] != float64(unknownPathStartBps) || c["ceiling"] != 4_000_000.0 {
+		t.Fatalf("cautious start record %v, want current %d under ceiling 4000000", c, unknownPathStartBps)
+	}
+	if c := skipped[1]; c["current"] != 4_000_000.0 {
+		t.Fatalf("LAN/no-path record %v, want the full ceiling", c)
 	}
 	if res := gateRecords(t, path, "resume"); len(res) != 1 || res[0]["current"] != 800_000.0 || res[0]["remembered"] != 800_000.0 {
 		t.Fatalf("resume records %v", res)

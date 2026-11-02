@@ -213,6 +213,21 @@ pacer's admit decision is unchanged. WebSocket keeps the old rule: its write is
 committed to TCP and blocks everything behind it, so shedding early is its only
 lever.
 
+**Fewer keyframe waits on QUIC and WebTransport.** Any dropped inter frame costs
+a keyframe wait of about 20 frames, so three triggers are softened there (the
+WebSocket rules are unchanged):
+
+- Inter frames get a 600ms write-deadline floor (`lateWaitMax`) instead of
+  250ms, plus base/2 and the jitter allowance, still capped at 1s. The 5G trace
+  abandoned 5 inter writes near 300ms on a link whose writes reached 296ms.
+- The pacer backs off only once the excess over its baseline has stayed above
+  150ms continuously for 300ms (`backoffHold`); dropping under resets the hold.
+  A ~200ms spike across a dozen frames no longer collapses `keep`.
+- A new session on an unknown non-LAN path (adaptive, nothing remembered) opens
+  at 2 Mbps (`unknownPathStartBps`) instead of the ceiling, which stays the full
+  rate so the recover gate can climb to it. LAN paths have no path key and open
+  at the ceiling. The trace row is `resumeSkipped` with `why: cautiousStart`.
+
 `bitRate` is a ceiling, not a fixed rate. When the link cannot carry what the
 encoder produces, the session relaunches the encoder lower and probes back up.
 An encoder that can change rate while running (a simulator's) is changed in
@@ -343,7 +358,7 @@ period after motion that did
 not sharpen writes one `sharpenSkipped` record with `why`: `shed`,
 `rateNotHeld`, `rtt`, `noViewer`, `awaitKey` or `tooSoon`. Opening a session
 writes `resume` (with `remembered`) or `resumeSkipped` (`why`: `noPath`,
-`nothingRemembered`, `notBelowCeiling`); a viewer leaving writes `resumeSaved`
+`nothingRemembered`, `cautiousStart`, `notBelowCeiling`); a viewer leaving writes `resumeSaved`
 or `resumeNotSaved`. A size-only step has `sizeOnly:true`.
 
 Health forgives up to three decoder rejections within 3s of a parameter set (a

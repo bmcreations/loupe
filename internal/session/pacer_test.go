@@ -14,6 +14,11 @@ func testPacer() (*Pacer, func(time.Duration)) {
 	return p, func(d time.Duration) { now = now.Add(d) }
 }
 
+// frameTick is the simulated gap between samples in tests that feed the pacer
+// a run of readings: backoff needs the excess to persist for backoffHold of
+// the pacer's clock, so a loop with no time passing never backs off.
+const frameTick = 20 * time.Millisecond
+
 // observeFor feeds one sample per 100ms of simulated time for d, which is the
 // shape the viewer loop produces: many samples spread across wall clock.
 func observeFor(p *Pacer, advance func(time.Duration), d, rtt time.Duration) {
@@ -48,12 +53,13 @@ func TestPacerOpenWhenLatencyIsFine(t *testing.T) {
 }
 
 func TestPacerBacksOffUnderLatency(t *testing.T) {
-	p := NewPacer()
+	p, advance := testPacer()
 	p.Observe(20 * time.Millisecond) // a fast baseline
 	// The condition that defeated the socket-level check: seconds of latency
 	// while the local socket reports healthy.
 	for i := 0; i < 60; i++ {
 		p.Observe(3 * time.Second)
+		advance(frameTick)
 	}
 	if p.Keep() > 0.3 {
 		t.Errorf("keep = %v after sustained 3s latency, expected heavy backoff", p.Keep())
@@ -64,12 +70,15 @@ func TestPacerBacksOffUnderLatency(t *testing.T) {
 }
 
 func TestPacerBacksOffFasterWhenWorse(t *testing.T) {
-	mild, severe := NewPacer(), NewPacer()
+	mild, advanceMild := testPacer()
+	severe, advanceSevere := testPacer()
 	mild.Observe(20 * time.Millisecond)
 	severe.Observe(20 * time.Millisecond)
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 25; i++ {
 		mild.Observe(200 * time.Millisecond)
 		severe.Observe(5 * time.Second)
+		advanceMild(frameTick)
+		advanceSevere(frameTick)
 	}
 	if severe.Keep() >= mild.Keep() {
 		t.Errorf("severe backlog kept %v, mild kept %v; backoff should scale with excess",
@@ -78,10 +87,11 @@ func TestPacerBacksOffFasterWhenWorse(t *testing.T) {
 }
 
 func TestPacerRecoversSlowly(t *testing.T) {
-	p := NewPacer()
+	p, advance := testPacer()
 	p.Observe(20 * time.Millisecond)
 	for i := 0; i < 60; i++ {
 		p.Observe(3 * time.Second)
+		advance(frameTick)
 	}
 	collapsed := p.Keep()
 
@@ -94,6 +104,7 @@ func TestPacerRecoversSlowly(t *testing.T) {
 
 	for i := 0; i < 200; i++ {
 		p.Observe(50 * time.Millisecond)
+		advance(frameTick)
 	}
 	if p.Keep() != 1 {
 		t.Errorf("keep = %v after sustained recovery, want 1", p.Keep())
@@ -101,17 +112,19 @@ func TestPacerRecoversSlowly(t *testing.T) {
 }
 
 func TestPacerHoldsSteadyInTheHysteresisBand(t *testing.T) {
-	p := NewPacer()
+	p, advance := testPacer()
 	// Establish a near-zero baseline, then congest.
 	p.Observe(10 * time.Millisecond)
 	for i := 0; i < 40; i++ {
 		p.Observe(3 * time.Second)
+		advance(frameTick)
 	}
 	before := p.Keep()
 	// Between recoverExcess and targetExcess the controller should do nothing,
 	// or it oscillates between flooding and starving.
 	for i := 0; i < 50; i++ {
 		p.Observe(10*time.Millisecond + 100*time.Millisecond)
+		advance(frameTick)
 	}
 	if p.Keep() != before {
 		t.Errorf("keep moved from %v to %v inside the hysteresis band", before, p.Keep())
@@ -138,13 +151,15 @@ func TestPacerDoesNotCollapseOnASlowButHealthyPath(t *testing.T) {
 }
 
 func TestPacerShedsOnQueuingAboveASlowBaseline(t *testing.T) {
-	p := NewPacer()
+	p, advance := testPacer()
 	for i := 0; i < 50; i++ {
-		p.Observe(260 * time.Millisecond) // establish the baseline
+		p.Observe(260 * time.Millisecond)
+		advance(frameTick) // establish the baseline
 	}
 	// Now add a real backlog on top of that baseline.
 	for i := 0; i < 60; i++ {
 		p.Observe(2 * time.Second)
+		advance(frameTick)
 	}
 	if p.Keep() > 0.4 {
 		t.Errorf("keep = %v with 1.7s of queuing above baseline, expected backoff", p.Keep())
@@ -152,18 +167,21 @@ func TestPacerShedsOnQueuingAboveASlowBaseline(t *testing.T) {
 }
 
 func TestPacerRecoversOnASlowPath(t *testing.T) {
-	p := NewPacer()
+	p, advance := testPacer()
 	for i := 0; i < 50; i++ {
 		p.Observe(260 * time.Millisecond)
+		advance(frameTick)
 	}
 	for i := 0; i < 60; i++ {
 		p.Observe(2 * time.Second)
+		advance(frameTick)
 	}
 	collapsed := p.Keep()
 	// Backlog clears; latency returns to the path's own floor. The controller
 	// must reopen, which the absolute-threshold version could never do.
 	for i := 0; i < 300; i++ {
 		p.Observe(265 * time.Millisecond)
+		advance(frameTick)
 	}
 	if p.Keep() <= collapsed {
 		t.Errorf("keep stuck at %v after the backlog cleared on a slow path", p.Keep())
@@ -232,10 +250,11 @@ func TestPacerBaselineSurvivesABurstOfQueuing(t *testing.T) {
 }
 
 func TestPacerNeverFullyStarves(t *testing.T) {
-	p := NewPacer()
+	p, advance := testPacer()
 	p.Observe(20 * time.Millisecond)
 	for i := 0; i < 5000; i++ {
 		p.Observe(30 * time.Second)
+		advance(frameTick)
 	}
 	if p.Keep() < minKeep {
 		t.Errorf("keep = %v, below the floor %v", p.Keep(), minKeep)
@@ -246,10 +265,11 @@ func TestPacerNeverFullyStarves(t *testing.T) {
 }
 
 func TestPacerIgnoresMissingMeasurement(t *testing.T) {
-	p := NewPacer()
+	p, advance := testPacer()
 	p.Observe(20 * time.Millisecond)
 	for i := 0; i < 30; i++ {
 		p.Observe(3 * time.Second)
+		advance(frameTick)
 	}
 	before := p.Keep()
 	p.Observe(0) // client has not reported yet
@@ -258,23 +278,37 @@ func TestPacerIgnoresMissingMeasurement(t *testing.T) {
 	}
 }
 
-// One late client report, re-read for each of the 60 frames sent before the
-// next report, backs off once. Re-reading it used to back off on every frame
-// and took keep to the floor from a single 406ms sample.
+// Late client reports, each re-read for the 60 frames sent before the next,
+// back off once per report. Re-reading one used to back off on every frame and
+// took keep to the floor from a single 406ms sample. The first late report
+// starts the hold; the next one, a second later, is past it and backs off.
 func TestPacerBacksOffOncePerReport(t *testing.T) {
 	p, advance := testPacer()
 	observeFor(p, advance, 2*time.Second, 5*time.Millisecond)
 
+	report := func(rtt time.Duration) {
+		p.Observe(rtt)
+		for i := 0; i < 59; i++ {
+			advance(16 * time.Millisecond)
+			p.ObserveRepeat(rtt)
+		}
+		advance(16 * time.Millisecond)
+	}
+	report(406 * time.Millisecond)
+	if p.keep != 1 {
+		t.Fatalf("first late report, inside the hold, moved keep to %.3f", p.keep)
+	}
 	p.Observe(406 * time.Millisecond)
 	once := p.keep
+	if once >= 1 || once < 0.7 {
+		t.Fatalf("second late report took keep to %.3f, want one backoff step", once)
+	}
 	for i := 0; i < 59; i++ {
+		advance(16 * time.Millisecond)
 		p.ObserveRepeat(406 * time.Millisecond)
 	}
 	if p.keep != once {
 		t.Fatalf("repeats of one report moved keep from %.3f to %.3f", once, p.keep)
-	}
-	if once < 0.7 {
-		t.Fatalf("one late report took keep to %.3f, want one backoff step", once)
 	}
 
 	// A good report re-read recovers as before.
@@ -285,5 +319,46 @@ func TestPacerBacksOffOncePerReport(t *testing.T) {
 	}
 	if p.keep <= before {
 		t.Fatalf("repeats of a good report did not recover: %.3f -> %.3f", before, p.keep)
+	}
+}
+
+// A spike shorter than backoffHold is the 5G burst the hold exists to ignore:
+// keep must stay at 1, so Admit never refuses and no keyframe wait starts.
+func TestPacerIgnoresASpikeShorterThanTheHold(t *testing.T) {
+	p, advance := testPacer()
+	observeFor(p, advance, time.Second, 50*time.Millisecond) // baseline
+	// 12 frames at ~16ms: a ~200ms rise, as in the trace.
+	for i := 0; i < 12; i++ {
+		p.Observe(300 * time.Millisecond)
+		advance(16 * time.Millisecond)
+	}
+	if p.Keep() != 1 {
+		t.Errorf("keep = %v after a %v spike, want 1", p.Keep(), 12*16*time.Millisecond)
+	}
+	if rate := admitRate(p, 100); rate != 1 {
+		t.Errorf("admitted %.2f of frames after a short spike, want all", rate)
+	}
+}
+
+// Dropping under target resets the hold, so two short rises with a dip between
+// them do not add up to a sustained one.
+func TestPacerHoldRestartsAfterADip(t *testing.T) {
+	p, advance := testPacer()
+	observeFor(p, advance, time.Second, 50*time.Millisecond)
+	for round := 0; round < 5; round++ {
+		observeFor(p, advance, 200*time.Millisecond, 300*time.Millisecond)
+		observeFor(p, advance, 100*time.Millisecond, 50*time.Millisecond)
+	}
+	if p.Keep() != 1 {
+		t.Errorf("keep = %v after repeated sub-hold spikes, want 1", p.Keep())
+	}
+}
+
+func TestPacerBacksOffOnceTheRiseOutlastsTheHold(t *testing.T) {
+	p, advance := testPacer()
+	observeFor(p, advance, time.Second, 50*time.Millisecond)
+	observeFor(p, advance, 2*time.Second, 400*time.Millisecond)
+	if p.Keep() >= 1 {
+		t.Errorf("keep = %v after a 2s rise, want backoff", p.Keep())
 	}
 }

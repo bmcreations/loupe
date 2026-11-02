@@ -1007,6 +1007,14 @@ func (m *Manager) AcquireFrom(ctx context.Context, targetID, path string) (*sess
 			} else {
 				resumeWhy = "notBelowCeiling"
 			}
+		} else if opts.BitRate > unknownPathStartBps {
+			// Nothing is known about this link, and it is not a LAN one
+			// (pathKey returns "" for those, which skip this block and open
+			// at the ceiling). The full rate overloaded a ~1.7 Mbps 5G link
+			// for the first 3s, so open lower and let the recover gate climb.
+			// ceiling is untouched, so recovery can still reach it.
+			opts.BitRate = unknownPathStartBps
+			resumeWhy = "cautiousStart"
 		}
 	}
 
@@ -1224,7 +1232,8 @@ func (m *Manager) AcquireFrom(ctx context.Context, targetID, path string) (*sess
 				"target":     targetID,
 				"gate":       "resumeSkipped",
 				"why":        resumeWhy,
-				"current":    ceiling,
+				"current":    opts.BitRate,
+				"ceiling":    ceiling,
 				"remembered": remembered,
 			})
 		}

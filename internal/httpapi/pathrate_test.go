@@ -84,8 +84,8 @@ func TestAReturningPathStartsAtItsRememberedRate(t *testing.T) {
 	if got := acquire(phone); got != 800_000 {
 		t.Errorf("returning path opened at %d, want 800000", got)
 	}
-	if got := acquire(pathKey("quic", "198.51.100.7:1")); got != 4_000_000 {
-		t.Errorf("unknown path opened at %d, want the 4 Mbps default", got)
+	if got := acquire(pathKey("quic", "198.51.100.7:1")); got != unknownPathStartBps {
+		t.Errorf("unknown path opened at %d, want the cautious %d", got, unknownPathStartBps)
 	}
 	if got := acquire(pathKey("quic", "192.168.1.5:1")); got != 4_000_000 {
 		t.Errorf("LAN client opened at %d, want the 4 Mbps default", got)

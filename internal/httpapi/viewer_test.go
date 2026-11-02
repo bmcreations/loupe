@@ -116,9 +116,9 @@ const observedKeyframeWrite = 1187 * time.Millisecond
 func TestAKeyframeGetsLongerThanAPictureItReplaces(t *testing.T) {
 	const base = 380 * time.Millisecond
 
-	picture := deadlineFor(false, false, base, 0)
-	key := deadlineFor(true, false, base, 0)
-	cfg := deadlineFor(false, true, base, 0)
+	picture := deadlineFor(false, false, false, base, 0)
+	key := deadlineFor(true, false, false, base, 0)
+	cfg := deadlineFor(false, true, false, base, 0)
 
 	if key <= picture {
 		t.Errorf("keyframe deadline %v does not exceed the picture deadline %v", key, picture)
@@ -653,5 +653,26 @@ func TestFrameDeadlineRidesOutAnRTTSpike(t *testing.T) {
 	}
 	if got := frameDeadlineWith(30*time.Second, 40*time.Second); got != frameDeadlineCap {
 		t.Errorf("deadline %v on a 30s baseline, want the cap %v", got, frameDeadlineCap)
+	}
+}
+
+// On a transport that can send late, an inter frame's floor is the late wait,
+// with the jitter allowance and the cap kept; WebSocket's is unchanged.
+func TestLateTransportGivesInterFramesALargerFloor(t *testing.T) {
+	const base = 100 * time.Millisecond
+	if got, want := deadlineFor(false, false, true, base, 0), lateWaitMax+base/2; got != want {
+		t.Errorf("late-capable inter deadline %v, want %v", got, want)
+	}
+	if got, want := deadlineFor(false, false, false, base, 0), frameDeadlineFor(base); got != want {
+		t.Errorf("non-late inter deadline %v, want unchanged %v", got, want)
+	}
+	if got := deadlineFor(false, false, true, base, 400*time.Millisecond); got <= lateWaitMax+base/2 || got > frameDeadlineCap {
+		t.Errorf("jitter allowance lost or cap broken: %v", got)
+	}
+	if got := deadlineFor(false, false, true, 30*time.Second, 40*time.Second); got != frameDeadlineCap {
+		t.Errorf("deadline %v, want the cap %v", got, frameDeadlineCap)
+	}
+	if got, want := deadlineFor(true, false, true, base, 0), keyframeDeadlineFor(base); got != want {
+		t.Errorf("keyframe deadline changed: %v, want %v", got, want)
 	}
 }
