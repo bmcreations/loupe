@@ -353,7 +353,10 @@ carries `recentFrames` and `motionFrames`. The viewer's per-second record
 carries `sentLate`, `writeMaxMs` and `keyWriteMaxMs` (the longest `SendFrame`
 this second, overall and for keyframes and parameter sets), `staleOverKey`
 (stale frames queued before the preceding keyframe write finished) and
-`staleSustained` (stale runs that ended in a shed), next to `shedStale`. A still
+`staleSustained` (stale runs that ended in a shed) and `cfgResent` (parameter
+sets written ahead of a keyframe because the viewer had not had the current
+ones: the fan-out drops config like any frame when a queue is full, and
+`lastCfg` is cleared when the stream is replaced), next to `shedStale`. A still
 period after motion that did
 not sharpen writes one `sharpenSkipped` record with `why`: `shed`,
 `rateNotHeld`, `rtt`, `noViewer`, `awaitKey` or `tooSoon`. Opening a session

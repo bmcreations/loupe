@@ -1,6 +1,10 @@
 package httpapi
 
-import "time"
+import (
+	"time"
+
+	"github.com/bmcreations/loupe/internal/session"
+)
 
 // staleRunMax is how long a run of stale inter frames may go on being sent
 // late before the viewer gives up on it and asks for a keyframe.
@@ -84,6 +88,35 @@ type sendTrace struct {
 	sentLate, staleOverKey uint64
 	// staleSustained counts stale runs that ended in a shed (cumulative).
 	staleSustained uint64
+	// cfgResent counts parameter sets written ahead of a keyframe because the
+	// viewer had not had the current ones (cumulative).
+	cfgResent uint64
+}
+
+// cfgGate tracks, for one viewer, which parameter-set generation it was last
+// sent. Config reaches a viewer by the fan-out queue, which drops when full,
+// and by replay at join, so a keyframe can be next in line for a viewer whose
+// decoder has no SPS/PPS: every keyframe then fails to decode.
+type cfgGate struct{ sent uint64 }
+
+// noteWritten records a delivered Config message.
+func (g *cfgGate) noteWritten(msg session.OutMsg) {
+	if msg.Config {
+		g.sent = msg.CfgGen
+	}
+}
+
+// before returns the config to write ahead of msg, if msg is a keyframe and
+// the viewer has not had the current parameter sets.
+func (g *cfgGate) before(msg session.OutMsg, cur func() (session.OutMsg, bool)) (session.OutMsg, bool) {
+	if !msg.Key || msg.Config {
+		return session.OutMsg{}, false
+	}
+	cfg, ok := cur()
+	if !ok || cfg.CfgGen == g.sent {
+		return session.OutMsg{}, false
+	}
+	return cfg, true
 }
 
 func (t *sendTrace) noteWrite(keyOrConfig bool, d time.Duration) {
@@ -103,6 +136,7 @@ func (t *sendTrace) take() map[string]any {
 		"sentLate":       t.sentLate,
 		"staleOverKey":   t.staleOverKey,
 		"staleSustained": t.staleSustained,
+		"cfgResent":      t.cfgResent,
 	}
 	t.writeMax, t.keyWriteMax = 0, 0
 	return rec

@@ -113,6 +113,10 @@ type OutMsg struct {
 	// timestamp here and takes the payload from Data[FrameHeaderLen:] rather
 	// than parsing an envelope it does not use.
 	PTSMicros uint64
+	// CfgGen numbers a Config message (1, 2, ...) so a viewer's writer can tell
+	// whether the parameter sets it last wrote are still the current ones.
+	// Zero on everything else.
+	CfgGen uint64
 }
 
 // viewer is one connected client.
@@ -284,7 +288,8 @@ type Session struct {
 	events   *eventRing
 	gestures map[uint64]*GestureAssembler
 	nextID   uint64
-	lastCfg  *OutMsg // most recent parameter sets, replayed to joiners
+	lastCfg  *OutMsg // most recent parameter sets of the current stream, replayed to joiners
+	cfgGen   uint64  // generation of lastCfg; guarded by mu
 	// pass is the passthrough track's state, nil when the stream has none.
 	// Guarded by mu like lastCfg.
 	pass     *passTrack
@@ -872,6 +877,19 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 	}
 
 	return v.id, v.out
+}
+
+// CurrentConfig returns the current stream's parameter sets, stamped to go out
+// now, and their generation. ok is false until the stream has sent any.
+func (s *Session) CurrentConfig() (cfg OutMsg, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.lastCfg == nil {
+		return OutMsg{}, false
+	}
+	cfg = *s.lastCfg
+	cfg.QueuedAt = time.Now()
+	return cfg, true
 }
 
 // RemoveViewer deregisters a client and closes its channel. A scroll burst
@@ -1606,6 +1624,17 @@ func (s *Session) pump() {
 		if stream == nil {
 			return
 		}
+		if prev != nil {
+			// The parameter sets belong to the encoder that produced them. A
+			// relaunch can change SPS/PPS (size, bitrate profile), so the old
+			// ones must not be replayed to a joiner, or put ahead of a key, in
+			// the gap before the new stream sends its own. Bumping the
+			// generation makes every writer re-send once the new set arrives.
+			s.mu.Lock()
+			s.lastCfg = nil
+			s.cfgGen++
+			s.mu.Unlock()
+		}
 		prev = stream
 		first := true
 
@@ -1672,8 +1701,10 @@ func (s *Session) pump() {
 			copy(msg.Data, scratch)
 
 			if frame.Config {
-				cfg := msg
 				s.mu.Lock()
+				s.cfgGen++
+				msg.CfgGen = s.cfgGen
+				cfg := msg
 				s.lastCfg = &cfg
 				s.mu.Unlock()
 			}

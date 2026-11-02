@@ -463,7 +463,8 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		// A passthrough viewer is judged against the passthrough track's
 		// frames, which are the ones it is sent.
 		var counters statsSource = sess
-		if sess.ViewerPassthrough(viewerID) {
+		passthrough := sess.ViewerPassthrough(viewerID)
+		if passthrough {
 			counters = passthroughStats{sess}
 		}
 		// askForKey asks the encoder for a keyframe, at most once per
@@ -509,6 +510,8 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		// carries the per-second send measurements into the trace row.
 		late := lateGate{canLate: canRelease}
 		var tr sendTrace
+		// cfg makes sure the current parameter sets precede every keyframe.
+		var cfg cfgGate
 
 		// rttSource records which signal the last pacer sample came from, so a
 		// trace row says whether the controller was steering on transport
@@ -650,6 +653,21 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					}
 				}
 
+				// CurrentConfig is the H.264 encoder's; a passthrough viewer's
+				// parameter sets travel in its own track.
+				if c, ok := cfg.before(msg, sess.CurrentConfig); ok && !passthrough {
+					cd := c.QueuedAt.Add(deadlineFor(false, true, late.canLate, pacer.Base(), nowRTT()))
+					err := conn.SendFrame(c, cd)
+					if _, fatal := frameDelivered(err); fatal {
+						stopErr = err
+						return
+					}
+					if delivered, _ := frameDelivered(err); delivered {
+						cfg.noteWritten(c)
+						tr.cfgResent++
+					}
+				}
+
 				deadline := msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, late.canLate, pacer.Base(), nowRTT()))
 				if sentLate {
 					deadline = time.Now().Add(deadlineFor(false, false, late.canLate, pacer.Base(), nowRTT()))
@@ -684,6 +702,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				// Data carries the WebSocket envelope's 18-byte header and
 				// WebTransport replaces it with 13, so this overstates the
 				// wire by a few bytes in a frame of thousands.
+				cfg.noteWritten(msg)
 				sess.NoteSent(viewerID, len(msg.Data))
 				if msg.Key {
 					needKey = false
