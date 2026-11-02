@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -24,8 +25,8 @@ func TestStaleSimulatorListingDoesNotMarkANewSimulatorMissing(t *testing.T) {
 	}
 	// A listing that began later still applies.
 	m.SyncSimulatorsAt(creatorStart.Add(time.Second), nil, "simcap")
-	if state := m.statePresence("sim:AAAA-1111"); state != "missing" {
-		t.Errorf("a newer listing without it did not mark it missing: %q", state)
+	if _, ok := m.Target("sim:AAAA-1111"); ok {
+		t.Error("a newer listing without it did not drop it")
 	}
 }
 
@@ -77,5 +78,22 @@ func TestRegisterScannedSkipsATargetUnregisteredAfterTheScanBegan(t *testing.T) 
 	}
 	if m.RegisterScanned(&describingTarget{id: "avd:doomed"}, time.Now()) {
 		t.Error("RegisterScanned replaced a registered target")
+	}
+}
+
+// A simulator simctl stops listing has been deleted. With no session open it
+// leaves the list rather than staying as a missing row.
+func TestADeletedSimulatorLeavesTheList(t *testing.T) {
+	m := NewManager(target.Options{})
+	info := target.SimInfo{UDID: "GONE-0001", Name: "Gone", OSVersion: "27.0", State: "Shutdown"}
+	m.SyncSimulatorsAt(time.Now(), []target.SimInfo{info}, "simcap")
+	time.Sleep(time.Millisecond)
+	m.SyncSimulatorsAt(time.Now(), nil, "simcap")
+	if _, ok := m.Target("sim:GONE-0001"); ok {
+		t.Fatal("a deleted simulator with no session stayed registered")
+	}
+	var refused *refusedError
+	if err := m.unknownLocked("sim:GONE-0001"); !errors.As(err, &refused) || refused.reason != "deleted" {
+		t.Errorf("opening it again should be refused as deleted, got %v", err)
 	}
 }

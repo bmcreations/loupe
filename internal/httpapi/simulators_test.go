@@ -34,9 +34,13 @@ func TestASimulatorIsListedAndFollowsItsBootState(t *testing.T) {
 	}
 }
 
+// A deleted simulator that is still being watched stays, so its viewer can
+// say where it went, until the first listing after its session ends.
 func TestADeletedSimulatorIsKeptAndSaysWhy(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.SyncSimulators([]target.SimInfo{simProbe, simPro}, "")
+	probe := target.SimulatorID(simProbe.UDID)
+	m.sessions[probe] = nil // watched
 	m.SyncSimulators([]target.SimInfo{simPro}, "")
 
 	got := infoFor(t, m, target.SimulatorID(simProbe.UDID))
@@ -48,6 +52,12 @@ func TestADeletedSimulatorIsKeptAndSaysWhy(t *testing.T) {
 	}
 	if !infoFor(t, m, target.SimulatorID(simPro.UDID)).Available {
 		t.Error("the simulator still listed became unavailable")
+	}
+
+	delete(m.sessions, probe)
+	m.SyncSimulators([]target.SimInfo{simPro}, "")
+	if _, ok := m.Target(probe); ok {
+		t.Error("the deleted simulator stayed after its session ended")
 	}
 }
 
