@@ -115,12 +115,12 @@ func TestALeavingViewerSaysWhetherItsRateWasSaved(t *testing.T) {
 		}
 		conn := &stalledConn{fakeConn: fakeConn{name: "stalled"}, closed: make(chan struct{})}
 		done := make(chan struct{})
-		go func() { s.serveViewerFrom("stub", sess, conn, p); close(done) }()
+		go func() { s.serveViewerWith("stub", sess, conn, session.ViewerOptions{}, p); close(done) }()
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second):
 			_ = conn.Close()
-			t.Fatal("serveViewerFrom did not return")
+			t.Fatal("serveViewerWith did not return")
 		}
 	}
 	leave(0)

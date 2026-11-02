@@ -337,6 +337,13 @@ type BitrateSample struct {
 // healthTracker does the pairing). Counts are rates per second.
 type DeliveryReading struct {
 	Valid bool
+	// Decoded is set once the viewer's client has reported at least one
+	// decoded frame this session. Before that a delivered count of 0 is a
+	// decoder that has not started (waiting on its first keyframe, or the
+	// first config), not a link that lost frames: a phone with decFps 0 and
+	// decodeErrors 0 for its first 6s, receiving 2.4 Mbps, read deliveredFrac
+	// 0.142 and was cut 4M -> 1.94M. lossCut declines until it is set.
+	Decoded bool
 	// Produced is frames the encoder made, Delivered the frames the client
 	// decoded, Allowance the shortfall that is report-clock phase, not loss.
 	Produced, Delivered, Allowance float64
@@ -444,6 +451,10 @@ const (
 	// flat: a link that drops rather than queues. Like GateDelay it does not
 	// count against the change cap and does not move the picture size.
 	GateLoss BitrateGate = "loss"
+	// GateLossSkipped is a reading that looked lossy while the client had not
+	// yet decoded a frame, so the loss gate declined (Detail "why":
+	// "noDecodeYet"). Reported at most once per lossSkipEvery.
+	GateLossSkipped BitrateGate = "lossSkipped"
 	// GateSharpen is a one-frame quality boost after motion stopped
 	// (sharpen.go). It changes no steady rate.
 	GateSharpen BitrateGate = "sharpen"
@@ -486,8 +497,13 @@ type BitrateReport struct {
 	AwaitMs int64
 	// BusyMs is how much of ActiveMs produced at busyFrameRate or more, the
 	// time GoodputBps is measured over. GoodputBps is 0 when it is too little.
-	BusyMs  int64
-	Changes int
+	BusyMs int64
+	// ClearMs is the part of BusyMs with no keyframe wait, and CarriedBps the
+	// rate over it (0 when under minBusyTime): what the undercarried and
+	// starved gates aim at.
+	ClearMs    int64
+	CarriedBps int
+	Changes    int
 	// Live is set when the change was applied to the running encoder rather
 	// than by relaunching it.
 	Live bool
@@ -535,6 +551,13 @@ type BitrateAdapter struct {
 	busy      time.Duration
 	busyBytes uint64
 
+	// clear and clearBytes are the part of busy with no keyframe wait in it.
+	// The undercarried and starved gates aim at these (see carried): a busy
+	// second spent awaiting a key carries a trickle by construction, and
+	// averaging it in reads the wait as the link.
+	clear      time.Duration
+	clearBytes uint64
+
 	// rttOKFor is how long the current rtt has read near baseline whatever
 	// was shed, where healthyFor also needs nothing shed. A keyframe wait
 	// that follows our own abandon reads healthyFor 0 because the abandon is a
@@ -569,6 +592,10 @@ type BitrateAdapter struct {
 	lossBytes uint64
 	lossBusy  time.Duration
 	lossAt    []time.Time
+	// skipped is a GateLossSkipped report waiting for TakeSkip, and skipQuiet
+	// how much longer another is held back.
+	skipped   *BitrateReport
+	skipQuiet time.Duration
 	// floorHits counts consecutive undercarried windows that could not lower
 	// the bitrate because it was at its floor.
 	floorHits int
@@ -618,6 +645,10 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 			if float64(s.Frames) >= busyFrameRate*dt.Seconds() {
 				a.busy += dt
 				a.busyBytes += s.Bytes
+				if s.AwaitKey == 0 {
+					a.clear += dt
+					a.clearBytes += s.Bytes
+				}
 			}
 			if s.AwaitKey > 0 {
 				a.awaiting += dt
@@ -695,8 +726,9 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	// wait.
 	awaitIsSignal := a.rttOKFor < awaitHealthyGrace
 
+	starvedRate := a.gateRate()
 	if awaitIsSignal && awaitFrac >= starvedAwaitFraction && a.awaitTimeFrac() >= starvedAwaitFraction &&
-		a.goodput() > 0 {
+		starvedRate > 0 {
 		// Aim at the measured goodput, with a halving as the ceiling on the
 		// step rather than the step itself.
 		//
@@ -713,7 +745,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 		// cap: goodput is measured over intervals the encoder produced in, and
 		// a short window with one large frame in it can read above the current
 		// rate, which must not turn a starved window into an increase.
-		next := a.goodput()
+		next := starvedRate
 		if half := a.current / 2; next > half {
 			next = half
 		}
@@ -758,7 +790,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	}
 
 	if awaitIsSignal && awaitFrac >= undercarriedAwaitFraction && a.awaitTimeFrac() >= undercarriedAwaitFraction {
-		if goodput := a.goodput(); goodput > 0 &&
+		if goodput := a.gateRate(); goodput > 0 &&
 			float64(goodput) < float64(a.current)*undercarriedGoodputFraction {
 			// Aim at what the link carried, as the other two gates do. It is
 			// under half the current rate by the condition, so it cannot be
@@ -821,6 +853,8 @@ func (a *BitrateAdapter) report(now time.Time, gate BitrateGate) BitrateReport {
 	rep.AwaitMs = a.awaiting.Milliseconds()
 	rep.BusyMs = a.busy.Milliseconds()
 	rep.GoodputBps = a.goodput()
+	rep.CarriedBps = a.carried()
+	rep.ClearMs = a.clear.Milliseconds()
 	return rep
 }
 
@@ -955,6 +989,8 @@ func (a *BitrateAdapter) reset(now time.Time) {
 	a.awaiting = 0
 	a.busy = 0
 	a.busyBytes = 0
+	a.clear = 0
+	a.clearBytes = 0
 	a.acc = BitrateSample{}
 }
 
@@ -981,6 +1017,41 @@ func (a *BitrateAdapter) goodput() int {
 		return 0
 	}
 	return int(float64(a.busyBytes) * 8 / a.busy.Seconds())
+}
+
+// carried is goodput over the busy intervals that held no keyframe wait, or
+// zero when there is too little of them (under minBusyTime) to say.
+//
+// The 5G trace: undercarried 4M -> 1.08M with awaitMs 5999 of activeMs 10999
+// and 1143129 bytes. The bytes were divided across the whole busy time, wait
+// included, but the wait is the viewer not being sent pictures; outside it the
+// link carried ~1.83 Mbps. The awaitHealthyGrace test only discounts a wait
+// once the link has read healthy for 3s, which a session 12s in with poor
+// health had not, so the denominator is fixed here instead of by that test.
+// Zero means too little of the window was outside a wait to say, not that the
+// link carried nothing.
+func (a *BitrateAdapter) carried() int {
+	if a.clear < minBusyTime {
+		return 0
+	}
+	return int(float64(a.clearBytes) * 8 / a.clear.Seconds())
+}
+
+// gateRate is the rate the undercarried and starved gates aim at: carried,
+// else goodput.
+//
+// The fallback is for a window with a wait in nearly every second, the shape
+// those gates were written for (Pixel_10 on 20 October: awaitFrac 0.28-0.44
+// in every sample, nothing outside a wait to measure). There the wait is the
+// link's steady state and goodput over the whole busy time is the honest
+// figure; declining would leave a link carrying a tenth of the encoder's rate
+// alone. The wait that carried() discounts is the other shape: one block of
+// seconds with clear seconds around it.
+func (a *BitrateAdapter) gateRate() int {
+	if r := a.carried(); r > 0 {
+		return r
+	}
+	return a.goodput()
 }
 
 // delayBad reports a current round trip over the delay line. Unknown readings
@@ -1133,6 +1204,11 @@ func (a *BitrateAdapter) lossCut(now time.Time, s BitrateSample) (int, BitrateRe
 		}
 		return 0, BitrateReport{}
 	}
+	if !s.Delivery.Decoded {
+		a.noteLossSkipped(s)
+		a.clearLoss()
+		return 0, BitrateReport{}
+	}
 	if !s.Delivery.lossy() {
 		a.clearLoss()
 		return 0, BitrateReport{}
@@ -1182,6 +1258,42 @@ func (a *BitrateAdapter) lossCut(now time.Time, s BitrateSample) (int, BitrateRe
 		"runMs": runMs, "runBytes": runBytes, "carriedBps": carried, "run": lossDwell,
 	}
 	return n, rep
+}
+
+// lossSkipEvery bounds how often a skipped loss reading is traced. A phone
+// that has not decoded yet reports every second for the first several, and a
+// record each would bury the rows that matter.
+const lossSkipEvery = 10 * time.Second
+
+// noteLossSkipped queues a GateLossSkipped report for a reading that would
+// have been judged but for the client not having decoded a frame yet. Only a
+// reading that is lossy apart from that is worth a record; a healthy one
+// declines nothing. TakeSkip hands it out.
+func (a *BitrateAdapter) noteLossSkipped(s BitrateSample) {
+	d := s.Delivery
+	d.Decoded = true
+	if !d.lossy() {
+		return
+	}
+	if a.skipQuiet > 0 {
+		a.skipQuiet -= a.interval
+		return
+	}
+	a.skipQuiet = lossSkipEvery
+	a.skipped = &BitrateReport{Gate: GateLossSkipped, Current: a.current, Detail: map[string]any{
+		"why": "noDecodeYet", "produced": round1(d.Produced), "delivered": round1(d.Delivered),
+		"deliveredFrac": round3(d.DeliveredFraction()), "sent": round1(d.Sent),
+	}}
+}
+
+// TakeSkip hands out the skipped-loss report queued by the last Observe, once.
+func (a *BitrateAdapter) TakeSkip() (BitrateReport, bool) {
+	if a.skipped == nil {
+		return BitrateReport{}, false
+	}
+	r := *a.skipped
+	a.skipped = nil
+	return r, true
 }
 
 func round1(f float64) float64 { return math.Round(f*10) / 10 }

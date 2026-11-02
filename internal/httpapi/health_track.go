@@ -109,6 +109,11 @@ type healthTracker struct {
 	// the same pairing.
 	prevSent, prevEvents, prevAbandon float64
 
+	// decodedSeen is set by the first consumed report whose decoded count is
+	// above zero, and holds for the viewer's life. The loss gate does not act
+	// before it (DeliveryReading.Decoded).
+	decodedSeen bool
+
 	// loss is the reading the newest fresh report produced, handed out once by
 	// TakeLoss.
 	loss session.DeliveryReading
@@ -264,6 +269,9 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 		t.lastRttMs = rttMs
 		t.lastDelivered = delivered
 		t.lastReportAt = csAt
+		if delivered > 0 {
+			t.decodedSeen = true
+		}
 	}
 	t.prevProducedPerSec = curProducedPerSec
 	t.prevSent, t.prevEvents, t.prevAbandon = curSent, curEvents, curAbandon
@@ -327,6 +335,7 @@ func (t *healthTracker) noteLoss() {
 	}
 	r.Allowance = t.phaseAllowance()
 	r.Valid = true
+	r.Decoded = t.decodedSeen
 	t.loss = r
 }
 

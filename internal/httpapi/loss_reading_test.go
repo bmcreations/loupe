@@ -47,3 +47,32 @@ func TestLossReadingCountsAnAbandonAsAnEventNotAsSent(t *testing.T) {
 		t.Fatalf("reading %+v, want sent 3, one event, one abandon", r)
 	}
 }
+
+// The 5G trace phone decoded nothing for its first 6s (decFps 0) while
+// receiving 2.4 Mbps; the reading must not say the client decoded until a
+// report with decoded frames has arrived, and must keep saying so after.
+func TestLossReadingIsDecodedOnlyAfterTheFirstDecodedFrame(t *testing.T) {
+	base := time.Unix(7000, 0)
+	tr := newHealthTracker(base, func() time.Time { return base })
+	tr.sampleAt(base.Add(time.Second), fakeCounters{media: 0, csAt: base}, 82)
+	cases := []struct {
+		name   string
+		decFps float64
+		want   bool
+	}{
+		{"nothing decoded", 0, false},
+		{"still nothing", 0, false},
+		{"first frames", 12, true},
+		{"a later zero keeps it", 0, true},
+	}
+	media := uint64(0)
+	for i, tc := range cases {
+		media += 60
+		at := base.Add(time.Duration(i+2) * time.Second)
+		tr.sampleAt(at, fakeCounters{media: media, cs: map[string]any{"decFps": tc.decFps}, csAt: at}, 82)
+		r, ok := tr.TakeLoss()
+		if !ok || r.Decoded != tc.want {
+			t.Errorf("%s: ok %v Decoded %v, want %v", tc.name, ok, r.Decoded, tc.want)
+		}
+	}
+}

@@ -1635,6 +1635,8 @@ func (m *Manager) recordBitrate(targetID string, rep session.BitrateReport) {
 		"awaitKey":   rep.AwaitKey,
 		"awaitFrac":  round3(rep.AwaitFrac),
 		"goodputBps": rep.GoodputBps,
+		"carriedBps": rep.CarriedBps,
+		"clearMs":    rep.ClearMs,
 		"changes":    rep.Changes,
 	}
 	if rep.To != 0 {

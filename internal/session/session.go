@@ -646,7 +646,10 @@ func (s *Session) takeDelivery() DeliveryReading {
 		if r == nil {
 			continue
 		}
-		if !worst.Valid || r.DeliveredFraction() < worst.DeliveredFraction() {
+		// A viewer that has not decoded yet reads as the worst by
+		// construction; it must not hide a decoding viewer's reading.
+		if !worst.Valid || (r.Decoded && !worst.Decoded) ||
+			(r.Decoded == worst.Decoded && r.DeliveredFraction() < worst.DeliveredFraction()) {
 			worst = *r
 		}
 	}

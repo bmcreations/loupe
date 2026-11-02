@@ -198,6 +198,21 @@ the file: the token has its own file and permissions.
 the inter-frame streams already written, so they stop competing with the
 keyframe for the link.)
 
+**Stale frames are sent late on QUIC and WebTransport.** An inter frame that
+waited longer than `150ms + base/2` (cap 600ms) in the viewer's queue used to be
+shed, which starts a keyframe wait. The 5G trace showed that loop: one
+`shedStale`, 12-15 `shedAwaitKey`, a forced keyframe; 422 of 2604 frames, with
+abandons near 0. The suspect is a keyframe write holding the serialized sender
+so the next frame is stale on arrival. A stream-per-frame transport delivers
+every frame it writes, so such a frame is now sent late, with a fresh write
+deadline (one measured from its queue time is already spent), and counted in
+`sentLate`. The viewer sheds and waits for a keyframe only when the run of stale
+frames has lasted 1s (a draining backlog is many consecutive stale frames, so a
+count does not tell it from a stuck link) or a frame waited over 600ms. The
+pacer's admit decision is unchanged. WebSocket keeps the old rule: its write is
+committed to TCP and blocks everything behind it, so shedding early is its only
+lever.
+
 `bitRate` is a ceiling, not a fixed rate. When the link cannot carry what the
 encoder produces, the session relaunches the encoder lower and probes back up.
 An encoder that can change rate while running (a simulator's) is changed in
@@ -226,7 +241,7 @@ How it decides:
   stepped up. A delay cut within 45s of a fast step up turns fast recovery off
   for two minutes. A single spike, or a slow round trip on a near-idle screen,
   does not cut.
-- **Loss cut (immediate):** the delay cut cannot see a link that drops instead
+- **Loss cut (immediate), once the phone has decoded a frame:** the delay cut cannot see a link that drops instead
   of queueing (5G policing, 13:23 trace: round trip flat at 100-130ms, "delivered
   23 of 60" for seconds on end). When the viewer decoded under 0.7 of what was
   produced (after the report-phase allowance), with a fresh stale shed or abandon
@@ -242,11 +257,22 @@ How it decides:
   against the change cap, and has the delay cut's limit (8 per 10 minutes, 3 for
   a relaunched encoder) counted separately. Recovery waits for keyframe waits to
   clear, as after a delay cut. The reading comes from `healthTracker`
-  (`TakeLoss`) through `Session.NoteDelivery`; the worst viewer's wins.
+  (`TakeLoss`) through `Session.NoteDelivery`; the worst viewer's wins, a viewer
+  that has decoded beating one that has not. Nothing acts on delivery counts
+  until the viewer's client has reported a decoded frame: a phone that decoded 0
+  for its first 6s while receiving 2.4 Mbps read 0.142 delivered and was cut
+  4M -> 1.94M. A lossy reading declined for that reason writes a `lossSkipped`
+  record (`why: noDecodeYet`) at most every 10s.
 - **Down:** on sustained shedding the new rate is the measured goodput, floored
   at 250 kbps. On a starved link it is goodput again, and one step at most
   halves the rate. A link carrying under half the current rate while the viewer
-  waits on keyframes for a fifth of the window steps down too, in rate only: a
+  waits on keyframes for a fifth of the window steps down too, aimed at the
+  rate carried outside keyframe waits (`carriedBps` over `clearMs`, busy
+  intervals with no wait, at least 2s of them) rather than over the wait: a
+  6s wait in an 11s window read 1.08 Mbps against 1.83 Mbps carried when it
+  ended. A window with a wait in nearly every second has nothing outside one to
+  measure, so those two gates fall back to goodput over the whole busy time.
+  The step is in rate only: a
   simulator's picture is resized by this gate only once the rate is at its
   250 kbps floor (two undercarried windows there, a size-only step that leaves
   the rate alone). The 13:24:33 cut had taken 4 Mbps to 1.68 Mbps and 416x904
@@ -308,7 +334,12 @@ has been shed for 3s and no viewer awaits a keyframe (`sharpen.go`). Android
 `kind:"bitrate"` record with its gate. Delay and loss cuts carry their inputs
 (`rttMs`, `baseMs`, `produced`, `delivered`, `sent`, `events`, `abandons`,
 `deliveredFrac`, `sentLossFrac`, `runMs`, `runBytes`, `carriedBps`); a sharpen
-carries `recentFrames` and `motionFrames`. A still period after motion that did
+carries `recentFrames` and `motionFrames`. The viewer's per-second record
+carries `sentLate`, `writeMaxMs` and `keyWriteMaxMs` (the longest `SendFrame`
+this second, overall and for keyframes and parameter sets), `staleOverKey`
+(stale frames queued before the preceding keyframe write finished) and
+`staleSustained` (stale runs that ended in a shed), next to `shedStale`. A still
+period after motion that did
 not sharpen writes one `sharpenSkipped` record with `why`: `shed`,
 `rateNotHeld`, `rtt`, `noViewer`, `awaitKey` or `tooSoon`. Opening a session
 writes `resume` (with `remembered`) or `resumeSkipped` (`why`: `noPath`,

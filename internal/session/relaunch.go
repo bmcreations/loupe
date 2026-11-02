@@ -302,6 +302,9 @@ func (s *Session) adaptLoop(a *BitrateAdapter) {
 			}
 
 			next, rep := a.Observe(now, sample)
+			if skip, ok := a.TakeSkip(); ok {
+				s.reportBitrate(skip)
+			}
 			if next == 0 {
 				s.reportBitrate(rep)
 				continue

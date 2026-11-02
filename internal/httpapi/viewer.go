@@ -479,6 +479,10 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 			askForKey()
 		}
 		pacer := session.NewPacer()
+		// late decides what a stale inter frame gets (latesend.go), and tr
+		// carries the per-second send measurements into the trace row.
+		late := lateGate{canLate: canRelease}
+		var tr sendTrace
 
 		// rttSource records which signal the last pacer sample came from, so a
 		// trace row says whether the controller was steering on transport
@@ -577,6 +581,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				} else {
 					pacer.ObserveRepeat(rtt)
 				}
+				sentLate := false
 				if msg.Config {
 					healthTrack.NoteConfig(time.Now())
 				}
@@ -590,18 +595,46 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 						continue
 					}
 					if !pacer.Admit() {
+						late.fresh()
 						startNeedKey()
 						sess.NoteShed(session.ShedPacer)
 						continue
 					}
-					if time.Since(msg.QueuedAt) > session.StalenessFor(pacer.Base()) {
-						startNeedKey()
-						sess.NoteShed(session.ShedStale)
-						continue
+					wait := time.Since(msg.QueuedAt)
+					if wait > session.StalenessFor(pacer.Base()) {
+						if late.overlappedKey(msg.QueuedAt) {
+							tr.staleOverKey++
+						}
+						if !late.sendLate(time.Now(), wait) {
+							if late.canLate {
+								tr.staleSustained++
+							}
+							startNeedKey()
+							sess.NoteShed(session.ShedStale)
+							continue
+						}
+						// Sent late: see lateGate. The frame's deadline
+						// restarts here, because one measured from QueuedAt
+						// is already spent and the write would be abandoned
+						// at once, which is a shed by another name.
+						sentLate = true
+						tr.sentLate++
+					} else {
+						late.fresh()
 					}
 				}
 
-				err := conn.SendFrame(msg, msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, pacer.Base(), nowRTT())))
+				deadline := msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, pacer.Base(), nowRTT()))
+				if sentLate {
+					deadline = time.Now().Add(deadlineFor(false, false, pacer.Base(), nowRTT()))
+				}
+				writeStart := time.Now()
+				err := conn.SendFrame(msg, deadline)
+				writeEnd := time.Now()
+				tr.noteWrite(msg.Key || msg.Config, writeEnd.Sub(writeStart))
+				if msg.Key || msg.Config {
+					late.noteKeyWritten(writeEnd)
+				}
 				delivered, fatal := frameDelivered(err)
 				if fatal {
 					stopErr = err
@@ -615,6 +648,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					// will discard, so this breaks the decode chain exactly
 					// like a shed does -- including when the abandoned frame
 					// was the keyframe that was meant to end the last wait.
+					late.fresh()
 					startNeedKey()
 					sess.NoteShed(session.ShedAbandon)
 					continue
@@ -634,6 +668,9 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				body, rec, err := runStatsTick(targetID, counters, healthTrack, pacer, conn, rttSource)
 				if err != nil {
 					continue
+				}
+				for k, v := range tr.take() {
+					rec[k] = v
 				}
 				s.trace.Record(rec)
 				if r, ok := healthTrack.TakeLoss(); ok {

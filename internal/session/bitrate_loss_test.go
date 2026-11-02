@@ -19,7 +19,7 @@ const lossBase = 82 * time.Millisecond
 func lossy() BitrateSample {
 	return BitrateSample{
 		Frames: 58, Bytes: 300_000, RTT: 101 * time.Millisecond, BaseRTT: lossBase,
-		Delivery: DeliveryReading{Valid: true, Produced: 60, Delivered: 23, Allowance: 2, Sent: 24, Events: 2},
+		Delivery: DeliveryReading{Valid: true, Decoded: true, Produced: 60, Delivered: 23, Allowance: 2, Sent: 24, Events: 2},
 	}
 }
 
@@ -65,7 +65,7 @@ func TestOneSecondOfLossDoesNotCut(t *testing.T) {
 	now := time.Now()
 	a.Observe(now, lossy())
 	healthy := lossy()
-	healthy.Delivery = DeliveryReading{Valid: true, Produced: 58, Delivered: 58, Sent: 58}
+	healthy.Delivery = DeliveryReading{Valid: true, Decoded: true, Produced: 58, Delivered: 58, Sent: 58}
 	if got, _, _ := observeAll(a, now, lossy(), healthy, lossy(), healthy); got != 0 {
 		t.Fatalf("cut to %d on lossy seconds that never ran two in a row", got)
 	}
@@ -77,9 +77,9 @@ func TestOneAbandonAndItsKeyframeWaitIsNotTwoLosses(t *testing.T) {
 	a := NewLiveBitrateAdapter(4_000_000)
 	now := time.Now()
 	abandon := BitrateSample{Frames: 34, Bytes: 100_000, RTT: 133 * time.Millisecond, BaseRTT: lossBase,
-		Delivery: DeliveryReading{Valid: true, Produced: 34, Delivered: 10, Allowance: 2, Sent: 3, Events: 1, Abandons: 1}}
+		Delivery: DeliveryReading{Valid: true, Decoded: true, Produced: 34, Delivered: 10, Allowance: 2, Sent: 3, Events: 1, Abandons: 1}}
 	wait := BitrateSample{Frames: 58, Bytes: 60_000, RTT: 127 * time.Millisecond, BaseRTT: lossBase,
-		Delivery: DeliveryReading{Valid: true, Produced: 58, Delivered: 30, Allowance: 2, Sent: 31, Events: 0}}
+		Delivery: DeliveryReading{Valid: true, Decoded: true, Produced: 58, Delivered: 30, Allowance: 2, Sent: 31, Events: 0}}
 	a.Observe(now, wait)
 	if got, rep, _ := observeAll(a, now, abandon, wait); got != 0 {
 		t.Fatalf("cut to %d (%s): the wait behind one abandon counted as a second loss", got, rep.Gate)
@@ -92,7 +92,7 @@ func TestAKeyframeWaitAloneIsNotLoss(t *testing.T) {
 	a := NewLiveBitrateAdapter(4_000_000)
 	now := time.Now()
 	wait := BitrateSample{Frames: 58, Bytes: 40_000, RTT: 101 * time.Millisecond, BaseRTT: lossBase,
-		Delivery: DeliveryReading{Valid: true, Produced: 60, Delivered: 15, Allowance: 2, Sent: 16}}
+		Delivery: DeliveryReading{Valid: true, Decoded: true, Produced: 60, Delivered: 15, Allowance: 2, Sent: 16}}
 	a.Observe(now, wait)
 	for i := 0; i < 4; i++ {
 		var n int
@@ -110,7 +110,7 @@ func TestFramesSentButNotReceivedCut(t *testing.T) {
 	a := NewLiveBitrateAdapter(4_000_000)
 	now := time.Now()
 	s := lossy()
-	s.Delivery = DeliveryReading{Valid: true, Produced: 60, Delivered: 20, Allowance: 2, Sent: 55}
+	s.Delivery = DeliveryReading{Valid: true, Decoded: true, Produced: 60, Delivered: 20, Allowance: 2, Sent: 55}
 	a.Observe(now, s)
 	if _, rep, _ := observeAll(a, now, s, s); rep.Gate != GateLoss {
 		t.Fatalf("gate %q, want %q", rep.Gate, GateLoss)
@@ -227,8 +227,8 @@ func TestDeliveryReadingsAreReadOnceAndTheWorstViewerWins(t *testing.T) {
 	s, _ := openLive(t, target.KindSimulator, st)
 	a, _ := s.AddViewer()
 	b, _ := s.AddViewer()
-	good := DeliveryReading{Valid: true, Produced: 60, Delivered: 58, Sent: 60}
-	bad := DeliveryReading{Valid: true, Produced: 60, Delivered: 20, Sent: 60, Events: 1}
+	good := DeliveryReading{Valid: true, Decoded: true, Produced: 60, Delivered: 58, Sent: 60}
+	bad := DeliveryReading{Valid: true, Decoded: true, Produced: 60, Delivered: 20, Sent: 60, Events: 1}
 	s.NoteDelivery(a, good)
 	s.NoteDelivery(b, bad)
 	if got := s.takeDelivery(); got.Delivered != 20 {
@@ -236,5 +236,78 @@ func TestDeliveryReadingsAreReadOnceAndTheWorstViewerWins(t *testing.T) {
 	}
 	if got := s.takeDelivery(); got.Valid {
 		t.Fatalf("the same readings were taken twice: %+v", got)
+	}
+}
+
+// The 5G trace phone that decoded 0 frames for its first 6s (decFps 0,
+// decodeErrors 0) while receiving 2.4 Mbps read deliveredFrac 0.142 and was cut
+// 4M -> 1.94M. Until the client has decoded a frame, a delivered count of 0 is
+// a decoder that has not started.
+func TestLossGateWaitsForTheFirstDecodedFrame(t *testing.T) {
+	cases := []struct {
+		name    string
+		decoded bool
+		wantCut bool
+	}{
+		{"nothing decoded yet", false, false},
+		{"a frame has been decoded", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := lossy()
+			s.Delivery.Decoded = tc.decoded
+			s.Delivery.Delivered = 8 // 0.142 of 60 with the allowance
+			a := NewLiveBitrateAdapter(4_000_000)
+			now := time.Now()
+			a.Observe(now, s)
+			got, rep, _ := observeAll(a, now, s, s, s)
+			if cut := got != 0; cut != tc.wantCut {
+				t.Fatalf("cut to %d (%s), want cut=%v", got, rep.Gate, tc.wantCut)
+			}
+		})
+	}
+}
+
+func TestSkippedLossIsTracedOncePerQuietPeriod(t *testing.T) {
+	s := lossy()
+	s.Delivery.Decoded = false
+	a := NewLiveBitrateAdapter(4_000_000)
+	now := time.Now()
+	a.Observe(now, s)
+	var traced []BitrateReport
+	for i := 0; i < 25; i++ {
+		now = now.Add(time.Second)
+		a.Observe(now, s)
+		if r, ok := a.TakeSkip(); ok {
+			traced = append(traced, r)
+		}
+	}
+	// Seconds 1, 12 and 23: the first at once, then one per lossSkipEvery.
+	if len(traced) != 3 {
+		t.Fatalf("%d skip records in 25s, want 3", len(traced))
+	}
+	if traced[0].Gate != GateLossSkipped || traced[0].Detail["why"] != "noDecodeYet" {
+		t.Errorf("record %+v, want gate lossSkipped why noDecodeYet", traced[0])
+	}
+	// A healthy reading with no decode yet declines nothing and says nothing.
+	h := s
+	h.Delivery = DeliveryReading{Valid: true, Produced: 5, Delivered: 0, Sent: 5}
+	b := NewLiveBitrateAdapter(4_000_000)
+	b.Observe(now, h)
+	b.Observe(now.Add(time.Second), h)
+	if _, ok := b.TakeSkip(); ok {
+		t.Error("a skip was traced for a reading that was not lossy")
+	}
+}
+
+func TestADecodingViewerIsNotHiddenByOneThatHasNotDecoded(t *testing.T) {
+	st := &liveStream{swapStream: newSwapStream(), live: true}
+	s, _ := openLive(t, target.KindSimulator, st)
+	a, _ := s.AddViewer()
+	b, _ := s.AddViewer()
+	s.NoteDelivery(a, DeliveryReading{Valid: true, Decoded: true, Produced: 60, Delivered: 50, Sent: 60})
+	s.NoteDelivery(b, DeliveryReading{Valid: true, Produced: 60, Delivered: 0, Sent: 60})
+	if got := s.takeDelivery(); !got.Decoded || got.Delivered != 50 {
+		t.Fatalf("took %+v, want the decoding viewer's reading", got)
 	}
 }
