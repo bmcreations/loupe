@@ -47,6 +47,11 @@ composeagent:
 # the cloned revision carries a `bridge` target. The `make -n bridge` probe
 # keeps this a no-op against revisions that predate it, so `ui ios:` is
 # unavailable rather than the build broken.
+#
+# .build/simcap.ref records the commit each build came from, and
+# tools/simcap-guard.sh refuses to replace a simcap whose changes SIMCAP_REF
+# does not carry, or one with no record: that build may be an unmerged branch a
+# running server depends on. FORCE=1 replaces it anyway.
 SIMCAP_REPO ?= https://github.com/bmcreations/simcap.git
 SIMCAP_REF ?= main
 
@@ -60,9 +65,11 @@ simcap:
 		rm -rf .build/simcap-src && \
 		git clone -q --depth 1 --branch $(SIMCAP_REF) $(SIMCAP_REPO) .build/simcap-src; \
 	fi
+	FORCE=$(FORCE) tools/simcap-guard.sh .build/simcap-src $(SIMCAP_REF)
 	$(MAKE) -C .build/simcap-src simcap TEAM=$(TEAM)
 	cp .build/simcap-src/.build/simcap .build/simcap.new
 	mv -f .build/simcap.new .build/simcap
+	git -C .build/simcap-src rev-parse HEAD > .build/simcap.ref
 	if $(MAKE) -C .build/simcap-src -n bridge >/dev/null 2>&1; then \
 		$(MAKE) -C .build/simcap-src bridge TEAM=$(TEAM) && \
 		cp .build/simcap-src/.build/simcap-bridge .build/simcap-bridge.new && \
