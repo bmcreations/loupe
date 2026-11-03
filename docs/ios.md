@@ -196,6 +196,61 @@ with 9001, "Remote control requires iOS 27.0".
   tunnel of our own, outside remoted. The probe is `simcap <coredevice id>
   -phone-ax-probe <service>` on simcap's `feat/ios-remote-ax` branch.
 
+#### A tunnel of our own was tried and is blocked too
+
+The follow-up asked whether a tunnel we open ourselves, outside remoted,
+reaches the AX service where the Mac's CoreDevice client could not. It does
+not over Wi-Fi, the only transport reachable without plugging the phone in.
+Tried on 2026-11-03 (macOS 26B118, iOS 27.2 24B115) against bmc-iphone at
+192.168.1.108, using the open-source Rust crate `idevice-rs`
+(github jkcoxson/idevice, MIT), the same crate Device MCP by Proxyman
+vendors.
+
+Their path, read from the crate and from the competitor's embedded strings,
+needs no root and no Mac entitlement: usbmuxd hands any user the pair record
+(`ReadPairRecord` over `/var/run/usbmuxd`, no root), lockdown opens the
+CoreDeviceProxy service, a CDTunnel handshake brings up a tunnel, and a
+userspace TCP stack (not a utun device) carries RSD and DTX over it. Every
+step there is root-free. The catch is the transport: it is a cable path.
+
+Over Wi-Fi lockdown the phone grants the service but never answers the
+handshake behind it. `StartService` for
+`com.apple.internal.devicecompute.CoreDeviceProxy` returns a port with
+`EnableServiceSSL`, the TLS session comes up on that port, the client sends
+the `CDTunnel` handshake request, and the phone sends nothing back. The same
+silence follows `com.apple.dt.remotepairingdeviced.lockdown`: the port and
+TLS come up, the client sends `attemptPairVerify`, and the reply never
+arrives. Two independent clients (idevice-rs, and pymobiledevice3 driving
+the same handshake) both completed TLS and both hung, so the silence is the
+phone's, not one library's bug.
+
+The silence is by design: these are USB-transport services. pymobiledevice3
+documents the promptless pair route as "reached over the USB lockdown
+transport" and the no-root tunnel as "reaching RSD over usbmux instead of
+the NCM link" (`remote/tunnel_service.py`, `remote/utils.py`). So the
+root-free path Device MCP uses is not a Wi-Fi bypass of the Mac's refusal;
+it is the same path moved onto a cable, where usbmuxd carries the lockdown
+service and CoreDeviceProxy answers. Without the cable we cannot run it.
+
+One Wi-Fi route stays untested: fresh RemotePairing over `_remotepairing._tcp`
+(bmc-iphone.local:49152), which shows a six-digit code on the phone and
+registers a new trusted host. It is a different mechanism from the pair-verify
+above and might complete where verify does not, but it writes a persisted
+trust record to the device, so it needs an explicit go-ahead before it runs.
+
+No root was needed for anything tried, and nothing tried needed a root-only
+record: usbmuxd returned both phones' pair records to an ordinary user, and
+the userspace TCP stack needs no utun device. `/var/db/lockdown` is
+`Operation not permitted` to us, but we never had to read it; the Mac's own
+RemotePairing record there is what makes a cable run promptless, and reading
+it is not part of the no-root path. The probe lives on this machine as
+scratch (`~/dev/idevice-spike`, a crate clone plus an `axprobe` binary); it
+is not vendored, so there is no THIRD_PARTY_NOTICES entry yet. idevice-rs is
+MIT, so vendoring would be a one-file notice. Opening our Wi-Fi tunnel did
+not disturb CoreDevice: the utun count and `devicectl list devices` were
+unchanged before and after, because the tunnel never reached the stage that
+creates an interface.
+
 ### Sign simcap with a team
 
 Streaming a phone over a cable asks for camera access (macOS treats the
