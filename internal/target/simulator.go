@@ -349,6 +349,12 @@ const simcapStartBudget = 10 * time.Second
 const simKeyframeIntervalSec = 5
 
 func openSimcap(ctx context.Context, bin, udid, name string, opts Options, extra ...string) (*simStream, error) {
+	return openSimcapWith(ctx, bin, udid, name, opts, false, extra...)
+}
+
+// openSimcapWith is openSimcap, and with passthrough also reads the phone's
+// own HEVC from simcap's fd 3 (`-hevc`) as a second track.
+func openSimcapWith(ctx context.Context, bin, udid, name string, opts Options, passthrough bool, extra ...string) (*simStream, error) {
 	args := []string{udid}
 	if opts.BitRate > 0 {
 		args = append(args, "-bitrate", fmt.Sprint(opts.BitRate))
@@ -369,6 +375,9 @@ func openSimcap(ctx context.Context, bin, udid, name string, opts Options, extra
 		keyint = simKeyframeIntervalSec
 	}
 	args = append(args, "-keyint", fmt.Sprint(keyint))
+	if passthrough {
+		args = append(args, "-hevc")
+	}
 	// Not CommandContext: ctx is the open request's, and the stream outlives
 	// it. Close ends simcap by closing its stdin.
 	cmd := exec.Command(bin, args...)
@@ -386,7 +395,20 @@ func openSimcap(ctx context.Context, bin, udid, name string, opts Options, extra
 	if err != nil {
 		return nil, err
 	}
+	var altR *os.File
+	if passthrough {
+		r, w, err := os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		cmd.ExtraFiles = []*os.File{w} // fd 3
+		altR = r
+		defer w.Close() // the child holds its own copy once started
+	}
 	if err := cmd.Start(); err != nil {
+		if altR != nil {
+			altR.Close()
+		}
 		return nil, fmt.Errorf("start simcap %s: %w", bin, err)
 	}
 
@@ -426,8 +448,48 @@ func openSimcap(ctx context.Context, bin, udid, name string, opts Options, extra
 	}
 	s.meta = Meta{Codec: r.hdr.Codec, Width: r.hdr.Width, Height: r.hdr.Height, Name: name}
 	go s.pump()
+	if altR != nil {
+		s.alt = make(chan Frame, 64)
+		go s.pumpPassthrough(altR)
+	}
 	return s, nil
 }
+
+// pumpPassthrough reads the second track. Its header comes with the phone's
+// first keyframe, after Open has returned, and its size is not used: a viewer
+// is told the H.264 track's, which is the space touches are in, and decodes
+// the picture at whatever size its own parameter sets give.
+func (s *simStream) pumpPassthrough(r *os.File) {
+	defer close(s.alt)
+	defer r.Close()
+	hdr, err := scrcpy.ReadStreamHeader(r)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(simcapLog, "simcap passthrough: %s %dx%d\n", hdr.Codec, hdr.Width, hdr.Height)
+	for {
+		ph, err := scrcpy.ReadPacketHeader(r)
+		if err != nil {
+			return
+		}
+		buf := make([]byte, ph.Size)
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return
+		}
+		s.alt <- Frame{PTS: ph.PTS, Key: ph.Key, Config: ph.Config, Data: buf, Captured: time.Now()}
+	}
+}
+
+// Passthrough implements PassthroughStream.
+func (s *simStream) Passthrough() <-chan Frame {
+	if s.alt == nil {
+		return nil
+	}
+	return s.alt
+}
+
+// PassthroughCodec implements PassthroughStream.
+func (s *simStream) PassthroughCodec() string { return "h265" }
 
 // simStream is simcap's stdout read as a scrcpy video socket.
 type simStream struct {
@@ -437,6 +499,9 @@ type simStream struct {
 	stderr *tailBuffer
 	frames chan Frame
 	exited chan struct{}
+	// alt is the passthrough track from fd 3, nil when simcap was not asked
+	// for one.
+	alt chan Frame
 
 	metaMu sync.RWMutex
 	meta   Meta

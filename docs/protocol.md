@@ -32,6 +32,32 @@ Bump `ProtocolVersion` for any change an older client would misread. Raise
 `MinProtocolVersion` only once no installed client still needs the old
 version: a native app can stay on a phone for months.
 
+## Codec negotiation
+
+Every viewer can decode H.264, and gets it unless it asks for something else.
+A client that decodes HEVC says so when it connects: `?decode=h265` on `/ws`
+and `/wt`, `"decode":["h265"]` in `QUICOpen` (fixture:
+`testdata/protocol/quic-open.json`). The list is comma-separated fourccs; the
+server ignores ones it has no track for.
+
+Only a physical iPhone on iOS 27 over Wi-Fi has an HEVC track today. Its
+CoreDevice stream is HEVC, which Safari cannot decode, so simcap decodes it and
+re-encodes H.264 for everyone. With `-hevc` (capability `phonehevc`) simcap
+also writes the phone's own access units, undecoded, to fd 3, and loupe sends
+them to viewers that asked. A viewer gets one track for the life of the
+connection, chosen when it attaches.
+
+The viewer learns which track it got from init's `codec`: `avc1.*` is H.264,
+`hvc1.*` is HEVC (fixture: `testdata/protocol/init-hevc.json`). Frames use the
+same headers. HEVC frames are Annex B; the config frame carries VPS, SPS and
+PPS, and every keyframe repeats them in front so a decoder can start at any
+keyframe. `codedWidth`/`codedHeight` stay the H.264 track's, which is the space
+touches are in; the HEVC picture may be larger, and the client scales.
+
+A passthrough viewer's keyframe requests reach the phone as an RTCP PLI. A
+target that relaunches its stream mid-session does not restart the HEVC track;
+a passthrough viewer has to reconnect.
+
 ## Transports
 
 Both implement `httpapi.Conn`, so nothing above them branches on which is

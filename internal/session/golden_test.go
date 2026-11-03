@@ -296,3 +296,34 @@ func TestEventJSONTagsAreExplicit(t *testing.T) {
 		}
 	}
 }
+
+// TestInitHEVCGolden pins a passthrough viewer's init: the codec is the
+// phone's HEVC, read from its SPS, and the size is the H.264 track's.
+func TestInitHEVCGolden(t *testing.T) {
+	want := goldenBytes(t, "init-hevc.json")
+	got, err := json.Marshal(InitPayload{
+		Codec: "hvc1.1.6.L153.B0", CodedWidth: 1206, CodedHeight: 2622,
+		Name: "bmc-iphone", Kind: "device", Control: true,
+		SessionID: "ios:00008140-0004583C22D8801C", MaxBufferMs: 400, Viewer: 1, Protocol: 1,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got = append(got, '\n')
+	if !bytes.Equal(got, want) {
+		t.Errorf("init-hevc.json mismatch:\n got  %s want %s", got, want)
+	}
+}
+
+// TestQUICOpenGolden pins the raw-QUIC open message, decode included.
+func TestQUICOpenGolden(t *testing.T) {
+	want := goldenBytes(t, "quic-open.json")
+	got, err := json.Marshal(QUICOpen{Target: "ios:00008140-0004583C22D8801C", Token: "lsn_example", Proto: "1", Decode: []string{"h265"}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got = append(got, '\n')
+	if !bytes.Equal(got, want) {
+		t.Errorf("quic-open.json mismatch:\n got  %s want %s", got, want)
+	}
+}
