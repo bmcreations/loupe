@@ -53,6 +53,7 @@ and simcap has only been run against iPhones.
 | Keyboard | Opening the phone's keyboard from the viewer hides the simulator's on-screen keyboard, so it does not cover the lower half. |
 | Open URL | `https` links open in the app that claims them (below). |
 | Drop | A picture dropped on a text field is pasted (below). |
+| Install | `/api/install` with a simulator build, as a zipped `.app` or an `.ipa` (`docs/agent-api.md`). |
 
 **`occluded` catches only part of what is covered.** With Settings' search
 open, the root list is still in the tree under the results, and tapping a
@@ -174,7 +175,8 @@ with 9001, "Remote control requires iOS 27.0".
   cable.
 - **Logs** come through `syslog_relay` (`GET /api/logcat` in
   `docs/agent-api.md`).
-- **Install** is not wired: `/api/install` reads every upload as an APK.
+- **Install** is `/api/install` with an `.ipa` or a zipped `.app`, through
+  devicectl, about 8s for a 22 MB build (`docs/agent-api.md`).
 - **Open URL** answers 501 (`docs/agent-api.md`).
 - **Wi-Fi video** is a stream of our own, so it is the part most likely to
   break with an Xcode update. A locked phone looks like a still screen.

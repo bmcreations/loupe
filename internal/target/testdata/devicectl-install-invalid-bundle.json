@@ -1,0 +1,57 @@
+{
+ "error": {
+  "code": 3002,
+  "domain": "com.apple.dt.CoreDeviceError",
+  "userInfo": {
+   "NSLocalizedDescription": {
+    "string": "Failed to install the app on the device."
+   },
+   "NSURL": {
+    "url": "file:///tmp/Bad.app/"
+   },
+   "NSUnderlyingError": {
+    "error": {
+     "code": 3000,
+     "domain": "com.apple.dt.CoreDeviceError",
+     "userInfo": {
+      "BundleDiagnostics": {
+       "string": "AppBundleDiagnostics for /tmp/ipa-probe/Bad.app:\n  - Info.plist: present (125 bytes)\n  - Contents/Info.plist: missing\n  - parse of Info.plist: ok (xml format, 1 top-level keys)\n    - CFBundleIdentifier: present\n    - CFBundleName: ABSENT\n    - CFBundleDisplayName: ABSENT\n    - CFBundleExecutable: ABSENT\n    - top-level keys: [CFBundleIdentifier]\n  - CFBundle info dictionary key count: 1\n  - CFBundle bundle identifier: dev.example.bad"
+      },
+      "NSLocalizedDescription": {
+       "string": "The item at Bad.app is not a valid bundle."
+      },
+      "NSLocalizedFailureReason": {
+       "string": "Failed to get the localized bundle name for the app to be installed."
+      },
+      "NSLocalizedRecoverySuggestion": {
+       "string": "Ensure that your bundle's Info.plist contains a value for at least one of the following keys: CFBundleName or CFBundleDisplayName."
+      },
+      "NSURL": {
+       "url": "file:///tmp/Bad.app/"
+      }
+     }
+    }
+   }
+  }
+ },
+ "errorSignature": "(com.apple.dt.CoreDeviceError 3002 (com.apple.dt.CoreDeviceError 3000))",
+ "info": {
+  "arguments": [
+   "devicectl",
+   "device",
+   "install",
+   "app",
+   "--device",
+   "<udid>",
+   "Bad.app",
+   "-j",
+   "out.json",
+   "-q"
+  ],
+  "commandType": "devicectl.device.install.app",
+  "environment": {},
+  "jsonVersion": 5,
+  "outcome": "failed",
+  "version": "651.32"
+ }
+}

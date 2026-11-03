@@ -40,7 +40,7 @@ Common refusals on routes that change a device:
 | `POST /api/input` | Tap, swipe, text, keys, buttons, launch, open URL, wait |
 | `POST /api/sequence` | Several input steps in one request |
 | `POST /api/drop` | Paste an image into a simulator text field |
-| `POST /api/install` | Install an APK or split set |
+| `POST /api/install` | Install an APK or split set, or an iOS app |
 | `POST /api/media` | Add a photo or video to the device library |
 | `POST`, `DELETE /api/camera` | Feed the back camera an image |
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
@@ -285,6 +285,28 @@ missing, `?package=` stands in. If `aapt2` reads a different name than
 `launch.code: "humanHeld"`). The outcome is a nested `launch` object (`ok`,
 `activity`, `error`, `code`, `retryAfterMs`, `tookMs`). **The response status
 stays the install's**: the APK is on the device whatever the launch says.
+
+**On an iPhone or a simulator** the body is one `.ipa`, or a zipped `.app`
+(Finder's Compress, or `ditto -c -k --keepParent Name.app Name.zip`). Two file
+parts are a 400. `package` is the bundle ID from the app's `Info.plist`, so
+`launch=1` works the same way; `allowTest` and `package=` do nothing.
+
+```sh
+curl --data-binary @Name.ipa "$URL/api/install?target=ios:$UDID&launch=1"
+```
+
+- A phone installs through `devicectl device install app`, over a cable or
+  Wi-Fi. The app must be signed for that phone. A refusal is a 422 whose
+  `code` is CoreDevice's innermost error, such as
+  `com.apple.dt.CoreDeviceError 3000` for a bundle that is not valid, with
+  each level's description in `reason`. A 22 MB debug build took 8s on an
+  iPhone 16 Pro on iOS 27.
+- A simulator installs through `simctl install` and takes a simulator build.
+  A phone's `.ipa` is refused with "Needs to Be Updated"; a simulator that is
+  not booted, with "Unable to lookup in current state: Shutdown". Both are a
+  422 with `code: "simctlInstall"`.
+- An archive with no `.app`, two of them, or an entry or link that leaves the
+  bundle is a 400.
 
 ### `POST /api/media?target=<id>`
 
