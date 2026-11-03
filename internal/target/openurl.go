@@ -13,9 +13,9 @@ import (
 
 // URLOpener is implemented by targets that can hand a URL to whatever app
 // the device has registered for it: a deep link, a universal link or an
-// https page. A physical iPhone is not one: devicectl opens a URL only as
-// the payload of launching a named app, and there is no "whatever handles
-// this" on that route.
+// https page. A physical iPhone is a narrower one: devicectl opens a URL
+// only as the payload of launching a named app, so it opens http and https
+// in Safari and refuses other schemes (iosdeviceopenurl.go).
 type URLOpener interface {
 	// OpenURL opens u. The result's Activity is the component Android
 	// reports as started; on a simulator it is the bundle ID of the app

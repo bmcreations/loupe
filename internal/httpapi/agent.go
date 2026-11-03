@@ -1324,9 +1324,10 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inst, ok := t.(target.Installer)
-	if !ok {
+	appInst, isIOS := t.(target.AppInstaller)
+	if !ok && !isIOS {
 		writeJSON(w, http.StatusNotImplemented, ErrorResponse{
-			Error: fmt.Sprintf("target %q cannot install an APK", t.ID()),
+			Error: fmt.Sprintf("target %q cannot install an app", t.ID()),
 		})
 		return
 	}
@@ -1347,7 +1348,12 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer os.RemoveAll(dir)
-	apks, err := stageAPKs(r, body, dir)
+	var apks []string
+	if isIOS {
+		apks, err = stageIPA(r, body, dir)
+	} else {
+		apks, err = stageAPKs(r, body, dir)
+	}
 	var tooBig *http.MaxBytesError
 	switch {
 	case errors.As(err, &tooBig):
@@ -1367,6 +1373,10 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), installTimeout)
 	defer cancel()
 
+	if isIOS {
+		s.installIOS(w, r, t, appInst, ctx, apks[0], body.n, began)
+		return
+	}
 	opts := target.InstallOptions{AllowTest: r.URL.Query().Get("allowTest") == "1"}
 	res, err := inst.Install(ctx, apks, opts)
 	resp := InstallResponse{Target: t.ID(), Bytes: body.n, TookMs: time.Since(began).Milliseconds()}
@@ -1400,6 +1410,64 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		s.trace.Record(rec)
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 	}
+}
+
+// installIOS is handleInstall for a simulator or an iPhone: one archive,
+// an .ipa or a zipped .app. Package is the bundle ID, read from the app's
+// Info.plist, so ?launch=1 opens it the same way. A body that holds no app
+// is a 400; the device refusing one, a 422 naming CoreDevice's or simctl's
+// error.
+func (s *Server) installIOS(w http.ResponseWriter, r *http.Request, t target.Target, inst target.AppInstaller,
+	ctx context.Context, archive string, n int64, began time.Time) {
+	res, err := inst.InstallApp(ctx, archive)
+	resp := InstallResponse{Target: t.ID(), Bytes: n, TookMs: time.Since(began).Milliseconds()}
+	rec := map[string]any{
+		"kind": "agent", "target": t.ID(), "action": "install",
+		"ua": r.UserAgent(), "bytes": n, "tookMs": resp.TookMs,
+	}
+	refused, isRefused := target.IsInstallRefused(err)
+	switch {
+	case err == nil:
+		rec["outcome"], rec["package"] = "ok", res.BundleID
+		s.trace.Record(rec)
+		resp.OK, resp.Output, resp.Package = true, res.Output, res.BundleID
+		if r.URL.Query().Get("launch") == "1" {
+			resp.Launch = s.launchInstalled(r, t, resp.Package, "")
+		}
+		writeJSON(w, http.StatusOK, resp)
+	case errors.Is(err, target.ErrNotIOSApp):
+		rec["outcome"] = "notApp"
+		s.trace.Record(rec)
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+	case isRefused:
+		rec["outcome"], rec["code"] = "refused", refused.Code
+		s.trace.Record(rec)
+		resp.Output, resp.Code, resp.Reason = refused.Output, refused.Code, refused.Reason
+		writeJSON(w, http.StatusUnprocessableEntity, resp)
+	default:
+		rec["outcome"], rec["err"] = "error", err.Error()
+		s.trace.Record(rec)
+		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
+	}
+}
+
+// stageIPA stages an iOS upload: the raw body, or a multipart body's one
+// file part. Two files is a 400, since an app is one bundle.
+func stageIPA(r *http.Request, body io.Reader, dir string) ([]string, error) {
+	paths, err := stageAPKs(r, body, dir)
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooBig):
+		return nil, err
+	case err != nil && strings.Contains(err.Error(), "not an APK"):
+		return nil, errors.New("not an .ipa or zipped .app (no zip signature)")
+	case err != nil:
+		return nil, err
+	}
+	if len(paths) != 1 {
+		return nil, fmt.Errorf("%d files in one install; send one .ipa or zipped .app", len(paths))
+	}
+	return paths, nil
 }
 
 // installedPackage names the app an install put on the device. aapt2 reads
