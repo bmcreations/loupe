@@ -243,10 +243,11 @@ record: usbmuxd returned both phones' pair records to an ordinary user, and
 the userspace TCP stack needs no utun device. `/var/db/lockdown` is
 `Operation not permitted` to us, but we never had to read it; the Mac's own
 RemotePairing record there is what makes a cable run promptless, and reading
-it is not part of the no-root path. The probe lives on this machine as
-scratch (`~/dev/idevice-spike`, a crate clone plus an `axprobe` binary); it
-is not vendored, so there is no THIRD_PARTY_NOTICES entry yet. idevice-rs is
-MIT, so vendoring would be a one-file notice. Opening our Wi-Fi tunnel did
+it is not part of the no-root path. The cable path now ships as `simcap-bridge`
+in the simcap repo (`bridge/`), a Rust binary that pins idevice-rs by git rev;
+its MIT notice is in that repo's `THIRD_PARTY_NOTICES.md`. The original probe
+remains as scratch on this machine (`~/dev/idevice-spike`). Opening our Wi-Fi
+tunnel did
 not disturb CoreDevice: the utun count and `devicectl list devices` were
 unchanged before and after, because the tunnel never reached the stage that
 creates an interface.
@@ -282,9 +283,42 @@ NSKeyedArchive wrapping NSData, which holds an `AXPTranslatorResponse` with a
 objects, with element frames and centers in points on a 402x874 screen
 (1206x2622 pixels at 3x), roles such as `Static Text` and `Image`, and labels
 from the screen, here the lock screen clock and a Live Activity. The phone
-re-sends the dump on its own after a change. This is the same
-AXPTranslator data simcap reads for simulators, so the existing translator
-path may decode it. Not yet tried.
+re-sends the dump on its own after a change.
+
+#### The tree is decoded without Apple's framework
+
+The dump is the same shape of data simcap reads for simulators, so the first
+plan was to hand it back to the system `AccessibilityPlatformTranslation`
+framework and read the rebuilt elements, the way the simulator path does.
+That was tried offline on 2026-11-03 against the captured dumps and does not
+work. The framework rebuilds the element tree, but every getter on a rebuilt
+element (`accessibilityRole`, `accessibilityLabel`, children) returns empty.
+The elements carry `_isRemoteElement`, which routes every read through
+HIServices `_AXCurrentRequestCanAccessRemoteDeviceContent`. That reads a
+process-global flag the AX runtime sets only while it is dispatching a request
+for a registered remote-device host client, the role Xcode's
+`AXAuditRemoteDevice` and VoiceOver play. A plain signed helper does not
+satisfy it, and simcap's entitlements carry only camera. The simulator path is
+unaffected because simulator elements are local, not remote, so that gate is
+never consulted.
+
+So the phone tree is decoded directly from the archive, with no Apple
+accessibility framework and no entitlement in play. The archive carries
+everything the `ui` output needs as plain data. Its layout: the outer
+NSKeyedArchive's root is an NSData whose bytes are a second archive, whose root
+is the `AXPTranslatorResponse`; `resultData.treeDump` is an array of
+per-element responses; the entries with `associatedRequestType == 5` each
+describe one element. An element's key is its
+`associatedTranslationObject.objectID`; its attributes are a dictionary keyed
+by integer `AXPAttributeType` codes, of which `ui` uses `78` (the role word
+and traits), `33` (label or value, sometimes an attributed string with the
+text under `NS.string`), `48` (the frame, an `NSValue` rect in points), and
+`8`/`9` (the ordered child object IDs). The role word (`Button`, `Static
+Text`, `Image`, `Header`) maps to the matching macOS `AX` role constant so the
+rest of loupe's view-hierarchy handling is unchanged. The phone sends two
+dumps: an InitialDump with geometry and labels but no roles, then an
+AdditionalData dump that adds the roles, so the decoder merges dumps by object
+ID. The decoder and its tests live in loupe `internal/target/iosdeviceax.go`.
 
 ### Sign simcap with a team
 
