@@ -421,6 +421,14 @@ func openSimcapWith(ctx context.Context, bin, udid, name string, opts Options, p
 		exited: make(chan struct{}),
 	}
 	go func() { _ = cmd.Wait(); close(s.exited) }()
+	// fd 3 is drained from the start. simcap writes the phone's first
+	// keyframe there before it has decoded anything, and that keyframe is
+	// larger than a pipe's buffer: unread, it blocks simcap, so the H.264
+	// header this function waits for below never comes.
+	if altR != nil {
+		s.alt = make(chan Frame, 64)
+		go s.pumpPassthrough(altR)
+	}
 
 	type result struct {
 		hdr scrcpy.StreamHeader
@@ -448,10 +456,6 @@ func openSimcapWith(ctx context.Context, bin, udid, name string, opts Options, p
 	}
 	s.meta = Meta{Codec: r.hdr.Codec, Width: r.hdr.Width, Height: r.hdr.Height, Name: name}
 	go s.pump()
-	if altR != nil {
-		s.alt = make(chan Frame, 64)
-		go s.pumpPassthrough(altR)
-	}
 	return s, nil
 }
 
@@ -467,6 +471,7 @@ func (s *simStream) pumpPassthrough(r *os.File) {
 		return
 	}
 	fmt.Fprintf(simcapLog, "simcap passthrough: %s %dx%d\n", hdr.Codec, hdr.Width, hdr.Height)
+	waitKey := false
 	for {
 		ph, err := scrcpy.ReadPacketHeader(r)
 		if err != nil {
@@ -476,7 +481,20 @@ func (s *simStream) pumpPassthrough(r *os.File) {
 		if _, err := io.ReadFull(r, buf); err != nil {
 			return
 		}
-		s.alt <- Frame{PTS: ph.PTS, Key: ph.Key, Config: ph.Config, Data: buf, Captured: time.Now()}
+		// Never blocks: a stalled reader here stalls simcap's receive
+		// queue, and with it the H.264 track every other viewer is on. A
+		// stream nobody reads (one the session relaunched onto) drops
+		// everything; a reader that fell behind resumes at a keyframe.
+		f := Frame{PTS: ph.PTS, Key: ph.Key, Config: ph.Config, Data: buf, Captured: time.Now()}
+		if waitKey && !f.Key && !f.Config {
+			continue
+		}
+		select {
+		case s.alt <- f:
+			waitKey = false
+		default:
+			waitKey = true
+		}
 	}
 }
 
