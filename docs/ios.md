@@ -251,6 +251,25 @@ not disturb CoreDevice: the utun count and `devicectl list devices` were
 unchanged before and after, because the tunnel never reached the stage that
 creates an interface.
 
+On a cable the tunnel comes up and the phone refuses the service itself.
+Run on bmc-iphone (iOS 27.2, 24B115) through usbmuxd, with the pair record
+read from file because idevice-rs's own `get_pair_record` hangs: CDTunnel up
+in 69ms, RSD in 88ms with 85 services, no root. RSD lists
+`com.apple.accessibility.axAuditDaemon.remoteAXService` with entitlement
+`AppleInternal`, and `remoteserver.shim.remote` with
+`com.apple.mobile.lockdown.remote.trusted`. `remoteAXServiceLarger`, the
+service Device MCP names, is not listed. TCP to `remoteAXService` connects
+and the RemoteXPC handshake completes, then the phone closes the channel at
+once. The control, `com.apple.coredevice.deviceinfo` on the same tunnel,
+completes the same handshake and stays open. So the phone enforces
+`AppleInternal` on that service, and the Mac's refusal through remoted was
+the same rule applied earlier. A tunnel of our own does not get around it.
+
+What our tunnel can reach is `remoteserver.shim.remote`, the DTX service
+pymobiledevice3 speaks: it walks elements by moving accessibility focus, one
+element per step, and builds no tree. That and OCR on the video are the
+routes left; neither was run.
+
 ### Sign simcap with a team
 
 Streaming a phone over a cable asks for camera access (macOS treats the
