@@ -249,8 +249,8 @@ type Session struct {
 	lastCfg  *OutMsg // most recent parameter sets, replayed to joiners
 	// pass is the passthrough track's state, nil when the stream has none.
 	// Guarded by mu like lastCfg.
-	pass *passTrack
-	overlays []byte  // latest MsgOverlay body, sent to joiners; nil for none
+	pass     *passTrack
+	overlays []byte // latest MsgOverlay body, sent to joiners; nil for none
 	init     InitPayload
 
 	// taps, lastCfgRaw, holds and bitrateLog belong to tap.go; taps,
