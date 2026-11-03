@@ -328,6 +328,19 @@ type Session struct {
 	done      chan struct{}
 }
 
+// acceptsInput is MsgInit's control flag: the kind can take input, and the
+// stream, when it can tell, says its input opened. Native clients drop every
+// touch on a stream whose init says false.
+func acceptsInput(t target.Target, stream target.Stream) bool {
+	if !t.Kind().AcceptsInput() {
+		return false
+	}
+	if r, ok := stream.(target.InputReporter); ok {
+		return r.AcceptsInput()
+	}
+	return true
+}
+
 // Open starts a session against t.
 func Open(ctx context.Context, id string, t target.Target, opts target.Options) (*Session, error) {
 	stream, err := t.Open(ctx, opts)
@@ -358,7 +371,7 @@ func Open(ctx context.Context, id string, t target.Target, opts target.Options) 
 			CodedHeight: meta.Height,
 			Name:        meta.Name,
 			Kind:        string(t.Kind()),
-			Control:     t.Kind().AcceptsInput(),
+			Control:     acceptsInput(t, stream),
 			SessionID:   id,
 			Protocol:    ProtocolVersion,
 		},

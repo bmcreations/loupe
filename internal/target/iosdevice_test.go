@@ -124,8 +124,11 @@ func TestIOSDeviceStreamsOnlyOnACableAndChecksLaunchNames(t *testing.T) {
 	if _, err := d.Open(t.Context(), Options{}); !errors.Is(err, ErrIOSStreamNeedsCable) {
 		t.Errorf("Open over Wi-Fi: %v", err)
 	}
-	if KindIOSDevice.AcceptsInput() {
-		t.Error("a target with no input route says it accepts input")
+	if !KindIOSDevice.AcceptsInput() {
+		t.Error("a phone takes input through simcap -phone-input; its kind must not refuse it")
+	}
+	if (&simStream{}).AcceptsInput() {
+		t.Error("a phone stream whose input never opened says it accepts input")
 	}
 	if err := d.CheckLaunch("com.apple.Preferences", ".Main"); !errors.Is(err, ErrBadLaunchName) {
 		t.Errorf("an activity: %v", err)

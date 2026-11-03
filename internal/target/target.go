@@ -25,10 +25,11 @@ const (
 	KindIOSDevice Kind = "iosDevice"
 )
 
-// AcceptsInput reports whether a stream of this kind takes touch and key
-// input. A simulator does, through simcap's -input mode. A physical iOS
-// device does not stream yet, so it takes nothing either.
-func (k Kind) AcceptsInput() bool { return k != KindSynthetic && k != KindIOSDevice }
+// AcceptsInput reports whether a stream of this kind can take touch and key
+// input. A simulator does, through simcap's -input mode, and a physical iOS
+// device does through simcap's -phone-input. Whether one stream's input
+// actually opened is the stream's to say; see InputReporter.
+func (k Kind) AcceptsInput() bool { return k != KindSynthetic }
 
 // Options are the stream parameters requested by the caller. Implementations
 // treat these as a request, not a guarantee, and report what they actually
@@ -226,6 +227,14 @@ type Target interface {
 // sends scrcpy's inject-text; a simulator's types through its input process.
 type TextTyper interface {
 	Text(s string) error
+}
+
+// InputReporter is a Stream that knows whether its input opened. A physical
+// iPhone streams without input when simcap lacks -phone-input or CoreDevice
+// has not listed the phone yet; the session then tells viewers it takes no
+// input instead of the kind's default.
+type InputReporter interface {
+	AcceptsInput() bool
 }
 
 // ErrNoControl is returned by Stream input methods on targets that cannot
