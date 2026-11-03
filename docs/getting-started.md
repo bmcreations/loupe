@@ -29,10 +29,11 @@ brew install --HEAD bmcreations/tap/simcap   # only for iOS simulators
 ```
 
 That installs `loupe` and, if you want it, simcap on your PATH, so every
-`./loupe` below is `loupe`. `brew services start loupe` replaces step 4: it
-runs `loupe -addr :18456` under launchd, in plain HTTP until
-`config.json` names a certificate, and logs to
-`$(brew --prefix)/var/log/loupe.log`. The steps below build from a clone,
+`./loupe` below is `loupe`. `brew services start loupe` runs
+`loupe -addr 127.0.0.1:18456` under launchd and logs to
+`$(brew --prefix)/var/log/loupe.log`. That is loopback only, in plain HTTP:
+enough for this Mac's browser, Handset and agents, but not a phone. To reach
+it from a phone, run it as step 4 does, with a certificate on `:18456`. The steps below build from a clone,
 which is what you want to change loupe itself or to sign simcap for a
 physical iPhone.
 

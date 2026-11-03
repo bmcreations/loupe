@@ -47,21 +47,25 @@ brews:
     license: Apache-2.0
     install: |
       bin.install "loupe"
+    # Loopback: without a certificate loupe refuses plain HTTP on any other
+    # address, so ":18456" would exit at start and crash-loop the service.
+    # PATH adds the Android SDK's platform-tools, where adb usually is.
     service: |
-      run [opt_bin/"loupe", "-addr", ":18456"]
+      run [opt_bin/"loupe", "-addr", "127.0.0.1:18456"]
       keep_alive true
-      environment_variables PATH: std_service_path_env
+      process_type :interactive
+      environment_variables PATH: "#{std_service_path_env}:#{Dir.home}/Library/Android/sdk/platform-tools"
       log_path var/"log/loupe.log"
       error_log_path var/"log/loupe.log"
     caveats: |
-      Run it in a terminal to see its link, which carries the token:
-        loupe -addr :18456
-      or keep it running in the background on the same port:
+      Keep it running in the background on this Mac:
         brew services start loupe
+      then open it with the token it writes on first start:
+        open "http://localhost:18456/?token=$(cat ~/Library/Caches/loupe/token)"
 
-      It serves plain HTTP until you give it a certificate. A phone's
-      browser needs HTTPS: set tlsCert and tlsKey in
-      ~/Library/Application Support/loupe/config.json (docs/getting-started.md).
+      The service answers on loopback only, in plain HTTP. A phone's browser
+      needs HTTPS on an address it can reach: run loupe with -tls-cert,
+      -tls-key and -addr :18456 instead (docs/getting-started.md).
 
       Android needs adb and, for AVDs, the emulator from the Android SDK.
       iOS simulators need simcap, built with your Xcode:
