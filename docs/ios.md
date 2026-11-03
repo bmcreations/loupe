@@ -258,17 +258,18 @@ in 69ms, RSD in 88ms with 85 services, no root. RSD lists
 `com.apple.accessibility.axAuditDaemon.remoteAXService` with entitlement
 `AppleInternal`, and `remoteserver.shim.remote` with
 `com.apple.mobile.lockdown.remote.trusted`. `remoteAXServiceLarger`, the
-service Device MCP names, is not listed. TCP to `remoteAXService` connects
-and the RemoteXPC handshake completes, then the phone closes the channel at
-once. The control, `com.apple.coredevice.deviceinfo` on the same tunnel,
-completes the same handshake and stays open. So the phone enforces
-`AppleInternal` on that service, and the Mac's refusal through remoted was
-the same rule applied earlier. A tunnel of our own does not get around it.
-
-What our tunnel can reach is `remoteserver.shim.remote`, the DTX service
-pymobiledevice3 speaks: it walks elements by moving accessibility focus, one
-element per step, and builds no tree. That and OCR on the video are the
-routes left; neither was run.
+service Device MCP names, is not listed. RSD flags it as RemoteXPC, but the service speaks DTX on the raw stream, the
+way `dtservicehub` does. A RemoteXPC handshake makes the phone close the
+channel. Over DTX it stays open: after `_notifyOfPublishedCapabilities:`
+the phone sends its own capabilities and a `hostAPIVersion` request, and
+`deviceAPIVersion` on the root channel answers `26`. The server object is
+`AXAuditDevicesAppRemoteServer`. Other root-channel selectors that Xcode's
+AccessibilityAudit framework names (`deviceCapabilities`,
+`deviceInspectorSupportedEventTypes`, `deviceFetchSpecialElement:`) answer
+"does not respond to the selector", so the inspector and tree calls sit
+behind a channel or handshake step not found yet. The entitlement field does
+not block a client on our own tunnel. The Mac-side refusal through remoted
+still applies to CoreDevice clients.
 
 ### Sign simcap with a team
 
