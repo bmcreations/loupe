@@ -365,5 +365,21 @@ restart.
 ### Not yet
 
 - Nothing has streamed a phone under the launchd server or to a real viewer.
-- Over Wi-Fi, the decode and re-encode latency is unmeasured.
+- Over Wi-Fi, the decode and re-encode adds about 8ms at the median over the
+  HEVC passthrough, measured on one iOS 27.2 phone over one 20s run. From an
+  access unit's arrival in simcap to a decoded picture in LoupeClient's
+  VideoToolbox decoder on the same Mac, HEVC took p50 5.4ms and p90 6.7ms
+  (n=238), and H.264 took p50 about 13.4ms: 5.0ms from arrival to the start of
+  the re-encode, and 8.4ms (p90 10.2ms, n=187) from there to the decoded
+  picture. Neither number includes the Wi-Fi leg from the phone, which both
+  share, or the display. The H.264 track was 496x1080, the HEVC track the
+  phone's own 1216x2656.
+
+  Method: run a spare loupe with `SIMCAP_LATENCY=1`, so simcap logs t0 as wall
+  time and, every 5s, the arrival-to-encode wait. An HEVC frame's PTS is its
+  arrival after t0, and an H.264 frame's PTS is the start of its encode. Run
+  two `nativeprobe -t0wall <us>` at once on the same session, one with
+  `&decode=h265`; each turns PTS into wall time and reports PTS to decoded,
+  skipping the first 60 pictures. The H.264 figure is the probe's plus
+  simcap's wait.
 - iPhone Mirroring's window is another Wi-Fi route and was not taken.

@@ -96,6 +96,9 @@ type OutMsg struct {
 	Control bool
 	// QueuedAt is when fan-out handed this to the viewer.
 	QueuedAt time.Time
+	// passthrough marks a frame of the stream's passthrough track, which goes
+	// only to viewers that asked for it (passthrough.go).
+	passthrough bool
 	// PTSMicros is the frame's presentation timestamp. Data carries the
 	// WebSocket envelope, so a transport with its own framing reads the
 	// timestamp here and takes the payload from Data[FrameHeaderLen:] rather
@@ -107,6 +110,9 @@ type OutMsg struct {
 type viewer struct {
 	id  uint64
 	out chan OutMsg
+	// passthrough is whether this viewer gets the passthrough track instead
+	// of the H.264 one. Fixed at AddViewerWith.
+	passthrough bool
 	// needsKey is set when a viewer has missed frames and must wait for the
 	// next keyframe before it can decode again. Sending it inter-frames in the
 	// meantime produces visible corruption, which is worse than a brief freeze.
@@ -241,7 +247,10 @@ type Session struct {
 	gestures map[uint64]*GestureAssembler
 	nextID   uint64
 	lastCfg  *OutMsg // most recent parameter sets, replayed to joiners
-	overlays []byte  // latest MsgOverlay body, sent to joiners; nil for none
+	// pass is the passthrough track's state, nil when the stream has none.
+	// Guarded by mu like lastCfg.
+	pass     *passTrack
+	overlays []byte // latest MsgOverlay body, sent to joiners; nil for none
 	init     InitPayload
 
 	// taps, lastCfgRaw, holds and bitrateLog belong to tap.go; taps,
@@ -377,6 +386,7 @@ func Open(ctx context.Context, id string, t target.Target, opts target.Options) 
 		},
 	}
 
+	s.startPassthrough(stream)
 	go s.pump()
 	s.watchClipboard(stream)
 	s.watchRelayed(stream)
@@ -629,6 +639,11 @@ func (s *Session) Stats() map[string]any {
 // a joiner can configure its decoder without waiting for the stream to repeat
 // them.
 func (s *Session) AddViewer() (uint64, <-chan OutMsg) {
+	return s.AddViewerWith(ViewerOptions{})
+}
+
+// AddViewerWith is AddViewer for a viewer that has said what it decodes.
+func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 	s.mu.Lock()
 
 	s.nextID++
@@ -645,6 +660,7 @@ func (s *Session) AddViewer() (uint64, <-chan OutMsg) {
 		needsKey: true,
 		joined:   time.Now(),
 	}
+	v.passthrough = s.pass != nil && o.decodes(s.pass.fourcc)
 	s.viewers[v.id] = v
 
 	// A Session built directly rather than through Open (every test in this
@@ -657,8 +673,14 @@ func (s *Session) AddViewer() (uint64, <-chan OutMsg) {
 	}
 	s.gestures[v.id] = NewGestureAssembler()
 
-	v.out <- s.buildInit(v.id)
-	if s.lastCfg != nil {
+	v.out <- s.buildInitFor(v)
+	if v.passthrough {
+		if s.pass.cfg != nil {
+			cfg := *s.pass.cfg
+			cfg.QueuedAt = time.Now()
+			v.out <- cfg
+		}
+	} else if s.lastCfg != nil {
 		// Queued now, not when the stream first sent it: the write deadline
 		// runs from QueuedAt, and a replay minutes old goes out expired and is
 		// reset on WebTransport. simcap sends parameter sets once, so a joiner
@@ -730,9 +752,19 @@ func (s *Session) SetClientBuffer(ms int) {
 // buildInit encodes init for one viewer. It is built per viewer rather than
 // cached, because it carries that viewer's id; a marshal of eight fields on a
 // join or a resize costs nothing worth caching.
-func (s *Session) buildInit(viewer uint64) OutMsg {
+func (s *Session) buildInit(id uint64) OutMsg {
+	return s.buildInitFor(&viewer{id: id})
+}
+
+// buildInitFor is buildInit for v's track: a passthrough viewer is told the
+// passthrough codec, and the H.264 track's size, which is the space its
+// touches are in.
+func (s *Session) buildInitFor(v *viewer) OutMsg {
 	init := s.init
-	init.Viewer = viewer
+	init.Viewer = v.id
+	if v.passthrough && s.pass != nil {
+		init.Codec = s.pass.codec
+	}
 	body, err := json.Marshal(init)
 	if err != nil {
 		// InitPayload has no unmarshalable fields, so this cannot fail in
@@ -1583,7 +1615,7 @@ func (s *Session) resolveCodec(cfg []byte) {
 func (s *Session) sendInitLocked() {
 	for _, v := range s.viewers {
 		select {
-		case v.out <- s.buildInit(v.id):
+		case v.out <- s.buildInitFor(v):
 		default:
 		}
 	}
@@ -1600,6 +1632,9 @@ func (s *Session) broadcast(msg OutMsg) {
 
 	s.mu.RLock()
 	for _, v := range s.viewers {
+		if v.passthrough != msg.passthrough {
+			continue
+		}
 		// A viewer that fell behind is resynchronizing. Parameter sets and
 		// keyframes move it forward; anything else would decode into garbage.
 		if v.needsKey && !msg.Key && !msg.Config {

@@ -165,6 +165,9 @@ type QUICOpen struct {
 	// Proto is the protocol range the client speaks, as ?proto= on /ws and
 	// /wt. See NegotiateProtocol.
 	Proto string `json:"proto,omitempty"`
+	// Decode is ?decode= on /ws and /wt: the codecs the client decodes
+	// besides H.264. See ViewerOptions.
+	Decode []string `json:"decode,omitempty"`
 }
 
 // QUIC application close codes. 1 and 3 mean what they mean on /wt.

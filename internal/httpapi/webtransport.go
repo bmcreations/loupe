@@ -656,7 +656,7 @@ func (s *Server) handleWebTransport(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.lastSent.Store(time.Now().UnixNano())
 	conn.lastRecv.Store(time.Now().UnixNano())
-	s.serveViewer(targetID, sess, conn)
+	s.serveViewerWith(targetID, sess, conn, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode"))})
 }
 
 // diagnoseStreams opens one stream of each direction and records how long each

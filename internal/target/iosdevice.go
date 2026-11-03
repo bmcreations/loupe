@@ -302,7 +302,10 @@ func (d *IOSDevice) Open(ctx context.Context, opts Options) (Stream, error) {
 		if !d.streamsOverWifi(ctx) {
 			return nil, fmt.Errorf("%w (Wi-Fi streaming needs iOS 27 and a simcap with -phone-wifi; this is iOS %s)", ErrIOSStreamNeedsCable, info.OSVersion)
 		}
-		st, err = openSimcap(ctx, bin, info.Identifier, info.Name, opts, "-phone-wifi", info.Name)
+		// The phone's HEVC goes to viewers that decode it as it came, when
+		// this simcap can forward it; everyone else gets the H.264 track.
+		hevc, _ := simcapHas(ctx, bin, "phonehevc")
+		st, err = openSimcapWith(ctx, bin, info.Identifier, info.Name, opts, hevc, "-phone-wifi", info.Name)
 	default:
 		return nil, fmt.Errorf("%s is paired but out of reach: devicectl lists it with no transport", info.Name)
 	}

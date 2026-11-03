@@ -322,7 +322,12 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 // gate, staleness, stats and tracing. Transports decide only *how* to put bytes
 // on the wire, and what they can do about a frame that has already gone stale.
 func (s *Server) serveViewer(targetID string, sess *session.Session, conn Conn) {
-	viewerID, out := sess.AddViewer()
+	s.serveViewerWith(targetID, sess, conn, session.ViewerOptions{})
+}
+
+// serveViewerWith is serveViewer for a client that said what it decodes.
+func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Conn, opts session.ViewerOptions) {
+	viewerID, out := sess.AddViewerWith(opts)
 	defer s.awake.Hold()()
 	defer func() {
 		sess.RemoveViewer(viewerID)

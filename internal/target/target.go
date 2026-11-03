@@ -88,6 +88,19 @@ type Meta struct {
 	Name string
 }
 
+// PassthroughStream is a Stream that also carries the device's own encoding,
+// undecoded, beside the H.264 track every viewer can decode. A physical
+// iPhone over Wi-Fi sends HEVC; simcap decodes it to re-encode as H.264 for
+// browsers, and forwards the HEVC as it came for a viewer that decodes it.
+type PassthroughStream interface {
+	// Passthrough yields that track's access units in decode order, or nil
+	// when this stream has none. Config and Key mean what they do on Frames.
+	// The channel closes when the stream ends.
+	Passthrough() <-chan Frame
+	// PassthroughCodec is the track's fourcc, "h265".
+	PassthroughCodec() string
+}
+
 // Frame is one encoded access unit in Annex B byte-stream format, ready to hand
 // to a decoder without further framing.
 type Frame struct {
