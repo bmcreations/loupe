@@ -1,6 +1,7 @@
 package target
 
 import (
+	"errors"
 	"math"
 	"os"
 	"strings"
@@ -110,6 +111,42 @@ func TestPhoneAXInitialDumpHasNoRoles(t *testing.T) {
 	}
 	if findAX(merged, isClock) == nil {
 		t.Error("merged dump lost the clock")
+	}
+}
+
+// The phone's orientation message carries no element nodes. The bridge filters
+// it out, but the merge must survive one if it slips through, not abort the
+// whole tree.
+func TestPhoneAXMergeSkipsOrientation(t *testing.T) {
+	init := readPhoneFixture(t, "initialdump.bplist")
+	add := readPhoneFixture(t, "additionaldata.bplist")
+	orient := readPhoneFixture(t, "orientation.bplist")
+
+	if _, err := decodePhoneAX(orient); !errors.Is(err, errPhoneAXEmpty) {
+		t.Fatalf("orientation alone: want errPhoneAXEmpty, got %v", err)
+	}
+	merged, err := decodePhoneAXMerged(init, orient, add)
+	if err != nil {
+		t.Fatalf("merge with orientation: %v", err)
+	}
+	if findAX(merged, func(n *axNode) bool { return n.Role == "AXButton" }) == nil {
+		t.Error("orientation in the stream dropped the roles")
+	}
+}
+
+// Frames arrive in the phone's order, but if an AdditionalData dump lands
+// before a (role-less) InitialDump re-send, the later InitialDump must not
+// clobber the roles the merge already has.
+func TestPhoneAXMergeOrderKeepsRoles(t *testing.T) {
+	init := readPhoneFixture(t, "initialdump.bplist")
+	add := readPhoneFixture(t, "additionaldata.bplist")
+
+	merged, err := decodePhoneAXMerged(add, init)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if findAX(merged, func(n *axNode) bool { return n.Role == "AXButton" }) == nil {
+		t.Error("a later role-less dump clobbered the roles")
 	}
 }
 

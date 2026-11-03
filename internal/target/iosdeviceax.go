@@ -291,6 +291,12 @@ func decodePhoneAXMerged(raws ...[]byte) (*axNode, error) {
 	all := map[uint64]*phoneNode{}
 	for _, raw := range raws {
 		nodes, err := decodePhoneAXNodes(raw)
+		if errors.Is(err, errPhoneAXEmpty) {
+			// A dump with no element nodes (e.g. the phone's orientation
+			// message) carries nothing to merge; skip it rather than fail
+			// the whole tree.
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
