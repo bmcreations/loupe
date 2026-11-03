@@ -192,8 +192,10 @@ device registered for it: a deep link, a universal link or a web page.
 - On a simulator, an http or https URL an installed app claims opens in that
   app, and `started` is its bundle ID (see "Universal links on a simulator" in
   `docs/ios.md`). Any other URL goes to `simctl openurl`.
-- A physical iPhone answers 501. devicectl opens a URL only as the payload of
-  launching a named app.
+- A physical iPhone opens http and https URLs in Safari, and `started` is
+  `com.apple.mobilesafari`. devicectl opens a URL only as the payload of
+  launching a named app, so a universal link opens as a page in Safari rather
+  than in the app that claims it, and any other scheme is a 400.
 - A timeout waiting for the handler to draw still counts as success when the
   device named an activity. The trace carries `timedOut`.
 

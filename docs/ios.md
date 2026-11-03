@@ -177,7 +177,9 @@ with 9001, "Remote control requires iOS 27.0".
   `docs/agent-api.md`).
 - **Install** is `/api/install` with an `.ipa` or a zipped `.app`, through
   devicectl, about 8s for a 22 MB build (`docs/agent-api.md`).
-- **Open URL** answers 501 (`docs/agent-api.md`).
+- **Open URL** opens http and https in Safari, about 1.4s; other schemes
+  are a 400, and a universal link does not reach its app
+  (`docs/agent-api.md`).
 - **Wi-Fi video** is a stream of our own, so it is the part most likely to
   break with an Xcode update. A locked phone looks like a still screen.
 - Plugging a phone in can raise macOS's "what is this audio device" prompt
