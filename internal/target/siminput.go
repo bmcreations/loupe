@@ -968,6 +968,9 @@ func (st *simStream) Touch(t Touch) error {
 	}
 	st.touchMu.Lock()
 	defer st.touchMu.Unlock()
+	if err := st.liftWheelLocked(); err != nil {
+		return err
+	}
 	i := slices.IndexFunc(st.fingers, func(f finger) bool { return f.id == t.PointerID })
 	switch t.Action {
 	case TouchDown:
@@ -1111,10 +1114,6 @@ func (st *simStream) Text(text string) error {
 	}
 	return st.sim.TypeText(context.Background(), text)
 }
-
-// Scroll has no iOS equivalent the HID client offers; a phone viewer sends
-// touches rather than wheel events anyway.
-func (st *simStream) Scroll(Scroll) error { return ErrNoControl }
 
 // AcceptsInput reports whether this stream's input opened: a simulator's
 // always does, and a phone's only when simcap's -phone-input answered at Open.

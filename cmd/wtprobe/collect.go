@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"time"
 )
@@ -103,4 +104,33 @@ func sendTap(control io.Writer, tap *[2]int32, tapAfter time.Duration) {
 		_, err = control.Write(touchMsg(1, tap[0], tap[1]))
 	}
 	fmt.Printf("tap %d,%d sent in %v err=%v\n", tap[0], tap[1], time.Since(t0).Round(time.Millisecond), err)
+}
+
+// sendScroll sends a trackpad-shaped vertical scroll of units notches at
+// x,y: half of it as a steady drag over 150ms, then the rest as momentum
+// that decays by a fifth every 10ms, the way AppKit reports a flick.
+func sendScroll(control io.Writer, x, y int32, units float64, after time.Duration) {
+	time.Sleep(after)
+	t0 := time.Now()
+	var deltas []float64
+	for range 15 {
+		deltas = append(deltas, units/2/15)
+	}
+	// A geometric tail summing to units/2: d, 0.8d, 0.64d, ... down to
+	// under 1% of the first.
+	d := units / 2 * 0.2
+	for math.Abs(d) > math.Abs(units/2*0.2*0.01) {
+		deltas = append(deltas, d)
+		d *= 0.8
+	}
+	var err error
+	sent := 0.0
+	for _, v := range deltas {
+		if _, err = control.Write(scrollMsg(x, y, float32(v))); err != nil {
+			break
+		}
+		sent += v
+		time.Sleep(10 * time.Millisecond)
+	}
+	fmt.Printf("scroll %.2f units at %d,%d in %d deltas over %v err=%v\n", sent, x, y, len(deltas), time.Since(t0).Round(time.Millisecond), err)
 }

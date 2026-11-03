@@ -48,6 +48,7 @@ and simcap has only been run against iPhones.
 | Input | Taps, swipes, Home, Lock, app switcher (two Home presses) and typing, from the viewer and `/api/input`. Works with no viewer session open. |
 | Coordinates | `/api/input`, `/api/ui` and `/api/screenshot` use framebuffer pixels. Touches in the stream are scaled up for you. |
 | Two fingers | The stream turns a second finger into a two-point gesture, which zoomed a photo in Photos. `/api/input {"action":"pinch","x","y","scale"}` runs the same gesture, spreading over 30% to 60% of the screen's short side for a scale of 2. No rotation. |
+| Scroll | A wheel or trackpad scroll from a viewer drags one finger and lifts it when the deltas stop. A unit drags 14% of the screen's height. The finger lands only past about 20 points, so a nudge never taps. A trackpad's momentum carries it, so a flick ends without a second fling. At the edge it lifts and grips again where the scroll began. 3 units moved Settings' list 37% of the screen. |
 | `/api/ui` | The accessibility tree of the frontmost app, SpringBoard on the Home Screen. A node's `center` goes straight into `/api/input`. The label is `text`; a text field's contents or placeholder are `value`, which Android never sets. |
 | Bitrate | Adaptive bitrate changes the encoder in place, with no restart or keyframe wait (see Adaptive bitrate in `docs/architecture.md`). |
 | Keyboard | Opening the phone's keyboard from the viewer hides the simulator's on-screen keyboard, so it does not cover the lower half. |
@@ -133,6 +134,7 @@ other simulator answers 501 to a posture change.
 ### Untested
 
 - Two fingers from a real viewer on a phone.
+- Wheel scroll on a phone, through CoreDevice or the XCUITest runner.
 - Typing from an iPhone: autocorrect, dictation and a held Backspace are
   unmeasured.
 - The swipe gesture and the overlay in a browser through the self-signed

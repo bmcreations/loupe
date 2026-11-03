@@ -16,6 +16,10 @@
 // nobody is using. -tapafter holds the tap back, so it can follow a fold or
 // a rotation made mid-session.
 //
+// -scroll x,y,units sends a vertical scroll at x,y instead, shaped like a
+// trackpad flick: deltas every 10ms, then momentum that decays, adding up
+// to units notches (120 points each, as the Mac viewer sends them).
+//
 // -quic probes the raw-QUIC transport a native client uses instead, on the
 // same link: the host, target, token and start are read from it as /wt reads
 // them.
@@ -29,6 +33,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"sort"
@@ -50,7 +55,8 @@ func main() {
 	dur := flag.Duration("for", 6*time.Second, "how long to collect frames")
 	insecure := flag.Bool("insecure", true, "skip certificate verification (dialing by IP)")
 	tapAt := flag.String("tap", "", "x,y in stream pixels: send one tap after the first frame")
-	tapAfter := flag.Duration("tapafter", 0, "wait this long after the first frame before -tap")
+	tapAfter := flag.Duration("tapafter", 0, "wait this long after the first frame before -tap or -scroll")
+	scrollAt := flag.String("scroll", "", "x,y,units: send a trackpad-shaped vertical scroll after the first frame")
 	dumpTo := flag.String("dump", "", "write one line per frame to this file: arrival ms since the first frame, pts us, flags")
 	useQUIC := flag.Bool("quic", false, "use the raw-QUIC transport a native client uses (ALPN loupe/1) instead of WebTransport; the URL's host and query are read the same way")
 	connectBudget := flag.Duration("connect", 20*time.Second, "how long CONNECT may take; the server answers before it opens the target, so a boot no longer counts here")
@@ -71,12 +77,34 @@ func main() {
 		}
 		tap = &[2]int32{int32(xi), int32(yi)}
 	}
+	var input func(io.Writer)
+	if tap != nil {
+		input = func(w io.Writer) { sendTap(w, tap, *tapAfter) }
+	}
+	if *scrollAt != "" {
+		f := strings.Split(*scrollAt, ",")
+		var x, y int
+		var units float64
+		var err error
+		if len(f) == 3 {
+			if x, err = strconv.Atoi(f[0]); err == nil {
+				if y, err = strconv.Atoi(f[1]); err == nil {
+					units, err = strconv.ParseFloat(f[2], 64)
+				}
+			}
+		}
+		if len(f) != 3 || err != nil {
+			fmt.Fprintln(os.Stderr, "-scroll wants x,y,units")
+			os.Exit(2)
+		}
+		input = func(w io.Writer) { sendScroll(w, int32(x), int32(y), units, *tapAfter) }
+	}
 
 	probe := run
 	if *useQUIC {
 		probe = runQUIC
 	}
-	if err := probe(flag.Arg(0), *dur, *connectBudget, *insecure, tap, *tapAfter, *dumpTo); err != nil {
+	if err := probe(flag.Arg(0), *dur, *connectBudget, *insecure, input, *dumpTo); err != nil {
 		fmt.Fprintln(os.Stderr, "probe failed:", err)
 		os.Exit(1)
 	}
@@ -99,7 +127,17 @@ func touchMsg(action uint8, x, y int32) []byte {
 	return controlMsg(b...)
 }
 
-func run(rawURL string, dur, connectBudget time.Duration, insecure bool, tap *[2]int32, tapAfter time.Duration, dumpTo string) error {
+// scrollMsg is a MsgScroll: x i32, y i32, h f32, v f32.
+func scrollMsg(x, y int32, v float32) []byte {
+	b := []byte{session.MsgScroll}
+	b = binary.BigEndian.AppendUint32(b, uint32(x))
+	b = binary.BigEndian.AppendUint32(b, uint32(y))
+	b = binary.BigEndian.AppendUint32(b, 0)
+	b = binary.BigEndian.AppendUint32(b, math.Float32bits(v))
+	return controlMsg(b...)
+}
+
+func run(rawURL string, dur, connectBudget time.Duration, insecure bool, input func(io.Writer), dumpTo string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("parse url: %w", err)
@@ -164,8 +202,8 @@ func run(rawURL string, dur, connectBudget time.Duration, insecure bool, tap *[2
 
 	deadline := time.Now().Add(dur)
 	col, err := newCollector(start, dumpTo, func() {
-		if tap != nil {
-			go sendTap(control, tap, tapAfter)
+		if input != nil {
+			go input(control)
 		}
 	})
 	if err != nil {
