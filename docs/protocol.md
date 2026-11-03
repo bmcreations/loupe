@@ -54,7 +54,13 @@ PPS, and every keyframe repeats them in front so a decoder can start at any
 keyframe. `codedWidth`/`codedHeight` stay the H.264 track's, which is the space
 touches are in; the HEVC picture may be larger, and the client scales.
 
-A passthrough viewer's keyframe requests reach the phone as an RTCP PLI. A
+A passthrough viewer's keyframe requests reach the phone as an RTCP PLI. The
+phone answers one only while its screen is changing, so a passthrough viewer
+does not wait for a keyframe when it attaches. After the config frame it gets
+the track's last keyframe and every frame since, with `sentAt` set to the time
+of the replay, then the live stream. A GOP longer than 240 frames or 8 MiB is
+not kept; loupe asks the phone for a keyframe instead, and a viewer that
+attaches before it arrives waits for it as before. A
 target that relaunches its stream mid-session does not restart the HEVC track;
 a passthrough viewer has to reconnect.
 
