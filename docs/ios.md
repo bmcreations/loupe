@@ -180,6 +180,21 @@ with 9001, "Remote control requires iOS 27.0".
   break with an Xcode update. A locked phone looks like a still screen.
 - Plugging a phone in can raise macOS's "what is this audio device" prompt
   once. "Other device" answers it.
+- **`/api/ui`** has no tree for a phone. The phone's service for one,
+  `com.apple.accessibility.axAuditDaemon.remoteAXService`, is refused on the
+  Mac: remoted logs `Client lacks privilege to interact with service` for
+  CoreDeviceService, the process every CoreDevice client goes through. Tried
+  on 2026-11-03 (macOS 26B118, Xcode 27.1 beta, iOS 27.2 24B115) as a socket
+  (`fileHandle(toServiceNamed:)`, which Xcode's DeviceKit uses to feed
+  AccessibilityAudit's `AXAuditRemoteDevice`) and as a RemoteXPC connection
+  in both modes. Each answered CoreDevice error 4000, POSIX 83. The same
+  calls opened `com.apple.instruments.dtservicehub` and
+  `com.apple.coredevice.deviceinfo`, so the refusal belongs to this service,
+  not the transport. `axAuditDaemon.remoteserver.shim.remote`, the service
+  pymobiledevice3's accessibility client uses, is refused the same way. The
+  phone does not list `remoteAXServiceLarger`. Reaching either would take a
+  tunnel of our own, outside remoted. The probe is `simcap <coredevice id>
+  -phone-ax-probe <service>` on simcap's `feat/ios-remote-ax` branch.
 
 ### Sign simcap with a team
 
