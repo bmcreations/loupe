@@ -273,6 +273,19 @@ behind a channel or handshake step not found yet. The entitlement field does
 not block a client on our own tunnel. The Mac-side refusal through remoted
 still applies to CoreDevice clients.
 
+The tree comes from `clientNeedsAccessibility:` (argument `true`) on the
+root channel. Xcode 27.1's `AXAuditRemoteDevice` uses the same call, and
+`deviceAPIVersion` is the only other root call it needs. The phone then
+pushes `processDataFromRemoteDevice:` messages without being asked: an
+NSKeyedArchive wrapping NSData, which holds an `AXPTranslatorResponse` with a
+`treeDump`. The first full dump from bmc-iphone was 142 KB: 1592 archive
+objects, with element frames and centers in points on a 402x874 screen
+(1206x2622 pixels at 3x), roles such as `Static Text` and `Image`, and labels
+from the screen, here the lock screen clock and a Live Activity. The phone
+re-sends the dump on its own after a change. This is the same
+AXPTranslator data simcap reads for simulators, so the existing translator
+path may decode it. Not yet tried.
+
 ### Sign simcap with a team
 
 Streaming a phone over a cable asks for camera access (macOS treats the
