@@ -117,12 +117,26 @@ clean:
 # onto a new build when ./loupe's sha256 changes. So `make build` is the deploy
 # step: build, and the running server swaps itself within a couple of seconds.
 
+#
+# bootout returns before launchd has dropped the old service, and a bootstrap
+# in that window fails with "5: Input/output error", leaving no agent loaded.
+# So wait for the label to go, then retry the bootstrap.
+#
+# The agent runs from this checkout and finds simcap, simcap-bridge and the
+# XCUITest runner in its .build, which a fresh checkout or worktree lacks.
 agent-install: build
 	@mkdir -p $(HOME)/Library/LaunchAgents
 	@sed 's|__ROOT__|$(CURDIR)|g' launchd/$(LABEL).plist > $(PLIST)
 	@launchctl bootout $(GUI)/$(LABEL) 2>/dev/null || true
-	@launchctl bootstrap $(GUI) $(PLIST)
+	@for _ in $$(seq 1 20); do launchctl print $(GUI)/$(LABEL) >/dev/null 2>&1 || break; sleep 0.25; done
+	@for i in 1 2 3; do \
+		launchctl bootstrap $(GUI) $(PLIST) && break; \
+		[ $$i = 3 ] && exit 1; sleep 1; \
+	done
 	@echo "loaded $(LABEL) -> $(PLIST)"
+	@[ -e .build/simcap ] || echo "warning: no .build/simcap: no simulators or iPhones (make simcap)"
+	@[ -e .build/simcap-bridge ] || echo "warning: no .build/simcap-bridge: no ui on a cabled iPhone (make simcap)"
+	@[ -e .build/xcrunner ] || echo "warning: no .build/xcrunner: no touches on an iPhone below iOS 27 (make xcrunner TEAM=...)"
 
 agent-uninstall:
 	@launchctl bootout $(GUI)/$(LABEL) 2>/dev/null || true
