@@ -180,6 +180,145 @@ with 9001, "Remote control requires iOS 27.0".
   break with an Xcode update. A locked phone looks like a still screen.
 - Plugging a phone in can raise macOS's "what is this audio device" prompt
   once. "Other device" answers it.
+- **`/api/ui`** has no tree for a phone. The phone's service for one,
+  `com.apple.accessibility.axAuditDaemon.remoteAXService`, is refused on the
+  Mac: remoted logs `Client lacks privilege to interact with service` for
+  CoreDeviceService, the process every CoreDevice client goes through. Tried
+  on 2026-11-03 (macOS 26B118, Xcode 27.1 beta, iOS 27.2 24B115) as a socket
+  (`fileHandle(toServiceNamed:)`, which Xcode's DeviceKit uses to feed
+  AccessibilityAudit's `AXAuditRemoteDevice`) and as a RemoteXPC connection
+  in both modes. Each answered CoreDevice error 4000, POSIX 83. The same
+  calls opened `com.apple.instruments.dtservicehub` and
+  `com.apple.coredevice.deviceinfo`, so the refusal belongs to this service,
+  not the transport. `axAuditDaemon.remoteserver.shim.remote`, the service
+  pymobiledevice3's accessibility client uses, is refused the same way. The
+  phone does not list `remoteAXServiceLarger`. Reaching either would take a
+  tunnel of our own, outside remoted. The probe is `simcap <coredevice id>
+  -phone-ax-probe <service>` on simcap's `feat/ios-remote-ax` branch.
+
+#### A tunnel of our own was tried and is blocked too
+
+The follow-up asked whether a tunnel we open ourselves, outside remoted,
+reaches the AX service where the Mac's CoreDevice client could not. It does
+not over Wi-Fi, the only transport reachable without plugging the phone in.
+Tried on 2026-11-03 (macOS 26B118, iOS 27.2 24B115) against bmc-iphone at
+192.168.1.108, using the open-source Rust crate `idevice-rs`
+(github jkcoxson/idevice, MIT), the same crate Device MCP by Proxyman
+vendors.
+
+Their path, read from the crate and from the competitor's embedded strings,
+needs no root and no Mac entitlement: usbmuxd hands any user the pair record
+(`ReadPairRecord` over `/var/run/usbmuxd`, no root), lockdown opens the
+CoreDeviceProxy service, a CDTunnel handshake brings up a tunnel, and a
+userspace TCP stack (not a utun device) carries RSD and DTX over it. Every
+step there is root-free. The catch is the transport: it is a cable path.
+
+Over Wi-Fi lockdown the phone grants the service but never answers the
+handshake behind it. `StartService` for
+`com.apple.internal.devicecompute.CoreDeviceProxy` returns a port with
+`EnableServiceSSL`, the TLS session comes up on that port, the client sends
+the `CDTunnel` handshake request, and the phone sends nothing back. The same
+silence follows `com.apple.dt.remotepairingdeviced.lockdown`: the port and
+TLS come up, the client sends `attemptPairVerify`, and the reply never
+arrives. Two independent clients (idevice-rs, and pymobiledevice3 driving
+the same handshake) both completed TLS and both hung, so the silence is the
+phone's, not one library's bug.
+
+The silence is by design: these are USB-transport services. pymobiledevice3
+documents the promptless pair route as "reached over the USB lockdown
+transport" and the no-root tunnel as "reaching RSD over usbmux instead of
+the NCM link" (`remote/tunnel_service.py`, `remote/utils.py`). So the
+root-free path Device MCP uses is not a Wi-Fi bypass of the Mac's refusal;
+it is the same path moved onto a cable, where usbmuxd carries the lockdown
+service and CoreDeviceProxy answers. Without the cable we cannot run it.
+
+One Wi-Fi route stays untested: fresh RemotePairing over `_remotepairing._tcp`
+(bmc-iphone.local:49152), which shows a six-digit code on the phone and
+registers a new trusted host. It is a different mechanism from the pair-verify
+above and might complete where verify does not, but it writes a persisted
+trust record to the device, so it needs an explicit go-ahead before it runs.
+
+No root was needed for anything tried, and nothing tried needed a root-only
+record: usbmuxd returned both phones' pair records to an ordinary user, and
+the userspace TCP stack needs no utun device. `/var/db/lockdown` is
+`Operation not permitted` to us, but we never had to read it; the Mac's own
+RemotePairing record there is what makes a cable run promptless, and reading
+it is not part of the no-root path. The cable path now ships as `simcap-bridge`
+in the simcap repo (`bridge/`), a Rust binary that pins idevice-rs by git rev;
+its MIT notice is in that repo's `THIRD_PARTY_NOTICES.md`. The original probe
+remains as scratch on this machine (`~/dev/idevice-spike`). Opening our Wi-Fi
+tunnel did
+not disturb CoreDevice: the utun count and `devicectl list devices` were
+unchanged before and after, because the tunnel never reached the stage that
+creates an interface.
+
+On a cable the tunnel comes up and the phone refuses the service itself.
+Run on bmc-iphone (iOS 27.2, 24B115) through usbmuxd, with the pair record
+read from file because idevice-rs's own `get_pair_record` hangs: CDTunnel up
+in 69ms, RSD in 88ms with 85 services, no root. RSD lists
+`com.apple.accessibility.axAuditDaemon.remoteAXService` with entitlement
+`AppleInternal`, and `remoteserver.shim.remote` with
+`com.apple.mobile.lockdown.remote.trusted`. `remoteAXServiceLarger`, the
+service Device MCP names, is not listed. RSD flags it as RemoteXPC, but the service speaks DTX on the raw stream, the
+way `dtservicehub` does. RSD's `xpc` flag is not the wire protocol: before
+recording that the phone refuses a service, open it the way the nearest
+working client does, with a control that speaks the same protocol. A RemoteXPC handshake makes the phone close the
+channel. Over DTX it stays open: after `_notifyOfPublishedCapabilities:`
+the phone sends its own capabilities and a `hostAPIVersion` request, and
+`deviceAPIVersion` on the root channel answers `26`. The server object is
+`AXAuditDevicesAppRemoteServer`. Other root-channel selectors that Xcode's
+AccessibilityAudit framework names (`deviceCapabilities`,
+`deviceInspectorSupportedEventTypes`, `deviceFetchSpecialElement:`) answer
+"does not respond to the selector", so the inspector and tree calls sit
+behind a channel or handshake step not found yet. The entitlement field does
+not block a client on our own tunnel. The Mac-side refusal through remoted
+still applies to CoreDevice clients.
+
+The tree comes from `clientNeedsAccessibility:` (argument `true`) on the
+root channel. Xcode 27.1's `AXAuditRemoteDevice` uses the same call, and
+`deviceAPIVersion` is the only other root call it needs. The phone then
+pushes `processDataFromRemoteDevice:` messages without being asked: an
+NSKeyedArchive wrapping NSData, which holds an `AXPTranslatorResponse` with a
+`treeDump`. The first full dump from bmc-iphone was 142 KB: 1592 archive
+objects, with element frames and centers in points on a 402x874 screen
+(1206x2622 pixels at 3x), roles such as `Static Text` and `Image`, and labels
+from the screen, here the lock screen clock and a Live Activity. The phone
+re-sends the dump on its own after a change.
+
+#### The tree is decoded without Apple's framework
+
+The dump is the same shape of data simcap reads for simulators, so the first
+plan was to hand it back to the system `AccessibilityPlatformTranslation`
+framework and read the rebuilt elements, the way the simulator path does.
+That was tried offline on 2026-11-03 against the captured dumps and does not
+work. The framework rebuilds the element tree, but every getter on a rebuilt
+element (`accessibilityRole`, `accessibilityLabel`, children) returns empty.
+The elements carry `_isRemoteElement`, which routes every read through
+HIServices `_AXCurrentRequestCanAccessRemoteDeviceContent`. That reads a
+process-global flag the AX runtime sets only while it is dispatching a request
+for a registered remote-device host client, the role Xcode's
+`AXAuditRemoteDevice` and VoiceOver play. A plain signed helper does not
+satisfy it, and simcap's entitlements carry only camera. The simulator path is
+unaffected because simulator elements are local, not remote, so that gate is
+never consulted.
+
+So the phone tree is decoded directly from the archive, with no Apple
+accessibility framework and no entitlement in play. The archive carries
+everything the `ui` output needs as plain data. Its layout: the outer
+NSKeyedArchive's root is an NSData whose bytes are a second archive, whose root
+is the `AXPTranslatorResponse`; `resultData.treeDump` is an array of
+per-element responses; the entries with `associatedRequestType == 5` each
+describe one element. An element's key is its
+`associatedTranslationObject.objectID`; its attributes are a dictionary keyed
+by integer `AXPAttributeType` codes, of which `ui` uses `78` (the role word
+and traits), `33` (label or value, sometimes an attributed string with the
+text under `NS.string`), `48` (the frame, an `NSValue` rect in points), and
+`8`/`9` (the ordered child object IDs). The role word (`Button`, `Static
+Text`, `Image`, `Header`) maps to the matching macOS `AX` role constant so the
+rest of loupe's view-hierarchy handling is unchanged. The phone sends two
+dumps: an InitialDump with geometry and labels but no roles, then an
+AdditionalData dump that adds the roles, so the decoder merges dumps by object
+ID. The decoder and its tests live in loupe `internal/target/iosdeviceax.go`.
 
 ### Sign simcap with a team
 
