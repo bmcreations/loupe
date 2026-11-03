@@ -19,7 +19,7 @@ import (
 const (
 	axReqAttributes = 5
 
-	axAttrTraits   = 78 // [role word, traits...]
+	axAttrTraits   = 78 // [role word, traits...], or traits alone
 	axAttrLabel    = 33
 	axAttrFrame    = 48
 	axAttrChildren = 8
@@ -41,6 +41,33 @@ var phoneAXRoles = map[string]string{
 	"Cell":         "AXCell",
 	"Tab":          "AXTab",
 	"Adjustable":   "AXSlider",
+}
+
+// UIAccessibilityTraits that are not roles. Attribute 78 lists them after
+// the role word, or alone when the element has no role: home-screen app icons
+// arrive as [Updates Frequently]. Only Updates Frequently has been seen in a
+// capture; the rest are the other non-role trait names UIKit defines.
+var phoneAXTraits = map[string]bool{
+	"Updates Frequently":        true,
+	"Selected":                  true,
+	"Not Enabled":               true,
+	"Plays Sound":               true,
+	"Keyboard Key":              true,
+	"Summary Element":           true,
+	"Starts Media Session":      true,
+	"Allows Direct Interaction": true,
+	"Causes Page Turn":          true,
+}
+
+// phoneAXRoleOf returns the role for an attribute-78 list: its first word
+// that is not a trait, or "" when it holds only traits.
+func phoneAXRoleOf(words []interface{}) string {
+	for _, w := range words {
+		if s, ok := w.(string); ok && s != "" && !phoneAXTraits[s] {
+			return phoneAXRole(s)
+		}
+	}
+	return ""
 }
 
 func phoneAXRole(word string) string {
@@ -234,9 +261,7 @@ func (a *keyedArchive) attrNode(dict interface{}) *phoneNode {
 		switch code {
 		case axAttrTraits:
 			if l := a.list(vals[i]); len(l) > 0 {
-				if s, ok := l[0].(string); ok {
-					n.role, n.hasRole = phoneAXRole(s), true
-				}
+				n.role, n.hasRole = phoneAXRoleOf(l), true
 			}
 		case axAttrLabel:
 			// A plain string, or an NSAttributedString wrapping one in NS.string.
