@@ -51,6 +51,8 @@ type Server struct {
 
 	// handoffURL is the link /api/handoff builds on (handoff.go).
 	handoffURL string
+	// lan is what /api/lan answers with (lan.go); nil turns it off.
+	lan *lanListen
 
 	// indexHTML is the client page with its script reference stamped with a
 	// content hash, and build is that hash.
@@ -277,6 +279,7 @@ var routes = []route{
 	{"/api/crashes/", []string{http.MethodGet}, (*Server).handleCrash, ""},
 	{"/api/frame", []string{http.MethodGet}, (*Server).handleFrame, ""},
 	{"/api/handoff", []string{http.MethodGet}, (*Server).handleHandoff, ""},
+	{"/api/lan", []string{http.MethodGet}, (*Server).handleLAN, ""},
 	{"/api/overlays", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleOverlays, ""},
 	{"/api/extensions", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleExtensions, ""},
 	{"/api/ext/", []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}, (*Server).handleExtensionProxy, ""},

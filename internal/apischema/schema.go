@@ -160,6 +160,7 @@ var endpoints = []endpoint{
 	{"POST /api/extensions 200", dirResponse, httpapi.Extension{}},
 	{"DELETE /api/extensions", dirResponse, httpapi.OKResponse{}},
 	{"GET /api/handoff", dirResponse, httpapi.HandoffResponse{}},
+	{"GET /api/lan", dirResponse, httpapi.LANResponse{}},
 	// Open to callers with no credential, which get method "none".
 	{"GET /api/auth", dirResponse, httpapi.AuthResponse{}},
 	{"POST /api/pairings request", dirRequest, httpapi.PairingRequest{}},
