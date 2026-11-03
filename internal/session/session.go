@@ -97,8 +97,10 @@ type OutMsg struct {
 	// QueuedAt is when fan-out handed this to the viewer.
 	QueuedAt time.Time
 	// passthrough marks a frame of the stream's passthrough track, which goes
-	// only to viewers that asked for it (passthrough.go).
+	// only to viewers that asked for it (passthrough.go). seq is its place
+	// in that track.
 	passthrough bool
+	seq         uint64
 	// PTSMicros is the frame's presentation timestamp. Data carries the
 	// WebSocket envelope, so a transport with its own framing reads the
 	// timestamp here and takes the payload from Data[FrameHeaderLen:] rather
@@ -113,6 +115,9 @@ type viewer struct {
 	// passthrough is whether this viewer gets the passthrough track instead
 	// of the H.264 one. Fixed at AddViewerWith.
 	passthrough bool
+	// replayedThrough is the last passthrough frame this viewer got in its
+	// join replay, which broadcast must not send it again.
+	replayedThrough uint64
 	// needsKey is set when a viewer has missed frames and must wait for the
 	// next keyframe before it can decode again. Sending it inter-frames in the
 	// meantime produces visible corruption, which is worse than a brief freeze.
@@ -654,13 +659,19 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 	if depth <= 0 {
 		depth = viewerQueueLen(0)
 	}
-	v := &viewer{
-		id:       s.nextID,
-		out:      make(chan OutMsg, depth),
-		needsKey: true,
-		joined:   time.Now(),
+	passthrough := s.pass != nil && o.decodes(s.pass.fourcc)
+	if passthrough {
+		// Room for the replay on top of the usual depth: it is sent while mu
+		// is held, so it must never block.
+		depth += len(s.pass.gop)
 	}
-	v.passthrough = s.pass != nil && o.decodes(s.pass.fourcc)
+	v := &viewer{
+		id:          s.nextID,
+		out:         make(chan OutMsg, depth),
+		needsKey:    true,
+		joined:      time.Now(),
+		passthrough: passthrough,
+	}
 	s.viewers[v.id] = v
 
 	// A Session built directly rather than through Open (every test in this
@@ -674,12 +685,9 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 	s.gestures[v.id] = NewGestureAssembler()
 
 	v.out <- s.buildInitFor(v)
+	replayed := false
 	if v.passthrough {
-		if s.pass.cfg != nil {
-			cfg := *s.pass.cfg
-			cfg.QueuedAt = time.Now()
-			v.out <- cfg
-		}
+		replayed = s.pass.replayLocked(v)
 	} else if s.lastCfg != nil {
 		// Queued now, not when the stream first sent it: the write deadline
 		// runs from QueuedAt, and a replay minutes old goes out expired and is
@@ -702,8 +710,11 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 	// from the start, so it discards every inter-frame until a keyframe arrives.
 	// scrcpy emits none on a timer, so on a quiet screen that wait is unbounded
 	// and the viewer shows nothing at all. Ask, rate limited like every other
-	// caller.
-	s.askKeyframe()
+	// caller. A passthrough joiner that was replayed a whole GOP already has a
+	// picture, and asking would cost a keyframe for nothing.
+	if !replayed {
+		s.askKeyframe()
+	}
 
 	return v.id, v.out
 }
@@ -1633,6 +1644,9 @@ func (s *Session) broadcast(msg OutMsg) {
 	s.mu.RLock()
 	for _, v := range s.viewers {
 		if v.passthrough != msg.passthrough {
+			continue
+		}
+		if msg.passthrough && msg.seq <= v.replayedThrough {
 			continue
 		}
 		// A viewer that fell behind is resynchronizing. Parameter sets and

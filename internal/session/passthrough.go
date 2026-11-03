@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"strings"
@@ -41,6 +42,78 @@ type passTrack struct {
 	fourcc string
 	codec  string  // RFC 6381, from the first SPS
 	cfg    *OutMsg // most recent parameter sets, replayed to joiners
+
+	// gop is the last keyframe and every frame since, replayed to a joiner
+	// after cfg. The phone keys only when its screen changes, and ignores a
+	// keyframe request while it is still, so a viewer that joined a still
+	// phone and waited for the next keyframe got no picture (awaitKey 73 on
+	// bmc-iphone, 14:20). Nil until the first keyframe, and after an
+	// overflow until the next one.
+	gop      []OutMsg
+	gopBytes int
+	// seq numbers the track's frames. A joiner's replay ends at the frame
+	// the pump last cached, which may not have been broadcast yet; broadcast
+	// skips frames at or below the joiner's replayedThrough.
+	seq uint64
+}
+
+// gopMaxFrames and gopMaxBytes bound the replay cache. A GOP past either is
+// dropped whole, since a replay that starts after the keyframe cannot be
+// decoded, and the phone is asked for a keyframe so the next GOP starts
+// short. At 60fps that is a keyframe at least every 4s while the screen
+// moves; the phone's own interval is about 8s.
+const (
+	gopMaxFrames = maxViewerQueue
+	gopMaxBytes  = 8 << 20
+)
+
+// cacheLocked adds msg to the replay cache and numbers it. The caller holds
+// mu. It reports whether the GOP just overflowed.
+func (p *passTrack) cacheLocked(msg *OutMsg) (overflow bool) {
+	p.seq++
+	msg.seq = p.seq
+	switch {
+	case msg.Config:
+		// Kept in cfg and replayed ahead of the GOP.
+	case msg.Key:
+		p.gop = append(p.gop[:0:0], *msg)
+		p.gopBytes = len(msg.Data)
+	case p.gop != nil:
+		p.gop = append(p.gop, *msg)
+		p.gopBytes += len(msg.Data)
+		if len(p.gop) > gopMaxFrames || p.gopBytes > gopMaxBytes {
+			p.gop, p.gopBytes = nil, 0
+			return true
+		}
+	}
+	return false
+}
+
+// replayLocked queues cfg and the cached GOP to a passthrough joiner whose
+// channel has room for them, and reports whether the GOP went. The caller
+// holds mu. Each message is stamped as sent now: the viewer loop sheds a
+// frame by how long ago it was queued, and the client reads latency from
+// the envelope's sent-at.
+func (p *passTrack) replayLocked(v *viewer) bool {
+	now := time.Now()
+	restamp := func(m OutMsg) OutMsg {
+		m.QueuedAt = now
+		m.Data = append([]byte(nil), m.Data...)
+		binary.BigEndian.PutUint64(m.Data[10:], uint64(now.UnixMicro()))
+		return m
+	}
+	if p.cfg != nil {
+		v.out <- restamp(*p.cfg)
+	}
+	if p.gop == nil {
+		return false
+	}
+	for _, m := range p.gop {
+		v.out <- restamp(m)
+	}
+	v.needsKey = false
+	v.replayedThrough = p.gop[len(p.gop)-1].seq
+	return true
 }
 
 // startPassthrough begins reading stream's passthrough track, if it has one.
@@ -100,12 +173,20 @@ func (s *Session) pumpPassthrough(frames <-chan target.Frame) {
 			passthrough: true,
 		}
 		copy(msg.Data, scratch)
+		s.mu.Lock()
 		if frame.Config {
 			cfg := msg
-			s.mu.Lock()
 			s.pass.cfg = &cfg
-			s.mu.Unlock()
+		}
+		overflow := s.pass.cacheLocked(&msg)
+		s.mu.Unlock()
+		if overflow {
+			s.askKeyframeSoon()
 		}
 		s.broadcast(msg)
 	}
+	// The track ended; a joiner would get pictures of a stream that is gone.
+	s.mu.Lock()
+	s.pass.gop, s.pass.gopBytes = nil, 0
+	s.mu.Unlock()
 }
