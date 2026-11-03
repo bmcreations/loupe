@@ -259,7 +259,9 @@ in 69ms, RSD in 88ms with 85 services, no root. RSD lists
 `AppleInternal`, and `remoteserver.shim.remote` with
 `com.apple.mobile.lockdown.remote.trusted`. `remoteAXServiceLarger`, the
 service Device MCP names, is not listed. RSD flags it as RemoteXPC, but the service speaks DTX on the raw stream, the
-way `dtservicehub` does. A RemoteXPC handshake makes the phone close the
+way `dtservicehub` does. RSD's `xpc` flag is not the wire protocol: before
+recording that the phone refuses a service, open it the way the nearest
+working client does, with a control that speaks the same protocol. A RemoteXPC handshake makes the phone close the
 channel. Over DTX it stays open: after `_notifyOfPublishedCapabilities:`
 the phone sends its own capabilities and a `hostAPIVersion` request, and
 `deviceAPIVersion` on the root channel answers `26`. The server object is
