@@ -561,6 +561,10 @@ type simStream struct {
 	// answered it, read against a picture of forW x forH. Under touchMu.
 	screenW, screenH int
 	forW, forH       int
+
+	// wheel is the finger a wheel or trackpad scroll holds down
+	// (simscroll.go). Under touchMu.
+	wheel wheelFinger
 }
 
 type finger struct {

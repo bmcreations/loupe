@@ -231,6 +231,12 @@ Fixture: `testdata/protocol/scroll.hex`. Decoded by `session.DecodeScroll`.
 | 9-12 | hscroll | f32 big-endian (IEEE 754) |
 | 13-16 | vscroll | f32 big-endian (IEEE 754) |
 
+A unit is a wheel notch: the Mac viewer sends 120 points of a trackpad's
+precise delta as 1, and the web viewer a browser's `-deltaY / 120`. Positive
+`vscroll` moves the content down. Android takes it as scrcpy's scroll. An
+iOS simulator or phone has no wheel event, so the server drags a finger
+instead (see Scroll in `docs/ios.md`).
+
 ### Ping
 
 Fixture: `testdata/protocol/ping.hex`. Decoded by `session.DecodePing`.

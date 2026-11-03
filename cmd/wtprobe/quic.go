@@ -22,7 +22,7 @@ const quicSlots = 32
 // control stream with the open message, and slots opened ahead of need, one
 // frame on each. The URL's host, target, token and start are read as /wt
 // would read them, so the same link probes either transport.
-func runQUIC(rawURL string, dur, connectBudget time.Duration, insecure bool, tap *[2]int32, tapAfter time.Duration, dumpTo string) error {
+func runQUIC(rawURL string, dur, connectBudget time.Duration, insecure bool, input func(io.Writer), dumpTo string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("parse url: %w", err)
@@ -56,8 +56,8 @@ func runQUIC(rawURL string, dur, connectBudget time.Duration, insecure bool, tap
 	go func() { _, _ = io.Copy(io.Discard, control) }()
 
 	col, err := newCollector(start, dumpTo, func() {
-		if tap != nil {
-			go sendTap(control, tap, tapAfter)
+		if input != nil {
+			go input(control)
 		}
 	})
 	if err != nil {
