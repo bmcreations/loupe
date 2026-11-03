@@ -183,3 +183,23 @@ func TestPhoneAXToUI(t *testing.T) {
 		}
 	}
 }
+
+// Attribute 78 lists a role word and then traits, and some elements (app icons
+// on the home screen) list only a trait. A trait is never the role.
+func TestPhoneAXRoleSkipsTraits(t *testing.T) {
+	for _, tc := range []struct {
+		words []interface{}
+		want  string
+	}{
+		{[]interface{}{"Button"}, "AXButton"},
+		{[]interface{}{"Static Text", "Updates Frequently"}, "AXStaticText"},
+		{[]interface{}{"Updates Frequently"}, ""},
+		{[]interface{}{"Selected", "Button"}, "AXButton"},
+		{[]interface{}{"Toggle"}, "AXToggle"},
+		{nil, ""},
+	} {
+		if got := phoneAXRoleOf(tc.words); got != tc.want {
+			t.Errorf("phoneAXRoleOf(%v) = %q, want %q", tc.words, got, tc.want)
+		}
+	}
+}

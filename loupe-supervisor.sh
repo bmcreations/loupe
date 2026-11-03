@@ -21,14 +21,29 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT" || exit 1
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:$PATH"
 
+find_tailscale() {
+  local c
+  for c in "$(command -v tailscale 2>/dev/null)" /opt/homebrew/bin/tailscale \
+           /usr/local/bin/tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale; do
+    if [ -n "$c" ] && [ -x "$c" ]; then printf '%s' "$c"; return 0; fi
+  done
+  return 1
+}
+
 # The tailnet name the cert is issued for: LOUPE_TS_HOSTNAME, else the name
-# of a cert already issued here, else a placeholder to replace.
+# of a cert already issued here, else this machine's name as tailscale reports
+# it, else a placeholder to replace. Asking tailscale lets a fresh checkout or
+# worktree issue its own cert instead of failing on the placeholder.
 HOSTNAME_TS="${LOUPE_TS_HOSTNAME:-}"
 if [ -z "$HOSTNAME_TS" ]; then
   for c in "$ROOT"/*.ts.net.crt; do
     [ -e "$c" ] && HOSTNAME_TS="$(basename "$c" .crt)"
     break
   done
+fi
+if [ -z "$HOSTNAME_TS" ] && ts_cli="$(find_tailscale)"; then
+  HOSTNAME_TS="$("$ts_cli" status --json 2>/dev/null | plutil -extract Self.DNSName raw -o - - 2>/dev/null)"
+  HOSTNAME_TS="${HOSTNAME_TS%.}"
 fi
 HOSTNAME_TS="${HOSTNAME_TS:-my-mac.tailnet-0000.ts.net}"
 PORT=18456
@@ -94,12 +109,8 @@ ensure_cert() {
   if [ -f "$CERT" ] && [ -f "$KEY" ] && [ -z "$(find "$CERT" -mtime +$CERT_MAX_AGE 2>/dev/null)" ]; then
     return 0
   fi
-  local ts=""
-  for c in "$(command -v tailscale 2>/dev/null)" /opt/homebrew/bin/tailscale \
-           /usr/local/bin/tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale; do
-    if [ -n "$c" ] && [ -x "$c" ]; then ts="$c"; break; fi
-  done
-  [ -z "$ts" ] && { log "ERROR no cert and no tailscale CLI"; return 1; }
+  local ts
+  ts="$(find_tailscale)" || { log "ERROR no cert and no tailscale CLI"; return 1; }
   log "issuing certificate for $HOSTNAME_TS"
   ( cd "$ROOT" && "$ts" cert "$HOSTNAME_TS" ) || { log "ERROR cert issuance failed"; return 1; }
 }
@@ -107,12 +118,26 @@ ensure_cert() {
 # ------------------------------------------------------------------- port
 # Trap 11: lsof reports the port free while the kernel is still tearing the
 # listener down, and binding into that window is what fails.
+#
+# Only a listener holds the port. `lsof -i:PORT` also matches a client's
+# socket whose REMOTE port is $PORT, so an open browser viewer (a WebKit
+# networking process with UDP sockets to :18456) read as a holder and stalled
+# every restart for the full 15 seconds.
+port_holders() {
+  {
+    lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN
+    lsof -nP -iUDP:"$PORT" -Fpn | awk -v port=":$PORT" '
+      /^p/ { p = substr($0, 2) }
+      /^n/ && $0 !~ /->/ && substr($0, length($0) - length(port) + 1) == port { print p }'
+  } 2>/dev/null | sort -u
+}
+
 wait_for_port() {
   for _ in $(seq 1 30); do
-    [ -z "$(lsof -ti:"$PORT" 2>/dev/null)" ] && return 0
+    [ -z "$(port_holders)" ] && return 0
     sleep 0.5
   done
-  log "WARNING port $PORT still held by pid(s): $(lsof -ti:"$PORT" 2>/dev/null | tr '\n' ' ')"
+  log "WARNING port $PORT still held by pid(s): $(port_holders | tr '\n' ' ')"
   return 1
 }
 
