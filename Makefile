@@ -41,6 +41,12 @@ composeagent:
 # with Xcode's swiftc. The server lists simulators only once .build/simcap
 # exists. TEAM signs it with that team's Apple Development identity, so a
 # phone's camera grant survives a rebuild; without it the build is ad hoc.
+#
+# simcap-bridge, the Rust helper that reads a cabled iPhone's accessibility
+# tree over its own CoreDevice tunnel, is built and copied beside simcap when
+# the cloned revision carries a `bridge` target. The `make -n bridge` probe
+# keeps this a no-op against revisions that predate it, so `ui ios:` is
+# unavailable rather than the build broken.
 SIMCAP_REPO ?= https://github.com/bmcreations/simcap.git
 SIMCAP_REF ?= main
 
@@ -57,6 +63,11 @@ simcap:
 	$(MAKE) -C .build/simcap-src simcap TEAM=$(TEAM)
 	cp .build/simcap-src/.build/simcap .build/simcap.new
 	mv -f .build/simcap.new .build/simcap
+	if $(MAKE) -C .build/simcap-src -n bridge >/dev/null 2>&1; then \
+		$(MAKE) -C .build/simcap-src bridge TEAM=$(TEAM) && \
+		cp .build/simcap-src/.build/simcap-bridge .build/simcap-bridge.new && \
+		mv -f .build/simcap-bridge.new .build/simcap-bridge; \
+	fi
 endif
 
 # The XCUITest runner that applies a physical iPhone's touches below iOS 27,
