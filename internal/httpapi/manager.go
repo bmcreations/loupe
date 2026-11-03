@@ -428,6 +428,12 @@ func (m *Manager) SetXCRunner(dir string) {
 // kept and marked missing. A change of transport, cable to Wi-Fi or back, is
 // traced, since it changes what the device can carry.
 func (m *Manager) SyncIOSDevices(devs []target.IOSDeviceInfo) {
+	var stale []*session.Session
+	defer func() {
+		for _, s := range stale {
+			_ = s.Close()
+		}
+	}()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -451,6 +457,17 @@ func (m *Manager) SyncIOSDevices(devs []target.IOSDeviceInfo) {
 		state := "offline"
 		if info.Reachable() {
 			state = "device"
+		}
+		// A phone back from offline is on a new tunnel address. simcap stays
+		// bound to the old one and waits on a socket nothing reaches, so the
+		// viewers see the last picture forever. Closing the stream makes them
+		// reconnect, and that opens simcap on the tunnel that exists now.
+		if was, known := m.presence[id]; known && was != "device" && state == "device" {
+			if s, live := m.sessions[id]; live {
+				delete(m.sessions, id)
+				stale = append(stale, s)
+				fmt.Printf("target: %s is back; reopening its stream on the new connection\n", id)
+			}
 		}
 		m.setPresence(id, state)
 	}

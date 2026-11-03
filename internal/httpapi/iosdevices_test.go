@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -103,5 +105,52 @@ func TestOpeningAnIOSDeviceExplainsWhy(t *testing.T) {
 		if _, err := m.Acquire(context.Background(), "ios:"+d.UDID); !errors.Is(err, target.ErrIOSStreamNeedsCable) {
 			t.Errorf("Acquire %s over Wi-Fi: %v", d.UDID, err)
 		}
+	}
+}
+
+// A Wi-Fi phone that drops off the network comes back on a new tunnel
+// address, and simcap, still bound to the old one, waits forever on a socket
+// nothing reaches. Its stream must be closed so the viewers' reconnect opens
+// a fresh one; a phone that stays reachable keeps its stream.
+func TestAPhoneBackFromOfflineGetsAFreshStream(t *testing.T) {
+	m := NewManager(target.Options{})
+	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	id := "ios:" + iphoneWiFi.UDID
+	s, err := session.Open(context.Background(), id, &stubTarget{}, target.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	m.mu.Lock()
+	m.sessions[id] = s
+	m.mu.Unlock()
+
+	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	select {
+	case <-s.Done():
+		t.Fatal("a phone that stayed reachable lost its stream")
+	default:
+	}
+
+	away := iphoneWiFi
+	away.Transport = ""
+	m.SyncIOSDevices([]target.IOSDeviceInfo{away})
+	select {
+	case <-s.Done():
+		t.Fatal("the stream closed while the phone was away; a viewer has nothing to reopen onto")
+	default:
+	}
+
+	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	select {
+	case <-s.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("the phone came back and its stream is still the one bound to the old tunnel")
+	}
+	m.mu.Lock()
+	_, still := m.sessions[id]
+	m.mu.Unlock()
+	if still {
+		t.Error("the closed stream is still registered, so a reconnect would join it")
 	}
 }
