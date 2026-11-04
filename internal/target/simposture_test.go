@@ -226,3 +226,31 @@ done
 		t.Fatalf("posture %v, hingeAngle %v", got[0].Value, got[1].Value)
 	}
 }
+
+// A reboot forgets the last angle sent, and so does a panel that says the
+// hinge was moved elsewhere: kept, the stale angle would come back once the
+// panel stopped contradicting it.
+func TestDuoForgetsAStaleHingeAngle(t *testing.T) {
+	t.Run("on shutdown", func(t *testing.T) {
+		s := NewSimulator(SimInfo{UDID: "u", Name: "loupe-duo", State: "Booted"}, "")
+		s.hingeSent.record(120)
+		s.Update(SimInfo{UDID: "u", Name: "loupe-duo", State: "Shutdown"})
+		if _, _, ok := s.hingeSent.last(); ok {
+			t.Fatal("the angle from before the shutdown is still kept")
+		}
+	})
+	t.Run("on a contradiction", func(t *testing.T) {
+		s := NewSimulator(SimInfo{UDID: "u", Name: "loupe-duo", State: "Booted"}, fakeFoldingSimcap(t, "2"))
+		defer s.input().close()
+		s.hingeSent.mu.Lock()
+		s.hingeSent.set, s.hingeSent.deg, s.hingeSent.at = true, 3, time.Now().Add(-2*simPostureSettle)
+		s.hingeSent.mu.Unlock()
+		got, err := s.Settings(t.Context())
+		if err != nil || got[1].Value != 180.0 {
+			t.Fatalf("Settings = %+v, %v; want the opened panel's 180", got, err)
+		}
+		if _, _, ok := s.hingeSent.last(); ok {
+			t.Fatal("the contradicted angle is still kept")
+		}
+	})
+}

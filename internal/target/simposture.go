@@ -108,6 +108,13 @@ func (h *simHinge) record(deg int) {
 	h.mu.Unlock()
 }
 
+// reset forgets the last angle, for a reboot or a hinge moved elsewhere.
+func (h *simHinge) reset() {
+	h.mu.Lock()
+	h.set = false
+	h.mu.Unlock()
+}
+
 func (h *simHinge) last() (deg int, at time.Time, ok bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -170,8 +177,15 @@ func (s *Simulator) Settings(ctx context.Context) ([]Setting, error) {
 		Supported: true, Applies: "immediately",
 	}}
 	deg, at, sent := s.hingeSent.last()
-	if d, ok := hingeReadback(p, deg, at, sent, time.Now()); ok {
+	now := time.Now()
+	if d, ok := hingeReadback(p, deg, at, sent, now); ok {
 		out = append(out, hingeSetting(d))
+	}
+	// Once the panel has said the hinge moved elsewhere, the stored angle
+	// is forgotten. Kept, it would come back as soon as the hinge moved
+	// again to a panel that no longer contradicts it.
+	if sent && simPanelContradicts(p, deg) && now.Sub(at) >= simPostureSettle {
+		s.hingeSent.reset()
 	}
 	return out, nil
 }
