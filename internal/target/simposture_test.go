@@ -120,6 +120,15 @@ func TestHingeReadback(t *testing.T) {
 		{"sent, panel still moving", "closed", 180, now, true, 180, true},
 		{"folded elsewhere", "closed", 180, old, true, 0, true},
 		{"opened elsewhere", "opened", 0, old, true, 180, true},
+		// The ends are inclusive: 135 closed and 5 opened contradict, one
+		// degree inside does not.
+		{"closed at 134", "closed", 134, old, true, 134, true},
+		{"closed at 135", "closed", 135, old, true, 0, true},
+		{"opened at 6", "opened", 6, old, true, 6, true},
+		{"opened at 5", "opened", 5, old, true, 180, true},
+		// The settle window is open-ended: at exactly simPostureSettle the
+		// panel is trusted.
+		{"folded elsewhere, at the settle", "closed", 180, now.Add(-simPostureSettle), true, 0, true},
 	}
 	for _, c := range cases {
 		got, ok := hingeReadback(c.posture, c.deg, c.at, c.sent, now)
