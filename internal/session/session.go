@@ -127,6 +127,8 @@ type viewer struct {
 	// decoder on every init, so an unchanged one resent mid-stream throws away
 	// the parameter sets and leaves the viewer blank until the next keyframe.
 	lastInit []byte
+	// lastReplay is when this viewer last asked for a replay.
+	lastReplay time.Time
 
 	// joined is when this viewer attached, and sent is how many payload bytes
 	// have actually reached it. The bitrate controller reads both: a viewer
@@ -1661,6 +1663,64 @@ func (s *Session) sendInitLocked() {
 			v.lastInit = msg.Data
 		default:
 		}
+	}
+}
+
+// replayInterval is the shortest gap between two replays for one viewer. A
+// client that rebuilds its view several times in a burst (resizing panes)
+// would otherwise queue a GOP for each; the first replay already covers them.
+const replayInterval = 250 * time.Millisecond
+
+// ViewerReplay resends one viewer its picture: init even though it is
+// unchanged (the client reset its decoder, so the suppression in
+// sendInitLocked does not apply), then the parameter sets and, on the
+// passthrough track, the cached GOP, the same replay a joiner gets. An H.264
+// viewer has no GOP cache, so it is latched to wait for a keyframe and one is
+// requested. It never touches another viewer and never blocks: a viewer whose
+// queue cannot hold the replay is left to resynchronize as it would after any
+// drop. A replay within replayInterval of the last is ignored.
+func (s *Session) ViewerReplay(id uint64) {
+	s.mu.Lock()
+	v, ok := s.viewers[id]
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	now := time.Now()
+	if !v.lastReplay.IsZero() && now.Sub(v.lastReplay) < replayInterval {
+		s.mu.Unlock()
+		return
+	}
+	v.lastReplay = now
+
+	need := 2 // init and config
+	if v.passthrough {
+		need += len(s.pass.gop)
+	}
+	if cap(v.out)-len(v.out) < need {
+		// Sends below are made under mu and must not block.
+		s.mu.Unlock()
+		s.askKeyframe()
+		return
+	}
+	initMsg := s.buildInitFor(v)
+	v.lastInit = initMsg.Data
+	v.out <- initMsg
+	replayed := false
+	if v.passthrough {
+		replayed = s.pass.replayLocked(v)
+	} else {
+		if s.lastCfg != nil {
+			cfg := *s.lastCfg
+			cfg.QueuedAt = now
+			v.out <- cfg
+		}
+		v.needsKey = true
+	}
+	s.mu.Unlock()
+
+	if !replayed {
+		s.askKeyframe()
 	}
 }
 

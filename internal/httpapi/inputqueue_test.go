@@ -19,6 +19,9 @@ func TestInputQueueDoesNotHoldUpTheReadLoop(t *testing.T) {
 	if answeredInline(touch[0]) {
 		t.Fatal("a touch must go through the queue")
 	}
+	if !answeredInline(session.MsgReplay) {
+		t.Fatal("a replay must not queue behind input")
+	}
 	if !answeredInline(session.MsgPing) {
 		t.Fatal("a ping must be answered inline")
 	}

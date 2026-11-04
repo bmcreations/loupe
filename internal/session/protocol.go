@@ -130,6 +130,16 @@ const (
 	// message that counts the person also acts on the device. See
 	// Session.ViewerTakeOver.
 	MsgTakeOver byte = 0x17
+	// MsgReplay asks for the picture again, with no body. A client sends it
+	// after it rebuilds its video view mid-stream: the new decoder has no
+	// parameter sets and, on a still screen, nothing to wait for. The server
+	// resends that viewer's init and parameter sets and, on the passthrough
+	// track, the cached GOP from the last keyframe; an H.264 viewer is
+	// resynchronized with a requested keyframe. It reaches no other viewer, and
+	// a second one within replayInterval of the last is ignored. See
+	// Session.ViewerReplay. A server that predates it logs the unknown type
+	// and keeps the connection.
+	MsgReplay byte = 0x18
 )
 
 // The raw-QUIC transport, ALPN QUICALPN on the same UDP port as /wt, for a
