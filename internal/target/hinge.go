@@ -35,7 +35,7 @@ const hingeWriteTimeout = simHingeOpen + 5*time.Second
 func hingeSetting(deg float64) Setting {
 	return Setting{
 		ID: hingeAngleID, Type: SettingRange, Value: deg,
-		Min: hingeAngleMin, Max: hingeAngleMax, Step: hingeAngleStep,
+		Min: ptr(hingeAngleMin), Max: ptr(hingeAngleMax), Step: ptr(hingeAngleStep),
 		Supported: true, Applies: "immediately",
 	}
 }

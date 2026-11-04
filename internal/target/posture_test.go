@@ -255,10 +255,10 @@ func TestSettingsListsHingeAngleBesidePosture(t *testing.T) {
 		t.Fatal(err)
 	}
 	h, ok := byID(got)[hingeAngleID]
-	if !ok || h.Type != SettingRange || h.Value != 90.0 || h.Min != 0 || h.Max != 180 || h.Step != 1 || !h.Supported {
+	if !ok || h.Type != SettingRange || h.Value != 90.0 || *h.Min != 0 || *h.Max != 180 || *h.Step != 1 || !h.Supported {
 		t.Fatalf("hingeAngle = %+v", h)
 	}
-	if fs := byID(got)["fontScale"]; fs.Step != 0.05 {
+	if fs := byID(got)["fontScale"]; fs.Step == nil || *fs.Step != 0.05 {
 		t.Fatalf("fontScale step = %v", fs.Step)
 	}
 

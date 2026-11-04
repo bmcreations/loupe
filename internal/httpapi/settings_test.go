@@ -77,7 +77,7 @@ func settingsServer(t *testing.T, tgt target.Target) *Server {
 func sampleSettings() []target.Setting {
 	return []target.Setting{
 		{ID: "darkMode", Type: target.SettingBool, Value: false, Supported: true, Applies: "immediately"},
-		{ID: "fontScale", Type: target.SettingRange, Value: 1.0, Min: 0.85, Max: 2.0, Supported: true, Applies: "immediately"},
+		{ID: "fontScale", Type: target.SettingRange, Value: 1.0, Min: f64(0.85), Max: f64(2.0), Step: f64(0.05), Supported: true, Applies: "immediately"},
 	}
 }
 
@@ -735,3 +735,5 @@ func TestSettingsConflictResponseMatchesTheOldMapEncoding(t *testing.T) {
 		})
 	}
 }
+
+func f64(f float64) *float64 { return &f }

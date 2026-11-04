@@ -2,6 +2,7 @@ package target
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"sync"
@@ -118,5 +119,18 @@ func TestHingeCoalescerCallerContextEnds(t *testing.T) {
 	close(release)
 	if err := c.Set(t.Context(), 91, func(context.Context, int) error { return nil }); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A range's min and max are on the wire even at zero; a bool has neither.
+func TestSettingJSONKeepsARangesZeroMin(t *testing.T) {
+	b, err := json.Marshal([]Setting{hingeSetting(0), {ID: "darkMode", Type: SettingBool, Value: true, Supported: true, Applies: "immediately"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"id":"hingeAngle","type":"range","value":0,"min":0,"max":180,"step":1,"supported":true,"applies":"immediately"},` +
+		`{"id":"darkMode","type":"bool","value":true,"supported":true,"applies":"immediately"}]`
+	if string(b) != want {
+		t.Fatalf("got  %s\nwant %s", b, want)
 	}
 }

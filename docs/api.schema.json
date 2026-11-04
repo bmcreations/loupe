@@ -4702,10 +4702,24 @@
           "type": "string"
         },
         "max": {
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "min": {
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "options": {
           "items": {
@@ -4717,7 +4731,14 @@
           "type": "string"
         },
         "step": {
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "supported": {
           "type": "boolean"

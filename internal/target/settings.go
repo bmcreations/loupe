@@ -60,11 +60,13 @@ type Setting struct {
 	ID    string      `json:"id"`
 	Type  SettingType `json:"type"`
 	Value any         `json:"value"`
-	// Min, Max and Step apply only to SettingRange. Step is the increment a
-	// slider should move in; a write between steps is refused.
-	Min  float64 `json:"min,omitempty"`
-	Max  float64 `json:"max,omitempty"`
-	Step float64 `json:"step,omitempty"`
+	// Min, Max and Step apply only to SettingRange, and are nil on any
+	// other type. They are pointers so a min of 0 (hingeAngle's) is still
+	// written. Step is the increment a slider should move in; a write
+	// between steps is refused.
+	Min  *float64 `json:"min,omitempty"`
+	Max  *float64 `json:"max,omitempty"`
+	Step *float64 `json:"step,omitempty"`
 	// Options applies only to SettingEnum: the allowed values for Value.
 	Options []string `json:"options,omitempty"`
 	// Supported is false when the setting cannot be changed on this device
@@ -173,6 +175,8 @@ func (a *androidSettings) fieldByID(id string) (settingField, bool) {
 	}
 	return settingField{}, false
 }
+
+func ptr(f float64) *float64 { return &f }
 
 func validateBool(_ settingField, v any) error {
 	if _, ok := v.(bool); !ok {
@@ -462,7 +466,7 @@ func (a *androidSettings) Settings(ctx context.Context) ([]Setting, error) {
 			Supported: supported[f.id], Reason: reasons[f.id], Applies: "immediately",
 		}
 		if f.typ == SettingRange {
-			s.Min, s.Max, s.Step = f.min, f.max, f.step
+			s.Min, s.Max, s.Step = ptr(f.min), ptr(f.max), ptr(f.step)
 		}
 		out2 = append(out2, s)
 	}
