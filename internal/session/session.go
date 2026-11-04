@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -122,6 +123,10 @@ type viewer struct {
 	// next keyframe before it can decode again. Sending it inter-frames in the
 	// meantime produces visible corruption, which is worse than a brief freeze.
 	needsKey bool
+	// lastInit is the init body this viewer was last sent. Handset resets its
+	// decoder on every init, so an unchanged one resent mid-stream throws away
+	// the parameter sets and leaves the viewer blank until the next keyframe.
+	lastInit []byte
 
 	// joined is when this viewer attached, and sent is how many payload bytes
 	// have actually reached it. The bitrate controller reads both: a viewer
@@ -701,7 +706,9 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 	}
 	s.gestures[v.id] = NewGestureAssembler()
 
-	v.out <- s.buildInitFor(v)
+	initMsg := s.buildInitFor(v)
+	v.lastInit = initMsg.Data
+	v.out <- initMsg
 	replayed := false
 	if v.passthrough {
 		replayed = s.pass.replayLocked(v)
@@ -1642,8 +1649,16 @@ func (s *Session) resolveCodec(cfg []byte) {
 // same reason.
 func (s *Session) sendInitLocked() {
 	for _, v := range s.viewers {
+		msg := s.buildInitFor(v)
+		if bytes.Equal(msg.Data, v.lastInit) {
+			// resolveCodec resends init to everyone once the H.264 stream's
+			// codec is known, but a passthrough viewer's codec comes from the
+			// passthrough track and has not changed.
+			continue
+		}
 		select {
-		case v.out <- s.buildInitFor(v):
+		case v.out <- msg:
+			v.lastInit = msg.Data
 		default:
 		}
 	}
