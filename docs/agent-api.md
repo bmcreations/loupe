@@ -46,6 +46,7 @@ Common refusals on routes that change a device:
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
+| `GET`, `PUT /api/settings` | Device settings, posture and hinge angle |
 | `GET`, `POST /api/clipboard` | Device clipboard |
 | `GET`, `POST /api/clipboard/shared` | Shared clipboard |
 | `GET /api/handoff` | Link that moves a session to another browser |
@@ -563,6 +564,57 @@ is the package, and `build` and `version` are its versionCode and versionName.
 A call resumes a paused emulator. Dropbox lives under `/data`, so without
 `emulatorKeepState` a boot from `loupe-warm` discards every report since it
 was saved. Synthetic answers 501.
+
+## Device settings
+
+### `GET /api/settings?target=<id>`, `PUT /api/settings?target=<id>`
+
+`GET` answers `{"settings": [...]}`, one row per setting: `id`, `type`
+(`bool`, `range` or `enum`), `value`, `supported`, `applies`, and `min`, `max`
+and `step` on a `range` or `options` on an `enum`. A client should draw only
+the rows it is given. `PUT {"changes": {"<id>": <value>, ...}}` applies them and
+answers the same shape as `GET`, read again after the write. A bad value is
+400 and nothing is applied. A target with no settings is 501.
+
+#### Posture and hinge angle
+
+A foldable emulator (one whose `cmd device_state print-states` lists two or
+more of closed, half-opened and opened) and the iPhone Duo simulator have two rows that move the same hinge:
+
+| `id` | Type | Values |
+|---|---|---|
+| `posture` | `enum` | `closed`, `halfOpened`, `opened` on an emulator; `closed`, `opened` on a Duo |
+| `hingeAngle` | `range` | `0` (shut) to `180` (flat), `step` 1 |
+
+- A `hingeAngle` write must be a whole number of degrees in range. 90.5 and
+  `"90"` are 400, not rounded.
+- A `PUT` that sets both `posture` and `hingeAngle` is 400: whichever ran
+  second would win.
+- A write to one shows on a read of the other. A `posture` write moves the
+  hinge to that posture's angle (emulator: closed 0, halfOpened 90, opened
+  180; Duo: closed 0, opened 180).
+- A `hingeAngle` write does not wait for the posture to follow, so a slider can
+  send one per tick. Writes to one target are coalesced: while one is going to
+  the device, only the newest angle queued behind it is sent, and the
+  superseded `PUT`s answer 200 at once.
+- The server keeps the newest `PUT` to arrive, not the newest sent. A client
+  should keep one `PUT` in flight and send only its latest angle when that one
+  returns. Parallel `PUT`s on separate connections can arrive out of order and
+  leave an older angle applied.
+
+On an emulator, `hingeAngle` is the console's `sensor set hinge-angle0`, and a
+`GET` reads it back with `sensor get hinge-angle0`. Android's device state
+follows the sensor: `posture` on the next `GET` is the band the angle falls in,
+though at the edge of a band it can lag about half a second. A `PUT` takes
+about 130 ms, most of it the read after the write.
+
+On a Duo, `hingeAngle` is simcap's `hinge <deg>`. simcap has no way to read the
+hinge back, so a `GET` reports the last angle this server sent. Before any
+angle is sent, or when the lit panel contradicts the last one (the panel reads
+`closed` at 135 or more, or `opened` at 5 or less, 4 s after the write), it
+reports the posture's angle instead. `posture` is the lit panel, so it only
+reads `closed` or `opened`, and which one an angle between 5 and 135 gives
+depends on the path the hinge took.
 
 ## Clipboard
 
