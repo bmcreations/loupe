@@ -577,7 +577,8 @@ answers the same shape as `GET`, read again after the write. A bad value is
 400 and nothing is applied. A write the device refuses is 409
 `{"error","failed","notRestored","settings"}`: the writes already made are
 rolled back, `notRestored` names any that could not be, and `settings` is read
-again after. A target with no settings is 501.
+again after. That 409 has no `code`; it is told apart from a `humanHeld`,
+`claimedBy`, `handsOff` or `interrupted` 409 by having one. A target with no settings is 501.
 A `posture` or `hingeAngle` write the request stopped waiting on is 504: it
 runs on and may still land, nothing is rolled back, and a `GET` says where the
 hinge ended.
@@ -602,7 +603,10 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
 - A `hingeAngle` write does not wait for the posture to follow, so a slider can
   send one per tick. Writes to one target are coalesced: while one is going to
   the device, only the newest angle queued behind it is sent, and the
-  superseded `PUT`s answer 200 at once.
+  superseded `PUT`s answer 200 at once. A superseded `PUT`'s full body is a
+  fresh read, so it can show an older angle still on its way. A client
+  should keep its own value rather than move its slider to that one. If the
+  newer write then fails, the superseded `PUT` has still answered 200.
 - The server keeps the newest `PUT` to arrive, not the newest sent. A client
   should keep one `PUT` in flight and send only its latest angle when that one
   returns. Parallel `PUT`s on separate connections can arrive out of order and
@@ -617,7 +621,8 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
   does, should not send it. Errors answer as any `PUT`'s do.
 
 On an emulator, `hingeAngle` is the console's `sensor set hinge-angle0`, and a
-`GET` reads it back with `sensor get hinge-angle0`. Android's device state
+`GET` reads it back with `sensor get hinge-angle0`, one console round trip
+on top of the shell read every `GET` makes. Android's device state
 follows the sensor: `posture` on the next `GET` is the band the angle falls in,
 though at the edge of a band it can lag about half a second. A `PUT` takes
 about 130 ms, most of it the read after the write, which
