@@ -62,8 +62,9 @@ type Setting struct {
 	Value any         `json:"value"`
 	// Min, Max and Step apply only to SettingRange, and are nil on any
 	// other type. They are pointers so a min of 0 (hingeAngle's) is still
-	// written. Step is the increment a slider should move in; a write
-	// between steps is refused.
+	// written. Step is the increment a slider should move in. Only
+	// hingeAngle refuses a write between steps; fontScale takes any value
+	// in range.
 	Min  *float64 `json:"min,omitempty"`
 	Max  *float64 `json:"max,omitempty"`
 	Step *float64 `json:"step,omitempty"`
