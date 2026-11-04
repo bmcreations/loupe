@@ -38,6 +38,7 @@ var cliCommands = []cliCommand{
 	{"point", "point", []string{"target", "x", "y"}},
 	{"tap", "tap", []string{"target", "x?", "y?"}},
 	{"swipe", "swipe", []string{"target", "x", "y", "x2", "y2"}},
+	{"scroll", "scroll", []string{"target", "direction"}},
 	{"type", "type_text", []string{"target", "text"}},
 	{"key", "key", []string{"target", "keycode"}},
 	{"button", "button", []string{"target", "button"}},

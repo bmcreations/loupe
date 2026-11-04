@@ -31,6 +31,7 @@ claim before input, and requests. Routes, parameters and errors are in
 | `point` | `point` | target x y |
 | `tap` | `tap` | target [x y] |
 | `swipe` | `swipe` | target x y x2 y2 |
+| `scroll` | `scroll` | target direction |
 | `type` | `type_text` | target text |
 | `key` | `key` | target keycode |
 | `button` | `button` | target button |
@@ -47,7 +48,7 @@ claim before input, and requests. Routes, parameters and errors are in
 | `flags` | `flags` | |
 | `flag` | `flag` | id |
 
-Any other field is a flag: `-ms 300` on `swipe`, `--interactive` on `ui`,
+Any other field is a flag: `-ms 300` on `swipe`, `-until edge` on `scroll`, `--interactive` on `ui`,
 `-launch` on `install`. Values are converted by the type in the tool's
 schema. A negative number is an argument, not a flag, and `--` ends flags,
 for text that starts with a dash.

@@ -95,6 +95,7 @@ Body: `{"action": "...", ...}`. Field shapes are in `docs/api.schema.json`.
 |---|---|---|
 | `tap` | `x`, `y` or `match` | See Tap by selector. |
 | `swipe` | `x`, `y`, `x2`, `y2`, `ms` | |
+| `scroll` | `direction`, `until?`, `find?`, `x?`, `y?`, `max?`, `ms?` | See Scroll. |
 | `text` | `text` | |
 | `key` | `keycode` | |
 | `button` | `button` | `back`, `home`, `lock` or `recents`. |
@@ -152,6 +153,40 @@ bounds count once.
 
 The lookup runs before arbitration, so a missing node is a 404 even while a
 person holds the target. Each match tap costs a full dump.
+
+#### Scroll
+
+`{"action":"scroll","direction":"up","until":"edge"}` scrolls a list to its
+top and says when it got there. `direction` is the way to go, as a person says
+it: `down` shows what is below, so the finger moves up.
+
+The server dumps the tree, picks the list, and swipes inside it. After each
+stroke it dumps again and compares what the list shows (every node centred in
+it, with its labels and bounds). A stroke that changed nothing means the list
+was already at its edge, and the scroll stops there.
+
+| Field | Effect |
+|---|---|
+| `until` | `edge` keeps going until a stroke moves nothing. On a simulator strokes are flings (120ms) unless `ms` says otherwise; on Android they stay at 300ms, because a short `input swipe` moved the list no further and can land as a tap. |
+| `find` | A `match` (see Tap by selector). Keeps going until the node is on screen and answers with it in `matched`. Already on screen: no stroke at all. Strokes are the 300ms swipe default, so a fling cannot carry the node past unseen. |
+| `x`, `y` | A point in the list to scroll: the innermost scrollable node under it. Without one, the largest scrollable node on screen. A screen that marks nothing scrollable (many iOS views) uses the screen less its top and bottom tenth. |
+| `max` | At most this many strokes, up to 30. Default 1, or 20 with `until` or `find`. |
+
+Each stroke covers 60% of the list on its centre line, kept out of the outer
+8% of the screen, where a drag opens the notification shade, goes back or
+goes home. On a simulator the tree is dumped until two dumps agree before
+comparing, because a list still coasts or bounces after the stroke;
+uiautomator already waits for the window to go idle.
+
+It answers `{"ok":true,"swipes":N,"atEdge":true,"region":[x1,y1,x2,y2]}`.
+`atEdge` is absent when the last stroke still moved the list. A `find` that
+reaches the edge or `max` first answers 404 `noMatch`.
+
+Each stroke is a `swipe` sent through `/api/input` with a `move` first: it is
+arbitrated, logged and shown on viewers like one sent alone, so a person who
+takes the device back stops the scroll at the next stroke with that stroke's
+409. Rows identical in every label that land exactly one row apart would read
+as no movement.
 
 #### Wait
 

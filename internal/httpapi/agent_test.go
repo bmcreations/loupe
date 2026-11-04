@@ -1943,6 +1943,7 @@ func TestEveryInputActionDispatches(t *testing.T) {
 		"openURL":          `{"action":"openURL","url":"https://example.com/"}`,
 		"move":             `{"action":"move","x":1,"y":2}`,
 		"wait":             `{"action":"wait","ms":1}`,
+		"scroll":           `{"action":"scroll","direction":"down"}`,
 	}
 	if len(bodies) != len(InputActions) {
 		t.Fatalf("this test covers %d actions, InputActions names %d: %v", len(bodies), len(InputActions), InputActions)

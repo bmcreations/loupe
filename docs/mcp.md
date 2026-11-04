@@ -25,7 +25,7 @@ Any other MCP client takes the same command, `~/.local/bin/loupe mcp`, with
 ## Tools
 
 `targets`, `ui`, `screenshot` (returns an image, not JSON), `point`, `tap`,
-`swipe`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`,
+`swipe`, `scroll`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`,
 `logcat`, `crashes`, `crash`, `install`, `camera`, `drop`, `boot`, `boot_status`,
 `release`, `flags` and `flag`. `boot` takes `wait` as `/api/devices/boot` does
 (`10m`, or `0` to return at once), and `boot_status` reports on a boot still
