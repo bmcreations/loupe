@@ -282,3 +282,39 @@ func TestPassthroughMediaCount(t *testing.T) {
 		t.Errorf("ViewerPassthrough: mac %v web %v, want true false", s.ViewerPassthrough(macID), s.ViewerPassthrough(webID))
 	}
 }
+
+// resolveCodec resends init once the H.264 codec is known. A passthrough
+// viewer's init has not changed, and Handset resets its decoder on every init,
+// so resending it blanked the pane until the phone's next keyframe.
+func TestCodecResolveSkipsUnchangedPassthroughInit(t *testing.T) {
+	s, ps := passSession()
+	defer close(ps.alt)
+	_, pass := s.AddViewerWith(h265)
+	_, h264v := s.AddViewerWith(ViewerOptions{})
+	for _, ch := range []<-chan OutMsg{pass, h264v} {
+		for len(ch) > 0 {
+			<-ch
+		}
+	}
+
+	s.resolveCodec(append([]byte{0, 0, 0, 1}, testSPS...))
+
+	select {
+	case m := <-pass:
+		if m.Control && m.Data[0] == MsgInit {
+			t.Fatalf("passthrough viewer got an unchanged init: %s", m.Data[1:])
+		}
+	default:
+	}
+	select {
+	case m := <-h264v:
+		if got := initOf(t, m).Codec; got == "avc1" {
+			t.Fatalf("H.264 viewer init codec still provisional: %q", got)
+		}
+	default:
+		t.Fatal("H.264 viewer got no init after the codec resolved")
+	}
+}
+
+// emulator-5554's portrait SPS, as in viewerclose_test.go.
+var testSPS = []byte{0x67, 0x42, 0xc0, 0x29, 0x8d, 0x68, 0x1e, 0x02, 0x27, 0xe5, 0x90, 0x80, 0x80, 0x80, 0x83, 0xc2, 0x21, 0x1a, 0x80}
