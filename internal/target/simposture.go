@@ -228,6 +228,18 @@ func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (
 	return nil, nil, nil
 }
 
+// WriteHingeAngle implements HingeWriter.
+func (s *Simulator) WriteHingeAngle(ctx context.Context, v any) (int, error) {
+	deg, err := parseHingeAngle(v)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s", ErrInvalidSetting, err)
+	}
+	if !s.HasSettings(ctx) {
+		return 0, fmt.Errorf("%w: %s has one panel", ErrInvalidSetting, s.Label())
+	}
+	return s.hinge.Set(ctx, deg, s.sendHinge)
+}
+
 // setPosture sends a posture's angle and waits for the lit panel to follow.
 func (s *Simulator) setPosture(ctx context.Context, want string, deg int) error {
 	if err := s.sendHinge(ctx, deg); err != nil {

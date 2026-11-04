@@ -139,3 +139,36 @@ func setErr(c *hingeCoalescer, ctx context.Context, deg int, apply func(context.
 	_, err := c.Set(ctx, deg, apply)
 	return err
 }
+
+// A replaced Set reports the angle that replaced it, not its own: it was
+// never sent.
+func TestHingeCoalescerReportsTheAngleSentInItsPlace(t *testing.T) {
+	var c hingeCoalescer
+	started, release := make(chan struct{}, 3), make(chan struct{})
+	apply := func(context.Context, int) error { started <- struct{}{}; <-release; return nil }
+	type result struct {
+		sent int
+		err  error
+	}
+	set := func(deg int) chan result {
+		ch := make(chan result, 1)
+		go func() { s, err := c.Set(t.Context(), deg, apply); ch <- result{s, err} }()
+		return ch
+	}
+	first := set(10)
+	<-started
+	second := set(20)
+	waitQueued(t, &c, 20)
+	third := set(30)
+	waitQueued(t, &c, 30)
+	if r := <-second; r.err != nil || r.sent != 30 {
+		t.Fatalf("replaced Set = %+v, want sent 30", r)
+	}
+	close(release)
+	if r := <-first; r.err != nil || r.sent != 10 {
+		t.Fatalf("first Set = %+v", r)
+	}
+	if r := <-third; r.err != nil || r.sent != 30 {
+		t.Fatalf("third Set = %+v", r)
+	}
+}

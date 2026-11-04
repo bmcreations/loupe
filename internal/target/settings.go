@@ -301,23 +301,45 @@ func (t *ADBTarget) ApplySettings(ctx context.Context, changes map[string]any) (
 // already sends one write at a time. Only the newest of the angles queued
 // behind a running write is sent.
 func (t *ADBTarget) applyHingeAngle(ctx context.Context, a *androidSettings, v any) ([]string, []string, error) {
+	if _, err := t.sendHingeAngle(ctx, a, v); err != nil {
+		if errors.Is(err, ErrInvalidSetting) || errors.Is(err, ErrDeviceUnreachable) {
+			return nil, nil, err
+		}
+		return []string{hingeAngleID}, nil, err
+	}
+	return nil, nil, nil
+}
+
+func (t *ADBTarget) sendHingeAngle(ctx context.Context, a *androidSettings, v any) (int, error) {
 	deg, err := parseHingeAngle(v)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %s", ErrInvalidSetting, err)
+		return 0, fmt.Errorf("%w: %s", ErrInvalidSetting, err)
 	}
 	if err := a.requireFold(ctx); err != nil {
-		return nil, nil, err
+		return 0, err
 	}
-	_, err = t.hinge.Set(ctx, deg, func(ctx context.Context, deg int) error {
+	sent, err := t.hinge.Set(ctx, deg, func(ctx context.Context, deg int) error {
 		return writeHingeAngle(ctx, a.emu, float64(deg))
 	})
 	if err != nil {
 		if errors.Is(err, ErrInvalidSetting) {
-			return nil, nil, err
+			return 0, err
 		}
-		return []string{hingeAngleID}, nil, fmt.Errorf("%s: %w", hingeAngleID, err)
+		return 0, fmt.Errorf("%s: %w", hingeAngleID, err)
 	}
-	return nil, nil, nil
+	return sent, nil
+}
+
+// WriteHingeAngle implements HingeWriter.
+func (t *ADBTarget) WriteHingeAngle(ctx context.Context, v any) (int, error) {
+	if !t.info.Ready() {
+		return 0, fmt.Errorf("%w: device %s is in state %q", ErrDeviceUnreachable, t.info.Serial, t.info.State)
+	}
+	a := newAndroidSettings(t)
+	if a.emu == nil {
+		return 0, fmt.Errorf("%w: unknown setting %q", ErrInvalidSetting, hingeAngleID)
+	}
+	return t.sendHingeAngle(ctx, a, v)
 }
 
 // rejectPostureWithHinge refuses a PUT that sets posture and hingeAngle at

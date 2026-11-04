@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/bmcreations/loupe/internal/target"
@@ -162,7 +163,22 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, id string, 
 	ctx, cancel := context.WithTimeout(r.Context(), agentTimeout)
 	defer cancel()
 
-	failed, notRestored, applyErr := ds.ApplySettings(ctx, req.Changes)
+	var (
+		failed, notRestored []string
+		applyErr            error
+		minimal             *target.Setting
+	)
+	if hw, ok := ds.(target.HingeWriter); ok && hingeOnly(req.Changes) && prefersMinimal(r) {
+		sent, err := hw.WriteHingeAngle(ctx, req.Changes[hingeAngleID])
+		if err != nil {
+			failed, applyErr = []string{hingeAngleID}, err
+		} else {
+			row := target.HingeSetting(float64(sent))
+			minimal = &row
+		}
+	} else {
+		failed, notRestored, applyErr = ds.ApplySettings(ctx, req.Changes)
+	}
 
 	rec := map[string]any{
 		"kind": "agent", "target": id, "action": "settings-put",
@@ -218,10 +234,40 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, id string, 
 		return
 	}
 
+	if minimal != nil {
+		w.Header().Set("Preference-Applied", "return=minimal")
+		writeJSON(w, http.StatusOK, SettingsResponse{Settings: []target.Setting{*minimal}})
+		return
+	}
 	settings, err := ds.Settings(ctx)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, SettingsResponse{Settings: nonNilSettings(settings)})
+}
+
+const hingeAngleID = "hingeAngle"
+
+// hingeOnly is a PUT that changes hingeAngle and nothing else, the one a
+// slider sends.
+func hingeOnly(changes map[string]any) bool {
+	_, ok := changes[hingeAngleID]
+	return ok && len(changes) == 1
+}
+
+// prefersMinimal reports a `Prefer: return=minimal` (RFC 7240) on r. A
+// hinge-only PUT that carries it answers with the hingeAngle row alone,
+// built from the angle sent, and skips reading every setting back. It is
+// opt-in because the browser replaces its whole list with the response.
+func prefersMinimal(r *http.Request) bool {
+	for _, h := range r.Header.Values("Prefer") {
+		for _, pref := range strings.Split(h, ",") {
+			tok, _, _ := strings.Cut(pref, ";")
+			if strings.EqualFold(strings.ReplaceAll(strings.TrimSpace(tok), " ", ""), "return=minimal") {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -737,3 +737,102 @@ func TestSettingsConflictResponseMatchesTheOldMapEncoding(t *testing.T) {
 }
 
 func f64(f float64) *float64 { return &f }
+
+// hingeTarget is a settingsTarget with the hinge fast path. sent is the
+// angle WriteHingeAngle says went to the device, which differs from the
+// PUT's when a newer one replaced it.
+type hingeTarget struct {
+	settingsTarget
+	sent     int
+	writeErr error
+	gotWrite any
+	reads    int
+}
+
+func (h *hingeTarget) WriteHingeAngle(_ context.Context, v any) (int, error) {
+	h.gotWrite = v
+	return h.sent, h.writeErr
+}
+
+func (h *hingeTarget) Settings(ctx context.Context) ([]target.Setting, error) {
+	h.reads++
+	return h.settingsTarget.Settings(ctx)
+}
+
+func putHinge(t *testing.T, tgt target.Target, body, prefer string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPut, "/api/settings?target=settings-target", bytes.NewBufferString(body))
+	if prefer != "" {
+		r.Header.Set("Prefer", prefer)
+	}
+	w := httptest.NewRecorder()
+	settingsServer(t, tgt).handleSettings(w, r)
+	return w
+}
+
+// With Prefer: return=minimal a hinge-only PUT answers the hingeAngle row
+// alone, at the angle that went to the device, and reads nothing back.
+func TestHandleSettingsPutHingeMinimal(t *testing.T) {
+	h := &hingeTarget{settingsTarget: settingsTarget{settings: sampleSettings()}, sent: 60}
+	w := putHinge(t, h, `{"changes":{"hingeAngle":90}}`, "respond-async, return=minimal; x=1")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Preference-Applied"); got != "return=minimal" {
+		t.Errorf("Preference-Applied = %q", got)
+	}
+	want := `{"settings":[{"id":"hingeAngle","type":"range","value":60,"min":0,"max":180,"step":1,"supported":true,"applies":"immediately"}]}`
+	if got := strings.TrimSpace(w.Body.String()); got != want {
+		t.Errorf("body\n got %s\nwant %s", got, want)
+	}
+	if h.gotWrite != 90.0 || h.gotChanges != nil || h.reads != 0 {
+		t.Errorf("write %v, ApplySettings %v, reads %d", h.gotWrite, h.gotChanges, h.reads)
+	}
+}
+
+// Without the header, or with another setting in the PUT, the answer is
+// the whole list, as before.
+func TestHandleSettingsPutHingeMinimalIsOptIn(t *testing.T) {
+	for name, tc := range map[string]struct{ body, prefer string }{
+		"no Prefer":       {`{"changes":{"hingeAngle":90}}`, ""},
+		"return=full":     {`{"changes":{"hingeAngle":90}}`, "return=representation"},
+		"another setting": {`{"changes":{"hingeAngle":90,"darkMode":true}}`, "return=minimal"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := &hingeTarget{settingsTarget: settingsTarget{settings: sampleSettings()}, sent: 60}
+			w := putHinge(t, h, tc.body, tc.prefer)
+			if w.Code != http.StatusOK || w.Header().Get("Preference-Applied") != "" {
+				t.Fatalf("status %d, Preference-Applied %q", w.Code, w.Header().Get("Preference-Applied"))
+			}
+			if h.gotWrite != nil || h.gotChanges == nil || h.reads != 1 {
+				t.Errorf("write %v, ApplySettings %v, reads %d", h.gotWrite, h.gotChanges, h.reads)
+			}
+		})
+	}
+}
+
+// A minimal PUT's errors answer as any PUT's do.
+func TestHandleSettingsPutHingeMinimalErrors(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err    error
+		status int
+	}{
+		"invalid":     {fmt.Errorf("%w: hingeAngle 90.5", target.ErrInvalidSetting), http.StatusBadRequest},
+		"unreachable": {fmt.Errorf("%w: offline", target.ErrDeviceUnreachable), http.StatusBadGateway},
+		"refused":     {errors.New("hingeAngle: emu sensor set: KO: something"), http.StatusConflict},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := &hingeTarget{settingsTarget: settingsTarget{settings: sampleSettings()}, writeErr: tc.err}
+			w := putHinge(t, h, `{"changes":{"hingeAngle":90}}`, "return=minimal")
+			if w.Code != tc.status {
+				t.Fatalf("status = %d, want %d; body: %s", w.Code, tc.status, w.Body.String())
+			}
+			if tc.status == http.StatusConflict {
+				var got SettingsConflictResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || len(got.Failed) != 1 || got.Failed[0] != "hingeAngle" {
+					t.Fatalf("409 body %s, %v", w.Body.String(), err)
+				}
+			}
+		})
+	}
+}

@@ -40,6 +40,19 @@ func hingeSetting(deg float64) Setting {
 	}
 }
 
+// HingeSetting is the hingeAngle row for deg, for a PUT that answers with
+// that row alone.
+func HingeSetting(deg float64) Setting { return hingeSetting(deg) }
+
+// HingeWriter is a DeviceSettings that can write hingeAngle alone and say
+// which angle went to the device, so a PUT can answer without reading every
+// setting back. sent is the PUT's own angle, or the newer one that replaced
+// it in the queue. Errors are ApplySettings': ErrInvalidSetting before
+// anything is sent, ErrDeviceUnreachable, or the write's own failure.
+type HingeWriter interface {
+	WriteHingeAngle(ctx context.Context, v any) (sent int, err error)
+}
+
 // parseHingeAngle checks a PUT's value: a JSON number, whole degrees, in
 // range. Whole degrees is the step the GET advertises; a fraction is refused
 // rather than rounded so a client that sent 90.5 is not told 90 took.

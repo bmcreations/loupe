@@ -604,12 +604,21 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
   should keep one `PUT` in flight and send only its latest angle when that one
   returns. Parallel `PUT`s on separate connections can arrive out of order and
   leave an older angle applied.
+- A hinge-only `PUT` with `Prefer: return=minimal` answers
+  `{"settings": [<hingeAngle row>]}` and skips reading every setting back,
+  with `Preference-Applied: return=minimal`. The row's `value` is the angle
+  going to the device: the `PUT`'s own, or, for a superseded `PUT`, the newer
+  angle that replaced it. `posture` is not in it; `GET` for that. Without the
+  header, or with any other setting in the `PUT`, the answer is the whole
+  list. A client that replaces its list with the response, as the browser
+  does, should not send it. Errors answer as any `PUT`'s do.
 
 On an emulator, `hingeAngle` is the console's `sensor set hinge-angle0`, and a
 `GET` reads it back with `sensor get hinge-angle0`. Android's device state
 follows the sensor: `posture` on the next `GET` is the band the angle falls in,
 though at the edge of a band it can lag about half a second. A `PUT` takes
-about 130 ms, most of it the read after the write.
+about 130 ms, most of it the read after the write, which
+`Prefer: return=minimal` skips.
 
 On a Duo, `hingeAngle` is simcap's `hinge <deg>`. simcap has no way to read the
 hinge back, so a `GET` reports the last angle this server sent. Before any
