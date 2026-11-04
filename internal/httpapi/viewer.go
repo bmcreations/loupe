@@ -586,6 +586,19 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		}
 	}()
 
+	// Input runs on its own goroutine, in the order it arrived. A touch
+	// waits for the device to take it, about 30ms a step on a phone over
+	// Wi-Fi, and a ping read behind it waited too.
+	// The client then reported that wait as its rtt, and on a WebSocket the
+	// pacer has no other rtt to steer on: at 12:08:28 on 4 November a tap
+	// on bmc-iphone read as a 406ms rtt from a viewer on the same Mac, the
+	// pacer shed, and the viewer waited two seconds for a keyframe.
+	input := newInputQueue(func(payload []byte) {
+		if err := s.dispatch(conn, sess, viewerID, payload); err != nil {
+			fmt.Printf("[%s %s] dispatch: %v\n", conn.Name(), targetID, err)
+		}
+	})
+
 	for {
 		payload, err := conn.Recv()
 		if err != nil {
@@ -595,11 +608,16 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		if len(payload) == 0 {
 			continue
 		}
-		if err := s.dispatch(conn, sess, viewerID, payload); err != nil {
-			fmt.Printf("[%s %s] dispatch: %v\n", conn.Name(), targetID, err)
+		if answeredInline(payload[0]) {
+			if err := s.dispatch(conn, sess, viewerID, payload); err != nil {
+				fmt.Printf("[%s %s] dispatch: %v\n", conn.Name(), targetID, err)
+			}
+			continue
 		}
+		input.push(payload)
 	}
 
+	input.close()
 	_ = conn.Close()
 	<-writeDone
 	if rec := stops.record(); rec != nil {
