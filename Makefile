@@ -5,7 +5,7 @@ LABEL := dev.bmcreations.loupe
 PLIST := $(HOME)/Library/LaunchAgents/$(LABEL).plist
 GUI   := gui/$(shell id -u)
 
-.PHONY: build composeagent simcap xcrunner test vet fmt run synthetic clean dist \
+.PHONY: build composeagent a11ydump simcap xcrunner test vet fmt run synthetic clean dist \
 	agent-install agent-uninstall agent-restart agent-status agent-log
 
 # A checkout can add its own targets in private.mk, which is not part of this
@@ -35,6 +35,17 @@ composeagent:
 	cd .build/composeagent/classes && jar cf ../classes.jar .
 	$(D8) --min-api 29 --lib $(ANDROID_JAR) --output .build/composeagent .build/composeagent/classes.jar
 	cp .build/composeagent/classes.dex $(COMPOSE_OUT)/loupe-compose.dex
+
+# The Android tree dump (internal/a11ydump). Committed and pinned like the
+# compose agent; rerun after changing tools/a11ydump and repin SHA256 in
+# internal/a11ydump/a11ydump.go.
+a11ydump:
+	rm -rf .build/a11ydump && mkdir -p .build/a11ydump/classes
+	javac -source 17 -target 17 -Xlint:-options -cp $(ANDROID_JAR) -d .build/a11ydump/classes \
+		$$(find tools/a11ydump/src -name '*.java')
+	cd .build/a11ydump/classes && jar cf ../classes.jar .
+	$(D8) --min-api 29 --lib $(ANDROID_JAR) --output .build/a11ydump .build/a11ydump/classes.jar
+	cp .build/a11ydump/classes.dex internal/a11ydump/loupe-a11y.dex
 
 # simcap, the iOS simulator and iPhone helper, lives in bmcreations/simcap.
 # This clones it into .build/simcap-src (or updates the clone) and builds it
