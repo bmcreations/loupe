@@ -310,10 +310,15 @@ type Session struct {
 	// is the frame kind the pump already knows at the point it increments
 	// framesIn, so it costs one more atomic add here to remove that read-time
 	// race entirely rather than merely bound it.
-	mediaIn    atomic.Uint64
-	framesOut  atomic.Uint64
-	framesDrop atomic.Uint64
-	framesShed atomic.Uint64
+	mediaIn atomic.Uint64
+	// passMediaIn is mediaIn for the passthrough track. A passthrough viewer
+	// gets those frames, not the H.264 encoder's, and the two tracks do not
+	// produce at the same rate: on a still screen the encoder keeps emitting
+	// about two frames a second while the phone sends none.
+	passMediaIn atomic.Uint64
+	framesOut   atomic.Uint64
+	framesDrop  atomic.Uint64
+	framesShed  atomic.Uint64
 	// framesWait counts frames suppressed while a viewer awaits a keyframe.
 	framesWait atomic.Uint64
 	// shedPacer, shedStale, shedAwaitKey and shedAbandon break framesShed
@@ -622,6 +627,18 @@ func (s *Session) ConfigCount() uint64 { return s.configIn.Load() }
 // two are separate atomics that do not update together (see mediaIn's field
 // comment).
 func (s *Session) MediaCount() uint64 { return s.mediaIn.Load() }
+
+// PassthroughMediaCount is MediaCount for the passthrough track.
+func (s *Session) PassthroughMediaCount() uint64 { return s.passMediaIn.Load() }
+
+// ViewerPassthrough reports whether viewer id gets the passthrough track. The
+// track is chosen when the viewer joins and does not change.
+func (s *Session) ViewerPassthrough(id uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.viewers[id]
+	return ok && v.passthrough
+}
 
 // Stats reports counters useful for a health endpoint.
 func (s *Session) Stats() map[string]any {
