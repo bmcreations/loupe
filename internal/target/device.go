@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bmcreations/loupe/internal/h264"
@@ -33,6 +34,9 @@ type ADBTarget struct {
 	// hinge sends hingeAngle writes to an emulator, newest first. See
 	// hinge.go.
 	hinge hingeCoalescer
+	// folds is set once print-states has listed two postures or more, the
+	// rule a GET lists hingeAngle by. See foldable in settings.go.
+	folds atomic.Bool
 
 	// kbMu guards hwKeyboard and streams. See adbkeyboard.go.
 	kbMu       sync.Mutex
