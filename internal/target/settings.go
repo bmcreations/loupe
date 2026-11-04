@@ -320,6 +320,8 @@ func (t *ADBTarget) sendHingeAngle(ctx context.Context, a *androidSettings, v an
 		return 0, err
 	}
 	sent, err := t.hinge.Set(ctx, deg, func(ctx context.Context, deg int) error {
+		ctx, cancel := context.WithTimeout(ctx, emuHingeWriteTimeout)
+		defer cancel()
 		return writeHingeAngle(ctx, a.emu, float64(deg))
 	})
 	if err != nil {

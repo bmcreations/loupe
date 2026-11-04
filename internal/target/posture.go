@@ -141,6 +141,8 @@ var (
 func postureField(emu emuFunc, hinge *hingeCoalescer) settingField {
 	set := func(ctx context.Context, sh shellFunc, posture string) error {
 		return moveHinge(ctx, hinge, postureEmuDegrees[posture], func(ctx context.Context, _ int) error {
+			ctx, cancel := context.WithTimeout(ctx, emuHingeWriteTimeout+postureSettleTimeout)
+			defer cancel()
 			return setPosture(ctx, sh, emu, posture)
 		})
 	}
@@ -207,6 +209,13 @@ func readHingeAngle(ctx context.Context, emu emuFunc) (float64, error) {
 	return parseHingeSensor(out)
 }
 
+// emuHingeWriteTimeout bounds one console write that moves the hinge. A
+// write takes 13-65 ms; hingeWriteTimeout is sized for the Duo. A coalesced
+// write runs after its request has returned, and with it the Emulator's
+// in-use hold, so the pause timer can stop the VM under it; this keeps such
+// a write from holding up the writes queued behind it for long.
+const emuHingeWriteTimeout = 2 * time.Second
+
 // writeHingeAngle sets the hinge sensor and returns without waiting for the
 // device state to follow: on pixel_fold_hinge the console answered in about
 // 65ms and print-state had moved by the next read, except at the edge of a
@@ -234,6 +243,8 @@ func writeHingeAngle(ctx context.Context, emu emuFunc, deg float64) error {
 func hingeAngleField(emu emuFunc, hinge *hingeCoalescer) settingField {
 	set := func(ctx context.Context, deg float64) error {
 		return moveHinge(ctx, hinge, int(deg), func(ctx context.Context, _ int) error {
+			ctx, cancel := context.WithTimeout(ctx, emuHingeWriteTimeout)
+			defer cancel()
 			return writeHingeAngle(ctx, emu, deg)
 		})
 	}
