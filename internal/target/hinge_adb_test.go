@@ -90,3 +90,37 @@ func TestHingeAngleFoldCheckIsCached(t *testing.T) {
 		t.Fatalf("print-states read %d times, want 1", n)
 	}
 }
+
+// The fast path a slider hits: one console write per angle, a bad value
+// refused with no console traffic, and a console refusal reported as the
+// setting that failed.
+func TestApplyHingeAngleFastPath(t *testing.T) {
+	t.Run("sends the angle", func(t *testing.T) {
+		tgt, argv := foldADB(t, foldStates, "")
+		failed, notRestored, err := tgt.ApplySettings(context.Background(), map[string]any{hingeAngleID: 90.0})
+		if err != nil || failed != nil || notRestored != nil {
+			t.Fatalf("failed %v, notRestored %v, err %v", failed, notRestored, err)
+		}
+		got := emuLines(argv())
+		if len(got) != 1 || !strings.HasSuffix(got[0], " emu sensor set hinge-angle0 90") {
+			t.Fatalf("console was sent %v", got)
+		}
+	})
+	t.Run("a fraction is 400", func(t *testing.T) {
+		tgt, argv := foldADB(t, foldStates, "")
+		_, _, err := tgt.ApplySettings(context.Background(), map[string]any{hingeAngleID: 90.5})
+		if !errors.Is(err, ErrInvalidSetting) {
+			t.Fatalf("err = %v, want ErrInvalidSetting", err)
+		}
+		if a := argv(); len(a) != 0 {
+			t.Fatalf("adb was run: %v", a)
+		}
+	})
+	t.Run("a KO reply fails hingeAngle", func(t *testing.T) {
+		tgt, _ := foldADB(t, foldStates, "KO: something\n")
+		failed, _, err := tgt.ApplySettings(context.Background(), map[string]any{hingeAngleID: 90.0})
+		if err == nil || errors.Is(err, ErrInvalidSetting) || len(failed) != 1 || failed[0] != hingeAngleID {
+			t.Fatalf("failed %v, err %v", failed, err)
+		}
+	})
+}
