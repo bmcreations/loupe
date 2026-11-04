@@ -173,6 +173,9 @@ func (s *Session) pumpPassthrough(frames <-chan target.Frame) {
 			passthrough: true,
 		}
 		copy(msg.Data, scratch)
+		if !frame.Config {
+			s.passMediaIn.Add(1)
+		}
 		s.mu.Lock()
 		if frame.Config {
 			cfg := msg

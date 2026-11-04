@@ -249,6 +249,12 @@ type statsSource interface {
 	ClientStats() map[string]any
 }
 
+// passthroughStats is a session as a passthrough viewer's stats tick sees it:
+// "produced" counts the passthrough track's frames, not the H.264 encoder's.
+type passthroughStats struct{ *session.Session }
+
+func (p passthroughStats) MediaCount() uint64 { return p.PassthroughMediaCount() }
+
 // runStatsTick does the work of one stats tick: sample health, build the
 // MsgStats body and the trace record. Pulled out of serveViewer's stats case
 // so the three mutations round 3's review found reachable only through a
@@ -374,6 +380,12 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		// report this viewer is allowed to read -- see
 		// healthInputFromClientReport's doc comment.
 		healthTrack := newHealthTracker(time.Now(), time.Now)
+		// A passthrough viewer is judged against the passthrough track's
+		// frames, which are the ones it is sent.
+		var counters statsSource = sess
+		if sess.ViewerPassthrough(viewerID) {
+			counters = passthroughStats{sess}
+		}
 		// askForKey asks the encoder for a keyframe, at most once per
 		// keyframeRequestInterval.
 		//
@@ -536,7 +548,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				}
 
 			case <-stats.C:
-				body, rec, err := runStatsTick(targetID, sess, healthTrack, pacer, conn, rttSource)
+				body, rec, err := runStatsTick(targetID, counters, healthTrack, pacer, conn, rttSource)
 				if err != nil {
 					continue
 				}

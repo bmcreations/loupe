@@ -261,3 +261,24 @@ func TestPassthroughGOPOverflow(t *testing.T) {
 		t.Fatalf("%d bytes kept", gopMaxBytes+10)
 	}
 }
+
+// A passthrough viewer's health is judged against the frames it is sent. The
+// H.264 count does not move for passthrough frames, and the passthrough count
+// leaves out parameter sets, as MediaCount does.
+func TestPassthroughMediaCount(t *testing.T) {
+	s, ps := passSession()
+	defer close(ps.alt)
+	webID, _ := s.AddViewerWith(ViewerOptions{})
+	macID, watch := s.AddViewerWith(h265)
+	feedPass(t, ps, watch, target.Frame{Config: true, Data: spsAU}, key(5), delta(6), delta(7))
+
+	if got := s.PassthroughMediaCount(); got != 3 {
+		t.Errorf("PassthroughMediaCount = %d, want 3", got)
+	}
+	if got := s.MediaCount(); got != 0 {
+		t.Errorf("MediaCount = %d, want 0: no H.264 frames were produced", got)
+	}
+	if !s.ViewerPassthrough(macID) || s.ViewerPassthrough(webID) {
+		t.Errorf("ViewerPassthrough: mac %v web %v, want true false", s.ViewerPassthrough(macID), s.ViewerPassthrough(webID))
+	}
+}
