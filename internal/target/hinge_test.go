@@ -106,19 +106,41 @@ func TestHingeCoalescerReportsTheWriteError(t *testing.T) {
 }
 
 // A caller that gives up stops waiting; the write still finishes, and the
-// next Set starts a fresh drain.
+// next Set goes out after it.
 func TestHingeCoalescerCallerContextEnds(t *testing.T) {
 	var c hingeCoalescer
-	release := make(chan struct{})
+	var mu sync.Mutex
+	var applied []int
+	record := func(deg int) {
+		mu.Lock()
+		applied = append(applied, deg)
+		mu.Unlock()
+	}
+	started, release := make(chan struct{}), make(chan struct{})
 	ctx, cancel := context.WithCancel(t.Context())
+	first := make(chan error, 1)
+	go func() {
+		first <- setErr(&c, ctx, 90, func(_ context.Context, deg int) error {
+			close(started)
+			<-release
+			record(deg)
+			return nil
+		})
+	}()
+	// Cancel once 90 is on its way, so it is not merely replaced by 91.
+	<-started
 	cancel()
-	err := setErr(&c, ctx, 90, func(context.Context, int) error { <-release; return nil })
-	if !errors.Is(err, context.Canceled) {
+	if err := <-first; !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	close(release)
-	if err := setErr(&c, t.Context(), 91, func(context.Context, int) error { return nil }); err != nil {
+	if err := setErr(&c, t.Context(), 91, func(_ context.Context, deg int) error { record(deg); return nil }); err != nil {
 		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(applied, []int{90, 91}) {
+		t.Fatalf("applied %v, want [90 91]", applied)
 	}
 }
 
