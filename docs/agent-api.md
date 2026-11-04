@@ -615,7 +615,8 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
   `{"settings": [<hingeAngle row>]}` and skips reading every setting back,
   with `Preference-Applied: return=minimal`. The row's `value` is the angle
   going to the device: the `PUT`'s own, or, for a superseded `PUT`, the newer
-  angle that replaced it. `posture` is not in it; `GET` for that. Without the
+  angle that replaced it, which a still newer `PUT` can replace in turn.
+  `posture` is not in it; `GET` for that. Without the
   header, or with any other setting in the `PUT`, the answer is the whole
   list. A client that replaces its list with the response, as the browser
   does, should not send it. Errors answer as any `PUT`'s do.
