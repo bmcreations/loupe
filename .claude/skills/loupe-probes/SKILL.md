@@ -113,3 +113,37 @@ width; not in Safari or on an iPad. `window.__loupeLayout()` returns the rects i
 The rules live in `web/livecheck.js` and are pure, with a node test, because
 `app.js` has no harness (trap 21).
 
+
+## Simulator tree health
+
+Before blaming loupe for a sim drop, tap or `/api/ui` failure on a test app,
+dump simcap's tree for that app and for Settings:
+
+```sh
+{ echo ui; sleep 2; } | .build/simcap <udid> -input | head -c 160
+```
+
+An app root of `{"frame":[0,0,0,0],"role":"AXApplication"}` with no children,
+while Settings dumps fine, means that app's accessibility is broken: stop and
+fix or replace the test app. No loupe change can be judged on it.
+
+## Spare server
+
+Test changes against a spare server, never the launchd one. Start it with a
+token, never `-no-auth`, and only on loopback:
+
+```sh
+go build -o /tmp/loupe-spare/loupe ./cmd/loupe
+/tmp/loupe-spare/loupe -addr 127.0.0.1:18998 -token spare -no-ios-devices -no-simulators \
+  -config /tmp/loupe-spare/cfg.json > /tmp/loupe-spare/log.txt 2>&1 &
+```
+
+Check the log for `bind: address already in use` before trusting any answer:
+a leftover server on the port will answer instead. It is stopped only when
+the port shows nothing; report it stopped after this prints `free`, not
+after the kill:
+
+```sh
+pkill -f '/tmp/loupe-spare/loupe -addr 127.0.0.1:18998'
+lsof -nP -iTCP:18998 -sTCP:LISTEN || echo free
+```
