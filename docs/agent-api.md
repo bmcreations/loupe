@@ -574,7 +574,10 @@ was saved. Synthetic answers 501.
 and `step` on a `range` or `options` on an `enum`. A client should draw only
 the rows it is given. `PUT {"changes": {"<id>": <value>, ...}}` applies them and
 answers the same shape as `GET`, read again after the write. A bad value is
-400 and nothing is applied. A target with no settings is 501.
+400 and nothing is applied. A write the device refuses is 409
+`{"error","failed","notRestored","settings"}`: the writes already made are
+rolled back, `notRestored` names any that could not be, and `settings` is read
+again after. A target with no settings is 501.
 
 #### Posture and hinge angle
 
