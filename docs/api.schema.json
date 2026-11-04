@@ -4651,6 +4651,26 @@
         "password": {
           "type": "boolean"
         },
+        "scrollBackward": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollForward": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "scrollable": {
           "type": "boolean"
         },

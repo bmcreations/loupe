@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 )
@@ -56,10 +57,22 @@ type Node struct {
 
 	Clickable  bool `json:"clickable,omitempty"`
 	Scrollable bool `json:"scrollable,omitempty"`
-	Checkable  bool `json:"checkable,omitempty"`
-	Checked    bool `json:"checked,omitempty"`
-	Selected   bool `json:"selected,omitempty"`
-	Focused    bool `json:"focused,omitempty"`
+	// ScrollBackward and ScrollForward say whether a scrollable node offers
+	// Android's scroll-backward and scroll-forward actions. A list at its top
+	// offers no backward one and a list at its bottom no forward one, so the
+	// edge is known without swiping into it. Nil when the dump cannot tell:
+	// uiautomator's own XML leaves them out, and iOS has no equivalent.
+	//
+	// A list nested in another scroller can report an action it cannot
+	// carry out (Settings' RecyclerView offers backward at its top, inside
+	// the ScrollView that really scrolls), so the outermost scrollable under
+	// a point is the one to read.
+	ScrollBackward *bool `json:"scrollBackward,omitempty"`
+	ScrollForward  *bool `json:"scrollForward,omitempty"`
+	Checkable      bool  `json:"checkable,omitempty"`
+	Checked        bool  `json:"checked,omitempty"`
+	Selected       bool  `json:"selected,omitempty"`
+	Focused        bool  `json:"focused,omitempty"`
 	// Password is uiautomator's own "password" attribute: the field's input
 	// type marks it as one, independent of anything in Text or ID. It is what
 	// lets /api/input redact a typed value before publishing the event that
@@ -106,6 +119,23 @@ func (t *ADBTarget) Inspect(ctx context.Context) (*UI, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}
+	// Android allows one UiAutomation client at a time and kills the second,
+	// so two of loupe's own dumps must not overlap.
+	t.inspectMu.Lock()
+	defer t.inspectMu.Unlock()
+	if a11yDumpEnabled() {
+		ui, err := t.inspectA11y(ctx)
+		if err == nil || errors.Is(err, ErrUIAutomationBusy) || ctx.Err() != nil {
+			return ui, err
+		}
+		log.Printf("a11y dump on %s failed, using uiautomator: %v", t.info.Serial, err)
+	}
+	return t.inspectUIAutomator(ctx)
+}
+
+// inspectUIAutomator is the dump through `uiautomator dump`, the fallback
+// when loupe's own (a11ydump.go) cannot run.
+func (t *ADBTarget) inspectUIAutomator(ctx context.Context) (*UI, error) {
 
 	// uiautomator writes the file itself and prints only a status line, so the
 	// dump and the read are two commands. Errors arrive on stdout as plain
@@ -197,6 +227,8 @@ type xmlNode struct {
 	Bounds     string    `xml:"bounds,attr"`
 	Clickable  string    `xml:"clickable,attr"`
 	Scrollable string    `xml:"scrollable,attr"`
+	ScrollBack string    `xml:"scroll-backward,attr"`
+	ScrollFwd  string    `xml:"scroll-forward,attr"`
 	Checkable  string    `xml:"checkable,attr"`
 	Checked    string    `xml:"checked,attr"`
 	Selected   string    `xml:"selected,attr"`
@@ -251,6 +283,8 @@ func convert(x xmlNode) *Node {
 		Password:   x.Password == "true",
 		Disabled:   x.Enabled == "false",
 	}
+	n.ScrollBackward = xmlFlag(x.ScrollBack)
+	n.ScrollForward = xmlFlag(x.ScrollFwd)
 	n.Center = [2]int{
 		(n.Bounds[0] + n.Bounds[2]) / 2,
 		(n.Bounds[1] + n.Bounds[3]) / 2,
@@ -327,6 +361,15 @@ func shortClass(s string) string {
 		return s[i+1:]
 	}
 	return s
+}
+
+// xmlFlag reads an attribute only loupe's own dump writes: nil when absent.
+func xmlFlag(v string) *bool {
+	if v == "" {
+		return nil
+	}
+	b := v == "true"
+	return &b
 }
 
 // parseBounds reads uiautomator's "[x1,y1][x2,y2]".

@@ -59,15 +59,30 @@ Common refusals on routes that change a device:
 
 ### `GET /api/ui?target=<id>`
 
-Returns the view hierarchy (`uiautomator dump` on Android). Each node has a
-`center`, so a caller taps a node without computing it.
+Returns the view hierarchy. Each node has a `center`, so a caller taps a node
+without computing it.
+
+On Android a scrollable node also has `scrollBackward` and `scrollForward`:
+whether the list can still move toward its start (up, or left) and toward its
+end. A list at its top has `"scrollBackward": false`, so there is no need to
+swipe to find out. When lists are nested, read the outermost scrollable under
+the point: an inner RecyclerView can offer an action its parent ScrollView is
+the one to carry out. iOS trees carry neither field; its accessibility tree
+has no scroll state.
 
 | Param | Effect |
 |---|---|
 | `interactive=1` | Prunes layout containers. |
 | `compose=1` | Names nodes after the composables that drew them. |
 
-A dump takes about 2 seconds on an emulator. The tree is not cached.
+An Android dump takes about 250ms. It comes from loupe's own reader
+(`internal/a11ydump`), which writes `uiautomator dump`'s XML from the same
+accessibility tree, leaving out the status bar and keyboard windows as
+uiautomator does. If that reader fails, loupe falls back to `uiautomator dump`
+(about 2 seconds, and no scroll fields). `LOUPE_A11Y_DUMP=0` in the server's
+environment makes it always use `uiautomator dump`. Android allows one
+UiAutomation client at a time, so while Maestro or an instrumentation test
+holds it the dump answers 409 either way. The tree is not cached.
 
 `compose=1` works on a debuggable Android app only. Nodes inside a
 `ComposeView` gain `composable` (`MessageRow`) and `source`

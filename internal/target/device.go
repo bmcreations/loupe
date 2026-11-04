@@ -38,6 +38,12 @@ type ADBTarget struct {
 	// compose holds the compose agent's attachment. See compose.go.
 	composeOnce sync.Once
 	compose     *composeDevice
+
+	// inspectMu serializes Inspect: Android kills a second UiAutomation
+	// client. a11yPushed, under it, is whether this loupe has put the
+	// a11ydump dex on the device. See a11ydump.go.
+	inspectMu  sync.Mutex
+	a11yPushed bool
 }
 
 // NewADBTarget builds a target for an already-attached device. jar and version
