@@ -1,6 +1,7 @@
 package target
 
 import (
+	"context"
 	"os"
 	"testing"
 )
@@ -72,5 +73,12 @@ func TestStatusBarOfReadsACapturedDump(t *testing.T) {
 	bar, h, ok := statusBarOf(string(dump))
 	if !ok || bar != 63 || h != 2400 {
 		t.Fatalf("statusBarOf() = %d, %d, %v; want 63, 2400", bar, h, ok)
+	}
+}
+
+func TestEmulatorStatusBarNeedsARunningDevice(t *testing.T) {
+	var r StatusBarReader = &Emulator{}
+	if _, _, err := r.StatusBar(context.Background()); err == nil {
+		t.Fatal("StatusBar() on an emulator that is not running = nil error, want one")
 	}
 }

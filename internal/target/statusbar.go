@@ -16,7 +16,21 @@ type StatusBarReader interface {
 	StatusBar(ctx context.Context) (bar, height int, err error)
 }
 
-var _ StatusBarReader = (*ADBTarget)(nil)
+var (
+	_ StatusBarReader = (*ADBTarget)(nil)
+	_ StatusBarReader = (*Emulator)(nil)
+)
+
+// StatusBar asks the running emulator behind this AVD. A session opened by
+// AVD holds the Emulator, not the ADBTarget it boots, so without this an
+// emulator streamed as avd:<name> never reported its bar.
+func (e *Emulator) StatusBar(ctx context.Context) (int, int, error) {
+	in := e.current()
+	if in == nil {
+		return 0, 0, fmt.Errorf("%s is not running", e.cfg.AVD)
+	}
+	return in.StatusBar(ctx)
+}
 
 // StatusBar reads display 0's status bar from one dumpsys window displays
 // call, the same call ScreenGeometry makes.
