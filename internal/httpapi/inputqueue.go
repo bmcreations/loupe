@@ -10,10 +10,11 @@ const inputQueueDepth = 256
 // answeredInline reports whether a viewer's read loop handles a message
 // itself instead of queuing it behind input. Pings have to be: their reply is
 // the client's rtt sample. Stats and hello do no device work, so there is
-// nothing to gain by making them wait.
+// nothing to gain by making them wait. Replay only queues messages to the
+// viewer's own channel and must not sit behind a slow touch.
 func answeredInline(msgType byte) bool {
 	switch msgType {
-	case session.MsgPing, session.MsgClientStats, session.MsgHello:
+	case session.MsgPing, session.MsgClientStats, session.MsgHello, session.MsgReplay:
 		return true
 	}
 	return false

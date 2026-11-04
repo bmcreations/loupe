@@ -590,6 +590,9 @@ func (s *Server) dispatch(conn Conn, sess *session.Session, viewerID uint64, pay
 		return sess.ViewerText(viewerID, text)
 	case session.MsgTakeOver:
 		return sess.ViewerTakeOver(viewerID)
+	case session.MsgReplay:
+		sess.ViewerReplay(viewerID)
+		return nil
 	case session.MsgScroll:
 		e, err := session.DecodeScroll(body)
 		if err != nil {

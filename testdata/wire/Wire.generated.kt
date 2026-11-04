@@ -25,6 +25,7 @@ object Wire {
     const val msgHello: Byte = 0x15
     const val msgText: Byte = 0x16
     const val msgTakeOver: Byte = 0x17
+    const val msgReplay: Byte = 0x18
     const val flagKey: Byte = 0x01
     const val flagConfig: Byte = 0x02
     const val frameHeaderLen: Int = 18
