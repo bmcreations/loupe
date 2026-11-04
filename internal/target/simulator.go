@@ -130,6 +130,10 @@ type Simulator struct {
 	// panels is the device type's built-in panel count once simcap has
 	// answered it, and 0 before. Two makes it foldable (simposture.go).
 	panels atomic.Int32
+	// hinge coalesces hingeAngle writes, and hingeSent is the last angle
+	// sent (simposture.go).
+	hinge     hingeCoalescer
+	hingeSent simHinge
 	// panelsRead is set once Describe has started the capabilities.plist
 	// read, so a single-panel device type is read once, not every listing.
 	panelsRead atomic.Bool

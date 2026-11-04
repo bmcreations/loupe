@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,11 @@ import (
 // There is no halfOpened. The hinge takes any angle, but the lit panel only
 // says folded or not, so a half-open Duo would read back as opened and the
 // control would disagree with what it was just told.
+//
+// hingeAngle sends any angle, 0-180, for a slider. simcap's hinge is a
+// one-way HID report with nothing to read back, so the angle a GET reports
+// is the last one this server sent (simHinge), checked against the lit
+// panel; see hingeReadback.
 
 var (
 	_ DeviceSettings = (*Simulator)(nil)
@@ -88,6 +94,65 @@ func (s *Simulator) readPosture(ctx context.Context) (string, error) {
 	}
 }
 
+// simHinge is the last hinge angle this server sent a simulator, and when.
+type simHinge struct {
+	mu  sync.Mutex
+	set bool
+	deg int
+	at  time.Time
+}
+
+func (h *simHinge) record(deg int) {
+	h.mu.Lock()
+	h.set, h.deg, h.at = true, deg, time.Now()
+	h.mu.Unlock()
+}
+
+func (h *simHinge) last() (deg int, at time.Time, ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.deg, h.at, h.set
+}
+
+// simPanelContradicts reports whether a lit panel cannot go with a hinge
+// angle. On the iPhone Duo simulator the panel is not a function of the
+// angle: it has hysteresis and depends on the path. Sweeps there read
+// closed at 90 (coming down from 180 to 40, then up), and opened at 30
+// (coming down by 5s from 180) and at 20 (coming up from 10), but a jump
+// from 180 to 30 or 28 closed it. Neither panel was seen outside these
+// bounds: closed at 100 or more coming up from 0, opened at 10 or less.
+// Only those ends say the hinge moved some other way.
+func simPanelContradicts(posture string, deg int) bool {
+	switch posture {
+	case "closed":
+		return deg >= simOpenedAbove
+	case "opened":
+		return deg <= simClosedBelow
+	}
+	return false
+}
+
+const (
+	simOpenedAbove = 135
+	simClosedBelow = 5
+)
+
+// hingeReadback is the angle a GET reports, given the posture the lit panel
+// reads. The last angle sent stands unless the panel contradicts it
+// (simPanelContradicts) once simPostureSettle has passed since it was sent,
+// which means the hinge was moved some other way: Device Hub, or another
+// server. Then, and before anything was sent, the angle is the one that
+// posture sends. ok is false when there is neither.
+func hingeReadback(posture string, deg int, at time.Time, sent bool, now time.Time) (float64, bool) {
+	if sent && (!simPanelContradicts(posture, deg) || now.Sub(at) < simPostureSettle) {
+		return float64(deg), true
+	}
+	if d, known := simHingeDegrees[posture]; known {
+		return float64(d), true
+	}
+	return 0, false
+}
+
 // Settings implements DeviceSettings.
 func (s *Simulator) Settings(ctx context.Context) ([]Setting, error) {
 	if !s.HasSettings(ctx) {
@@ -100,35 +165,59 @@ func (s *Simulator) Settings(ctx context.Context) ([]Setting, error) {
 	if p == "none" {
 		p = ""
 	}
-	return []Setting{{
+	out := []Setting{{
 		ID: "posture", Type: SettingEnum, Value: p, Options: simPostureOptions,
 		Supported: true, Applies: "immediately",
-	}}, nil
+	}}
+	deg, at, sent := s.hingeSent.last()
+	if d, ok := hingeReadback(p, deg, at, sent, time.Now()); ok {
+		out = append(out, hingeSetting(d))
+	}
+	return out, nil
 }
 
-// ApplySettings implements DeviceSettings. It returns once the lit panel has
-// followed the hinge, so a GET straight after reads the new posture.
+// ApplySettings implements DeviceSettings. A posture change returns once the
+// lit panel has followed the hinge, so a GET straight after reads the new
+// posture. A hingeAngle change returns once simcap has sent it, without that
+// wait, because a slider sends one per tick.
 func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (failed, notRestored []string, err error) {
 	if len(changes) == 0 {
 		return nil, nil, fmt.Errorf("%w: no changes given", ErrInvalidSetting)
 	}
+	if err := rejectPostureWithHinge(changes); err != nil {
+		return nil, nil, err
+	}
 	var want string
+	hinge := -1
 	for id, v := range changes {
-		if id != "posture" {
+		switch id {
+		case "posture":
+			str, ok := v.(string)
+			if _, known := simHingeDegrees[str]; !ok || !known {
+				return nil, nil, fmt.Errorf("%w: posture: %v is not one of %v", ErrInvalidSetting, v, simPostureOptions)
+			}
+			want = str
+		case hingeAngleID:
+			deg, err := parseHingeAngle(v)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%w: %s", ErrInvalidSetting, err)
+			}
+			hinge = deg
+		default:
 			return nil, nil, fmt.Errorf("%w: unknown setting %q", ErrInvalidSetting, id)
 		}
-		str, ok := v.(string)
-		if _, known := simHingeDegrees[str]; !ok || !known {
-			return nil, nil, fmt.Errorf("%w: posture: %v is not one of %v", ErrInvalidSetting, v, simPostureOptions)
-		}
-		want = str
 	}
 	if !s.HasSettings(ctx) {
-		return nil, nil, fmt.Errorf("%w: posture: %s has one panel", ErrInvalidSetting, s.Label())
+		return nil, nil, fmt.Errorf("%w: %s has one panel", ErrInvalidSetting, s.Label())
 	}
-	// An input process on the legacy route opens CoreDevice for the hinge
-	// alone, which simcap gives ten seconds.
-	if _, err := s.input().do(ctx, simHingeOpen, "hinge %d", simHingeDegrees[want]); err != nil {
+	if hinge >= 0 {
+		err := s.hinge.Set(ctx, hinge, s.sendHinge)
+		if err != nil {
+			return []string{hingeAngleID}, nil, err
+		}
+		return nil, nil, nil
+	}
+	if err := s.sendHinge(ctx, simHingeDegrees[want]); err != nil {
 		return []string{"posture"}, nil, err
 	}
 	deadline := time.Now().Add(simPostureSettle)
@@ -149,4 +238,15 @@ func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (
 		case <-time.After(150 * time.Millisecond):
 		}
 	}
+}
+
+// sendHinge moves the hinge and records the angle for hingeReadback. An
+// input process on the legacy route opens CoreDevice for the hinge alone,
+// which simcap gives ten seconds.
+func (s *Simulator) sendHinge(ctx context.Context, deg int) error {
+	if _, err := s.input().do(ctx, simHingeOpen, "hinge %d", deg); err != nil {
+		return err
+	}
+	s.hingeSent.record(deg)
+	return nil
 }
