@@ -210,6 +210,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, id string, 
 			writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: applyErr.Error()})
 			return
 		}
+		if errors.Is(applyErr, target.ErrStillSending) {
+			// The request ran out of time with the hinge write still
+			// queued or on its way. It may yet land, so this is not the
+			// 409 rollback shape.
+			writeJSON(w, http.StatusGatewayTimeout, ErrorResponse{Error: applyErr.Error() + "; GET to see where the hinge ended"})
+			return
+		}
 		if failed == nil {
 			// Failed carries no omitempty -- the schema promises an array --
 			// and every path here is expected to name at least one setting,

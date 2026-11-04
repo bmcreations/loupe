@@ -130,7 +130,7 @@ func TestHingeCoalescerCallerContextEnds(t *testing.T) {
 	// Cancel once 90 is on its way, so it is not merely replaced by 91.
 	<-started
 	cancel()
-	if err := <-first; !errors.Is(err, context.Canceled) {
+	if err := <-first; !errors.Is(err, context.Canceled) || !errors.Is(err, ErrStillSending) {
 		t.Fatalf("err = %v", err)
 	}
 	close(release)

@@ -578,6 +578,9 @@ answers the same shape as `GET`, read again after the write. A bad value is
 `{"error","failed","notRestored","settings"}`: the writes already made are
 rolled back, `notRestored` names any that could not be, and `settings` is read
 again after. A target with no settings is 501.
+A `posture` or `hingeAngle` write the request stopped waiting on is 504: it
+runs on and may still land, nothing is rolled back, and a `GET` says where the
+hinge ended.
 
 #### Posture and hinge angle
 

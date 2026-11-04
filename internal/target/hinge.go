@@ -2,6 +2,7 @@ package target
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -70,6 +71,12 @@ func parseHingeAngle(v any) (int, error) {
 	return int(f), nil
 }
 
+// ErrStillSending is a hinge write whose caller stopped waiting before it
+// reached the device. The write runs on, detached, so it may still land:
+// unlike a failure there is nothing rolled back, and a GET says where the
+// hinge ended.
+var ErrStillSending = errors.New("still sending")
+
 // hingeCoalescer sends writes that move one target's hinge, newest first:
 // hingeAngle and posture alike, so the two go out in the order they arrive
 // and a posture's settle wait is never cut into by a slider. A Set that
@@ -116,7 +123,7 @@ func (c *hingeCoalescer) Set(ctx context.Context, deg int, apply func(ctx contex
 	case <-w.done:
 		return w.sent, w.err
 	case <-ctx.Done():
-		return 0, ctx.Err()
+		return 0, fmt.Errorf("%w: %w", ErrStillSending, ctx.Err())
 	}
 }
 
@@ -145,5 +152,10 @@ func moveHinge(ctx context.Context, c *hingeCoalescer, deg int, apply func(ctx c
 		return apply(ctx, deg)
 	}
 	_, err := c.Set(ctx, deg, apply)
+	if errors.Is(err, ErrStillSending) {
+		// The rollback table restores behind it through the same
+		// coalescer, so the PUT's 409 and rollback still hold.
+		return errors.New(err.Error())
+	}
 	return err
 }

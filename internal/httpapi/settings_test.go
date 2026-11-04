@@ -817,9 +817,10 @@ func TestHandleSettingsPutHingeMinimalErrors(t *testing.T) {
 		err    error
 		status int
 	}{
-		"invalid":     {fmt.Errorf("%w: hingeAngle 90.5", target.ErrInvalidSetting), http.StatusBadRequest},
-		"unreachable": {fmt.Errorf("%w: offline", target.ErrDeviceUnreachable), http.StatusBadGateway},
-		"refused":     {errors.New("hingeAngle: emu sensor set: KO: something"), http.StatusConflict},
+		"invalid":       {fmt.Errorf("%w: hingeAngle 90.5", target.ErrInvalidSetting), http.StatusBadRequest},
+		"unreachable":   {fmt.Errorf("%w: offline", target.ErrDeviceUnreachable), http.StatusBadGateway},
+		"refused":       {errors.New("hingeAngle: emu sensor set: KO: something"), http.StatusConflict},
+		"still sending": {fmt.Errorf("hingeAngle: %w: %w", target.ErrStillSending, context.DeadlineExceeded), http.StatusGatewayTimeout},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := &hingeTarget{settingsTarget: settingsTarget{settings: sampleSettings()}, writeErr: tc.err}
@@ -834,5 +835,16 @@ func TestHandleSettingsPutHingeMinimalErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A hinge write the request stopped waiting on may still land, so it is
+// 504, not the 409 that says the writes were rolled back.
+func TestHandleSettingsPutReturns504ForAHingeStillSending(t *testing.T) {
+	tgt := &settingsTarget{settings: sampleSettings(), failed: []string{"hingeAngle"},
+		applyErr: fmt.Errorf("%w: %w", target.ErrStillSending, context.DeadlineExceeded)}
+	w := putHinge(t, tgt, `{"changes":{"hingeAngle":90}}`, "")
+	if w.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d; body: %s", w.Code, w.Body.String())
 	}
 }
