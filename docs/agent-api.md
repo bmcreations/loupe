@@ -581,7 +581,8 @@ again after. That 409 has no `code`; it is told apart from a `humanHeld`,
 `claimedBy`, `handsOff` or `interrupted` 409 by having one. A target with no settings is 501.
 A `posture` or `hingeAngle` write the request stopped waiting on is 504: it
 runs on and may still land, nothing is rolled back, and a `GET` says where the
-hinge ended.
+hinge ended. For a superseded `PUT` only the newer write sent in its place can
+land; its own value never goes to the device.
 
 #### Posture and hinge angle
 
@@ -605,7 +606,7 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
   the device, only the newest write queued behind it is sent. A superseded
   `PUT`, `posture` included, waits for the write sent in its place and
   answers with it: 200 once it reached the device, or that write's error.
-  Its full body is read after that write, so it shows the newer angle, not
+  Its full body is read after that write, so it can show a newer angle than
   the `PUT`'s own. A client should keep its own value rather than move its
   slider to that one.
 - The server keeps the newest `PUT` to arrive, not the newest sent. A client
