@@ -1,7 +1,7 @@
 // Tests for devicesettings.js's pure functions. Run: node web/devicesettings.test.mjs
 import assert from 'node:assert/strict';
 
-const { labelFor, optionLabel, clampRange, parseSettingsError, applyResponse } = await import('./devicesettings.js');
+const { labelFor, optionLabel, clampRange, rangeStep, parseSettingsError, applyResponse } = await import('./devicesettings.js');
 
 let failures = 0;
 // test() has to accommodate the mount()-level tests added for client Task 9's
@@ -30,6 +30,15 @@ test('labelFor knows every field settingFields declares', () => {
   assert.equal(labelFor('layoutBounds'), 'Layout bounds');
   assert.equal(labelFor('talkBack'), 'TalkBack');
   assert.equal(labelFor('posture'), 'Posture');
+  assert.equal(labelFor('hingeAngle'), 'Hinge angle');
+});
+
+test('rangeStep takes the server\'s step and falls back to 0.05 without one', () => {
+  assert.equal(rangeStep({ id: 'hingeAngle', step: 1 }), 1);
+  assert.equal(rangeStep({ id: 'fontScale', step: 0.05 }), 0.05);
+  assert.equal(rangeStep({ id: 'fontScale' }), 0.05);
+  assert.equal(rangeStep({ id: 'x', step: 0 }), 0.05);
+  assert.equal(rangeStep(null), 0.05);
 });
 
 test('optionLabel names each posture and falls back to the raw value', () => {
