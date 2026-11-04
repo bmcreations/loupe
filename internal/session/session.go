@@ -44,6 +44,12 @@ type InitPayload struct {
 	// ProtocolVersion; once it speaks a range, the negotiated version has to
 	// reach buildInit per viewer.
 	Protocol int `json:"protocol"`
+	// StatusBar is the height of the device's status bar in the same pixels
+	// as CodedWidth and CodedHeight, in the current rotation. A viewer whose
+	// own screen has a different status bar lines the two up with it. Zero,
+	// and left out, when the target cannot say: Android targets report it
+	// (target.StatusBarReader), simulators and devices do not yet.
+	StatusBar int `json:"statusBar,omitempty"`
 }
 
 // MaxStaleness bounds how long a frame may sit between being queued for a
@@ -405,7 +411,42 @@ func Open(ctx context.Context, id string, t target.Target, opts target.Options) 
 	go s.pump()
 	s.watchClipboard(stream)
 	s.watchRelayed(stream)
+	go s.readStatusBar()
 	return s, nil
+}
+
+// readStatusBar asks the target how tall its status bar is and puts the
+// answer on init. It runs off the open path, since it costs an adb call, and
+// again after each resize, since a rotation changes the bar.
+func (s *Session) readStatusBar() {
+	r, ok := s.target.(target.StatusBarReader)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	bar, height, err := r.StatusBar(ctx)
+	if err != nil {
+		fmt.Printf("[session %s] no status bar height: %v\n", s.ID, err)
+		return
+	}
+	s.setStatusBar(bar, height)
+}
+
+// setStatusBar records a status bar of bar pixels on a display height pixels
+// tall, scaled to the coded picture, and resends init when that changes.
+func (s *Session) setStatusBar(bar, height int) {
+	if bar <= 0 || height <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	coded := (bar*s.init.CodedHeight + height/2) / height
+	if coded == s.init.StatusBar {
+		return
+	}
+	s.init.StatusBar = coded
+	s.sendInitLocked()
 }
 
 // Bounds on a viewer's fan-out channel. The floor keeps a low capture rate
@@ -1603,6 +1644,7 @@ func (s *Session) noteSize(meta target.Meta) {
 	if s.onResize != nil {
 		s.onResize(oldW, oldH, meta.Width, meta.Height)
 	}
+	go s.readStatusBar()
 }
 
 // resolveCodec derives the codec string from the stream's parameter sets and

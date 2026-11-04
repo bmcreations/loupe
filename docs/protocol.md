@@ -283,6 +283,7 @@ Fixture: `testdata/protocol/init.json`.
 | `maxBufferMs` | ceiling on the client's jitter buffer, a server setting because the operator is the one who knows the link |
 | `viewer` | this viewer's id, the one its own gestures carry as `Event.viewer`; every viewer is sent every event, its own included |
 | `protocol` | the session protocol version in use on this connection; see Versioning |
+| `statusBar` | the device's status bar height in coded pixels, in the current rotation; left out when the target cannot say (Android reports it, simulators and devices do not yet). Sent in a later init once read, and again after a rotation |
 
 Sent again, with new dimensions, on a rotation -- see `CLAUDE.md` trap 42. The
 client treats a changed `codedWidth`/`codedHeight` as grounds to resize the
