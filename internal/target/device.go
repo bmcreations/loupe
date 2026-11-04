@@ -30,6 +30,10 @@ type ADBTarget struct {
 	// one caller's change clobber the other's read.
 	settingsMu sync.Mutex
 
+	// hinge sends hingeAngle writes to an emulator, newest first. See
+	// hinge.go.
+	hinge hingeCoalescer
+
 	// kbMu guards hwKeyboard and streams. See adbkeyboard.go.
 	kbMu       sync.Mutex
 	hwKeyboard bool

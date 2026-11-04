@@ -163,3 +163,82 @@ func postureField(emu emuFunc) settingField {
 		},
 	}
 }
+
+// emuHingeSensor is the emulator's first hinge sensor. A Pixel Fold AVD has
+// one hinge (hw.sensor.hinge.count=1) and lists hinge-angle1 and 2 as
+// disabled in `sensor status`.
+const emuHingeSensor = "hinge-angle0"
+
+// hingeSensorRe reads `sensor get hinge-angle0`, which answers
+//
+//	hinge-angle0 = 120
+//	OK
+//
+// and a fraction (33.5) when one was set from elsewhere.
+var hingeSensorRe = regexp.MustCompile(`(?m)^` + emuHingeSensor + ` = (-?[0-9.]+)\s*$`)
+
+// parseHingeSensor reads the angle out of a `sensor get` reply. The console
+// does not clamp, so a value outside 0-180 set from elsewhere is passed
+// through as it is rather than failing the read.
+func parseHingeSensor(out string) (float64, error) {
+	m := hingeSensorRe.FindStringSubmatch(out)
+	if m == nil {
+		return 0, fmt.Errorf("sensor get %s: %s", emuHingeSensor, strings.TrimSpace(out))
+	}
+	return strconv.ParseFloat(m[1], 64)
+}
+
+func readHingeAngle(ctx context.Context, emu emuFunc) (float64, error) {
+	out, err := emu(ctx, "sensor", "get", emuHingeSensor)
+	if err != nil {
+		return 0, fmt.Errorf("emu sensor get: %w", err)
+	}
+	return parseHingeSensor(out)
+}
+
+// writeHingeAngle sets the hinge sensor and returns without waiting for the
+// device state to follow: on pixel_fold_hinge the console answered in about
+// 65ms and print-state had moved by the next read, except at the edge of a
+// band (179 read HALF_OPENED at once and OPENED half a second later). An
+// emulator with no hinge answers "KO: unknown sensor name", which is the
+// caller's mistake, not the device's.
+func writeHingeAngle(ctx context.Context, emu emuFunc, deg float64) error {
+	out, err := emu(ctx, "sensor", "set", emuHingeSensor, strconv.FormatFloat(deg, 'f', -1, 64))
+	if err != nil {
+		return fmt.Errorf("emu sensor set: %w", err)
+	}
+	reply := strings.TrimSpace(out)
+	if strings.HasPrefix(reply, "OK") {
+		return nil
+	}
+	if strings.Contains(reply, "unknown sensor name") {
+		return fmt.Errorf("%w: %s: this emulator has no hinge", ErrInvalidSetting, hingeAngleID)
+	}
+	return fmt.Errorf("emu sensor set: %s", reply)
+}
+
+// hingeAngleField is the hingeAngle row for an emulator, beside postureField.
+// Its rollback replays the angle read before the write, fraction and all.
+func hingeAngleField(emu emuFunc) settingField {
+	return settingField{
+		id:  hingeAngleID,
+		typ: SettingRange,
+		min: hingeAngleMin, max: hingeAngleMax, step: hingeAngleStep,
+		readRestore: func(ctx context.Context, _ shellFunc) (func(ctx context.Context, sh shellFunc) error, error) {
+			cur, err := readHingeAngle(ctx, emu)
+			if err != nil {
+				return nil, err
+			}
+			return func(ctx context.Context, _ shellFunc) error {
+				return writeHingeAngle(ctx, emu, cur)
+			}, nil
+		},
+		write: func(ctx context.Context, _ shellFunc, v any) error {
+			return writeHingeAngle(ctx, emu, v.(float64))
+		},
+		validate: func(_ settingField, v any) error {
+			_, err := parseHingeAngle(v)
+			return err
+		},
+	}
+}

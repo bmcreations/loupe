@@ -4716,6 +4716,9 @@
         "reason": {
           "type": "string"
         },
+        "step": {
+          "type": "number"
+        },
         "supported": {
           "type": "boolean"
         },
