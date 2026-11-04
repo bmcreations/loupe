@@ -24,7 +24,8 @@ func TestParseHingeAngle(t *testing.T) {
 }
 
 // A drag: one write goes out, five more queue behind it, and only the last
-// of the five is sent. The four it replaced return at once with no error.
+// of the five is sent. The four it replaced wait for that write and answer
+// with it, so none returns while the first write is still running.
 func TestHingeCoalescerSendsOnlyTheNewestQueuedAngle(t *testing.T) {
 	var c hingeCoalescer
 	var mu sync.Mutex
@@ -53,22 +54,21 @@ func TestHingeCoalescerSendsOnlyTheNewestQueuedAngle(t *testing.T) {
 		// Each queues before the next, so the order is the drag's.
 		waitQueued(t, &c, deg)
 	}
-	for i := 0; i < 4; i++ {
+	for i, ch := range results {
 		select {
-		case err := <-results[i]:
-			if err != nil {
-				t.Fatalf("superseded Set %d: %v", i, err)
-			}
-		case <-time.After(time.Second):
-			t.Fatalf("superseded Set %d still waiting", i)
+		case err := <-ch:
+			t.Fatalf("Set %d answered %v before anything was sent in its place", i, err)
+		default:
 		}
 	}
 	close(release)
 	if err := <-first; err != nil {
 		t.Fatal(err)
 	}
-	if err := <-results[4]; err != nil {
-		t.Fatal(err)
+	for i, ch := range results {
+		if err := <-ch; err != nil {
+			t.Fatalf("Set %d: %v", i, err)
+		}
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -162,35 +162,84 @@ func setErr(c *hingeCoalescer, ctx context.Context, deg int, apply func(context.
 	return err
 }
 
-// A replaced Set reports the angle that replaced it, not its own: it was
-// never sent.
-func TestHingeCoalescerReportsTheAngleSentInItsPlace(t *testing.T) {
-	var c hingeCoalescer
-	started, release := make(chan struct{}, 3), make(chan struct{})
-	apply := func(context.Context, int) error { started <- struct{}{}; <-release; return nil }
-	type result struct {
-		sent int
-		err  error
+type hingeResult struct {
+	sent int
+	err  error
+}
+
+// coalescerUnderTest runs Sets on c whose apply records the angle and holds
+// the first write until release is closed. Every later write returns
+// failWith.
+func coalescerUnderTest(t *testing.T, c *hingeCoalescer, failWith error) (set func(deg int) chan hingeResult, release func(), sent func() []int) {
+	var mu sync.Mutex
+	var got []int
+	started, hold := make(chan struct{}), make(chan struct{})
+	apply := func(_ context.Context, deg int) error {
+		mu.Lock()
+		got = append(got, deg)
+		n := len(got)
+		mu.Unlock()
+		if n == 1 {
+			close(started)
+			<-hold
+			return nil
+		}
+		return failWith
 	}
-	set := func(deg int) chan result {
-		ch := make(chan result, 1)
-		go func() { s, err := c.Set(t.Context(), deg, apply); ch <- result{s, err} }()
+	set = func(deg int) chan hingeResult {
+		ch := make(chan hingeResult, 1)
+		go func() { s, err := c.Set(t.Context(), deg, apply); ch <- hingeResult{s, err} }()
 		return ch
 	}
 	first := set(10)
 	<-started
-	second := set(20)
+	t.Cleanup(func() {
+		if r := <-first; r.err != nil || r.sent != 10 {
+			t.Errorf("first Set = %+v", r)
+		}
+	})
+	return set, func() { close(hold) }, func() []int {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(got)
+	}
+}
+
+// A chain of replacements, 20 by 30 by 40 while 10 is going out: 30 is
+// never sent, so all three answer 40, the one that was.
+func TestHingeCoalescerReportsTheAngleSentInItsPlace(t *testing.T) {
+	var c hingeCoalescer
+	set, release, sent := coalescerUnderTest(t, &c, nil)
+	var chain []chan hingeResult
+	for _, deg := range []int{20, 30, 40} {
+		chain = append(chain, set(deg))
+		waitQueued(t, &c, deg)
+	}
+	release()
+	for i, ch := range chain {
+		if r := <-ch; r.err != nil || r.sent != 40 {
+			t.Fatalf("Set %d = %+v, want sent 40", 20+i*10, r)
+		}
+	}
+	if got := sent(); !slices.Equal(got, []int{10, 40}) {
+		t.Fatalf("sent %v, want [10 40]", got)
+	}
+}
+
+// A replaced Set does not answer 200 for a write that failed in its place:
+// it gets that write's error.
+func TestHingeCoalescerReportsTheReplacingWritesError(t *testing.T) {
+	var c hingeCoalescer
+	boom := errors.New("console gone")
+	set, release, _ := coalescerUnderTest(t, &c, boom)
+	replaced := set(20)
 	waitQueued(t, &c, 20)
-	third := set(30)
+	replacing := set(30)
 	waitQueued(t, &c, 30)
-	if r := <-second; r.err != nil || r.sent != 30 {
-		t.Fatalf("replaced Set = %+v, want sent 30", r)
-	}
-	close(release)
-	if r := <-first; r.err != nil || r.sent != 10 {
-		t.Fatalf("first Set = %+v", r)
-	}
-	if r := <-third; r.err != nil || r.sent != 30 {
-		t.Fatalf("third Set = %+v", r)
+	release()
+	for name, ch := range map[string]chan hingeResult{"replaced": replaced, "replacing": replacing} {
+		if r := <-ch; !errors.Is(r.err, boom) {
+			t.Fatalf("%s Set = %+v, want %v", name, r, boom)
+		}
 	}
 }

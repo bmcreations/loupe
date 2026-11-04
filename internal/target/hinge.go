@@ -47,9 +47,10 @@ func HingeSetting(deg float64) Setting { return hingeSetting(deg) }
 
 // HingeWriter is a DeviceSettings that can write hingeAngle alone and say
 // which angle went to the device, so a PUT can answer without reading every
-// setting back. sent is the PUT's own angle, or the newer one that replaced
-// it in the queue. Errors are ApplySettings': ErrInvalidSetting before
-// anything is sent, ErrDeviceUnreachable, or the write's own failure.
+// setting back. sent is the PUT's own angle, or that of the newer write
+// that ran in its place. Errors are ApplySettings': ErrInvalidSetting before
+// anything is sent, ErrDeviceUnreachable, or the failure of the write that
+// ran.
 type HingeWriter interface {
 	WriteHingeAngle(ctx context.Context, v any) (sent int, err error)
 }
@@ -80,9 +81,10 @@ var ErrStillSending = errors.New("still sending")
 // hingeCoalescer sends writes that move one target's hinge, newest first:
 // hingeAngle and posture alike, so the two go out in the order they arrive
 // and a posture's settle wait is never cut into by a slider. A Set that
-// arrives while a write is running replaces whatever was queued behind it;
-// the replaced Set returns nil at once, since what it asked for is already
-// stale and the newer write is on its way. The zero value is ready.
+// arrives while a write is running replaces whatever was queued behind it.
+// The replaced Set waits for the write that runs in its place and answers
+// with that write's angle and error, so it never reports an angle that was
+// not sent. The zero value is ready.
 type hingeCoalescer struct {
 	mu      sync.Mutex
 	running bool
@@ -94,24 +96,29 @@ type hingeWrite struct {
 	apply func(ctx context.Context, deg int) error
 	done  chan struct{}
 	err   error
-	// sent is the angle going to the device in this write's place: its
-	// own, or the newer write's that replaced it.
+	// sent is the angle that went to the device in this write's place: its
+	// own, or that of the newer write that replaced it.
 	sent int
+	// replaced are the queued writes this one replaced, directly or through
+	// the writes it replaced. They finish when this one does.
+	replaced []*hingeWrite
 }
 
-// Set queues a write of deg and waits for it to reach the device, or to be
-// replaced by a newer one, or for ctx to end. apply runs on a goroutine of
+// Set queues a write of deg and waits for it, or the newer write that
+// replaced it, to finish, or for ctx to end. apply runs on a goroutine of
 // its own under hingeWriteTimeout, one write at a time per coalescer. A
 // posture write passes its posture's angle as deg.
 //
-// sent is the angle going to the device for this call: deg, or the angle of
-// the write that replaced it. It is valid only when err is nil.
+// sent is the angle that went to the device for this call: deg, or the
+// angle of the write that ran in its place. err is that write's. sent is
+// valid only when err is nil.
 func (c *hingeCoalescer) Set(ctx context.Context, deg int, apply func(ctx context.Context, deg int) error) (sent int, err error) {
 	w := &hingeWrite{deg: deg, apply: apply, done: make(chan struct{}), sent: deg}
 	c.mu.Lock()
 	if prev := c.queued; prev != nil {
-		prev.sent = deg
-		close(prev.done) // superseded: err stays nil
+		// prev never runs. Its callers wait for w instead.
+		w.replaced = append(prev.replaced, prev)
+		prev.replaced = nil
 	}
 	c.queued = w
 	if !c.running {
@@ -139,9 +146,12 @@ func (c *hingeCoalescer) drain() {
 		}
 		c.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), hingeWriteTimeout)
-		w.err = w.apply(ctx, w.deg)
+		err := w.apply(ctx, w.deg)
 		cancel()
-		close(w.done)
+		for _, r := range append(w.replaced, w) {
+			r.sent, r.err = w.deg, err
+			close(r.done)
+		}
 	}
 }
 

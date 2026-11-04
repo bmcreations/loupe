@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -224,6 +225,74 @@ done
 	}
 	if got, _ := s.Settings(ctx); got[0].Value != "opened" || got[1].Value != 120.0 {
 		t.Fatalf("posture %v, hingeAngle %v", got[0].Value, got[1].Value)
+	}
+}
+
+// A posture PUT replaced in the queue by a newer angle is never sent, so it
+// waits for that angle's write and answers with its error, not a 200.
+func TestDuoReplacedPostureAnswersWithTheWriteThatRan(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "simcap")
+	// hinge 0 holds the queue for half a second; hinge 99 fails.
+	script := `#!/bin/sh
+p=opened
+while read -r line; do
+  case "$line" in
+    route) echo "ok hub" ;;
+    panels) echo "ok 2" ;;
+    posture) echo "ok $p" ;;
+    hinge\ *) n=${line#hinge }; echo "$n" >> "$(dirname "$0")/hinges"
+      if [ "$n" -eq 0 ]; then sleep 0.5; p=closed; echo ok
+      elif [ "$n" -eq 99 ]; then echo "err stuck"
+      else p=opened; echo ok; fi ;;
+    *) echo "err unknown" ;;
+  esac
+done
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := NewSimulator(SimInfo{UDID: "u", Name: "loupe-duo", State: "Booted"}, bin)
+	defer s.input().close()
+	ctx := t.Context()
+	if _, err := s.Settings(ctx); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		failed []string
+		err    error
+	}
+	put := func(changes map[string]any) chan result {
+		ch := make(chan result, 1)
+		go func() { f, _, err := s.ApplySettings(ctx, changes); ch <- result{f, err} }()
+		return ch
+	}
+
+	closed := put(map[string]any{"posture": "closed"})
+	hinges := filepath.Join(dir, "hinges")
+	deadline := time.Now().Add(3 * time.Second)
+	for b, _ := os.ReadFile(hinges); string(b) != "0\n"; b, _ = os.ReadFile(hinges) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the first posture's hinge never went out: %q", b)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	opened := put(map[string]any{"posture": "opened"})
+	waitQueued(t, &s.hinge, simHingeDegrees["opened"])
+	angle := put(map[string]any{hingeAngleID: 99.0})
+	waitQueued(t, &s.hinge, 99)
+
+	if r := <-closed; r.err != nil {
+		t.Fatalf("closed: %v", r.err)
+	}
+	if r := <-angle; r.err == nil || !slices.Equal(r.failed, []string{hingeAngleID}) {
+		t.Fatalf("hingeAngle = %+v, want it failed", r)
+	}
+	if r := <-opened; r.err == nil || !strings.Contains(r.err.Error(), "stuck") || !slices.Equal(r.failed, []string{"posture"}) {
+		t.Fatalf("replaced posture = %+v, want failed [posture] with the angle's error", r)
+	}
+	if b, _ := os.ReadFile(hinges); string(b) != "0\n99\n" {
+		t.Fatalf("simcap was sent %q, want the replaced posture's 180 left out", b)
 	}
 }
 

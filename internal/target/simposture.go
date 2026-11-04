@@ -233,7 +233,7 @@ func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (
 	// The posture goes through the same coalescer as hingeAngle, settle wait
 	// and all, so a slider angle queued behind it waits for it, and one
 	// queued before it is replaced by it. A posture replaced by a newer
-	// angle answers as a replaced angle does.
+	// angle answers as a replaced angle does: with that angle's write.
 	if _, err := s.hinge.Set(ctx, simHingeDegrees[want], func(ctx context.Context, deg int) error {
 		return s.setPosture(ctx, want, deg)
 	}); err != nil {

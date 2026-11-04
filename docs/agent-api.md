@@ -602,11 +602,12 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
   180; Duo: closed 0, opened 180).
 - A `hingeAngle` write does not wait for the posture to follow, so a slider can
   send one per tick. Writes to one target are coalesced: while one is going to
-  the device, only the newest angle queued behind it is sent, and the
-  superseded `PUT`s answer 200 at once. A superseded `PUT`'s full body is a
-  fresh read, so it can show an older angle still on its way. A client
-  should keep its own value rather than move its slider to that one. If the
-  newer write then fails, the superseded `PUT` has still answered 200.
+  the device, only the newest write queued behind it is sent. A superseded
+  `PUT`, `posture` included, waits for the write sent in its place and
+  answers with it: 200 once it reached the device, or that write's error.
+  Its full body is read after that write, so it shows the newer angle, not
+  the `PUT`'s own. A client should keep its own value rather than move its
+  slider to that one.
 - The server keeps the newest `PUT` to arrive, not the newest sent. A client
   should keep one `PUT` in flight and send only its latest angle when that one
   returns. Parallel `PUT`s on separate connections can arrive out of order and
@@ -614,8 +615,8 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
 - A hinge-only `PUT` with `Prefer: return=minimal` answers
   `{"settings": [<hingeAngle row>]}` and skips reading every setting back,
   with `Preference-Applied: return=minimal`. The row's `value` is the angle
-  going to the device: the `PUT`'s own, or, for a superseded `PUT`, the newer
-  angle that replaced it, which a still newer `PUT` can replace in turn.
+  that went to the device: the `PUT`'s own, or, for a superseded `PUT`, the
+  angle of the write sent in its place.
   `posture` is not in it; `GET` for that. Without the
   header, or with any other setting in the `PUT`, the answer is the whole
   list. A client that replaces its list with the response, as the browser
