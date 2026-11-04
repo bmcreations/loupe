@@ -1402,6 +1402,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -1414,6 +1427,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -1449,6 +1465,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -1491,6 +1510,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -1503,6 +1535,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -1538,6 +1573,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -1579,6 +1617,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -1591,6 +1642,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -1626,6 +1680,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -1670,6 +1727,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -1682,6 +1752,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -1717,6 +1790,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -1760,6 +1836,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -1772,6 +1861,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -1807,6 +1899,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -1848,6 +1943,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -1860,6 +1968,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -1895,6 +2006,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -1936,6 +2050,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -1948,6 +2075,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -1983,6 +2113,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -2024,6 +2157,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -2036,6 +2182,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -2071,6 +2220,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -2111,6 +2263,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -2123,6 +2288,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -2158,6 +2326,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -2198,6 +2369,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -2210,6 +2394,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -2245,6 +2432,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -2286,6 +2476,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -2298,6 +2501,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -2333,6 +2539,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -2374,6 +2583,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -2386,6 +2608,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -2421,6 +2646,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -2462,6 +2690,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -2474,6 +2715,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -2509,6 +2753,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -2551,6 +2798,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -2563,6 +2823,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -2598,6 +2861,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "until": {
+              "type": "string"
             },
             "url": {
               "type": "string"
@@ -2639,6 +2905,19 @@
               ],
               "type": "string"
             },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "keycode": {
               "type": "integer"
             },
@@ -2651,6 +2930,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "max": {
+              "type": "integer"
             },
             "ms": {
               "type": "integer"
@@ -2687,6 +2969,9 @@
                 }
               ]
             },
+            "until": {
+              "type": "string"
+            },
             "url": {
               "type": "string"
             },
@@ -2708,11 +2993,121 @@
             "match"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "action": {
+              "const": "scroll"
+            },
+            "activity": {
+              "type": "string"
+            },
+            "button": {
+              "enum": [
+                "back",
+                "home",
+                "lock",
+                "recents"
+              ],
+              "type": "string"
+            },
+            "direction": {
+              "type": "string"
+            },
+            "find": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "keycode": {
+              "type": "integer"
+            },
+            "match": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/target.Match"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "max": {
+              "type": "integer"
+            },
+            "ms": {
+              "type": "integer"
+            },
+            "on": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "package": {
+              "type": "string"
+            },
+            "scale": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "text": {
+              "type": "string"
+            },
+            "to": {
+              "anyOf": [
+                {
+                  "maximum": 3,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "until": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "x": {
+              "type": "integer"
+            },
+            "x2": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "y2": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "action",
+            "direction"
+          ],
+          "type": "object"
         }
       ]
     },
     "httpapi.InputResponse": {
       "properties": {
+        "atEdge": {
+          "type": "boolean"
+        },
         "matched": {
           "anyOf": [
             {
@@ -2725,6 +3120,24 @@
         },
         "ok": {
           "type": "boolean"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "swipes": {
+          "type": "integer"
         }
       },
       "required": [

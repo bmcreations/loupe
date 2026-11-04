@@ -38,6 +38,7 @@ var toolRoutes = []toolRoute{
 	{"point", http.MethodPost, "/api/input"},
 	{"tap", http.MethodPost, "/api/input"},
 	{"swipe", http.MethodPost, "/api/input"},
+	{"scroll", http.MethodPost, "/api/input"},
 	{"type_text", http.MethodPost, "/api/input"},
 	{"key", http.MethodPost, "/api/input"},
 	{"button", http.MethodPost, "/api/input"},
@@ -106,7 +107,7 @@ func (in tapIn) request() httpapi.InputRequest {
 // pointers so a 0 is sent rather than dropped, which the server would read
 // as a missing field.
 type stepIn struct {
-	Action   string        `json:"action" jsonschema:"tap, swipe, text, key, button, launch, openURL, move or wait"`
+	Action   string        `json:"action" jsonschema:"tap, swipe, scroll, text, key, button, launch, openURL, move or wait"`
 	X        *int          `json:"x,omitempty" jsonschema:"device pixels: tap, swipe start, move"`
 	Y        *int          `json:"y,omitempty" jsonschema:"device pixels"`
 	X2       *int          `json:"x2,omitempty" jsonschema:"swipe end, device pixels"`
@@ -119,6 +120,11 @@ type stepIn struct {
 	Activity string        `json:"activity,omitempty"`
 	URL      string        `json:"url,omitempty" jsonschema:"openURL: the URL"`
 	Match    *target.Match `json:"match,omitempty" jsonschema:"tap or wait: the node by id, text or desc instead of x and y; a wait with a match waits for the node to appear, 10s unless waitMs says otherwise"`
+	// The scroll fields; see scrollIn.
+	Direction string        `json:"direction,omitempty" jsonschema:"scroll: up, down, left or right, toward the content to reveal"`
+	Until     string        `json:"until,omitempty" jsonschema:"scroll: edge to keep going to the top, bottom or end"`
+	Find      *target.Match `json:"find,omitempty" jsonschema:"scroll: keep going until this node is on screen"`
+	Max       *int          `json:"max,omitempty" jsonschema:"scroll: at most this many strokes"`
 }
 
 type sequenceIn struct {
@@ -133,6 +139,17 @@ type swipeIn struct {
 	X2 int `json:"x2" jsonschema:"end, device pixels"`
 	Y2 int `json:"y2" jsonschema:"end, device pixels"`
 	Ms int `json:"ms,omitempty" jsonschema:"duration; a short one is a fling and scrolls further than asked"`
+}
+
+type scrollIn struct {
+	Targeted
+	Direction string        `json:"direction" jsonschema:"up, down, left or right: the way you want to go, as a person says it; down shows what is below"`
+	Until     string        `json:"until,omitempty" jsonschema:"edge: keep scrolling until the list stops moving, which takes you to its top, bottom or end in one call"`
+	Find      *target.Match `json:"find,omitempty" jsonschema:"keep scrolling until this node (by id, text or desc) is on screen, and answer with it; a 404 noMatch means the list ended first"`
+	X         int           `json:"x,omitempty" jsonschema:"a point inside the list to scroll, device pixels; omit for the largest scrollable on screen"`
+	Y         int           `json:"y,omitempty" jsonschema:"device pixels"`
+	Max       int           `json:"max,omitempty" jsonschema:"at most this many strokes, up to 30; default 1, or 20 with until or find"`
+	Ms        int           `json:"ms,omitempty" jsonschema:"stroke duration; the default suits the mode"`
 }
 
 type textIn struct {
@@ -250,6 +267,10 @@ func addTools(s *mcp.Server, c *Client) {
 	addInput(s, c, "swipe", "Drag from one point to another, in device pixels."+driving,
 		func(in swipeIn) (string, httpapi.InputRequest) {
 			return in.Target, httpapi.InputRequest{Action: "swipe", X: in.X, Y: in.Y, X2: in.X2, Y2: in.Y2, Ms: in.Ms}
+		})
+	addInput(s, c, "scroll", "Scroll a list the way a person does, and know when it has stopped. The server swipes inside the list, reads the screen again, and answers swipes and atEdge: atEdge true means the last stroke moved nothing, so the list is already at its top, bottom or end -- do not scroll that way again. until=edge goes straight to the top or bottom in one call; find scrolls until a node is on screen and answers with it. Use this instead of swipe and a screenshot to page through anything."+driving,
+		func(in scrollIn) (string, httpapi.InputRequest) {
+			return in.Target, httpapi.InputRequest{Action: "scroll", Direction: in.Direction, Until: in.Until, Find: in.Find, X: in.X, Y: in.Y, Max: in.Max, Ms: in.Ms}
 		})
 	addInput(s, c, "type_text", "Type text into the focused field."+driving,
 		func(in textIn) (string, httpapi.InputRequest) {

@@ -31,7 +31,7 @@ import (
 // requires it not fall through to the "unknown action" branch -- so an
 // action added to the switch and forgotten here fails a test rather than
 // silently shipping a schema an agent's generated client cannot see.
-var InputActions = []string{"tap", "swipe", "pinch", "text", "key", "button", "rotate", "reclaim", "hardwareKeyboard", "launch", "openURL", "move", "wait"}
+var InputActions = []string{"tap", "swipe", "pinch", "text", "key", "button", "rotate", "reclaim", "hardwareKeyboard", "launch", "openURL", "move", "wait", "scroll"}
 
 // InputRequiredFields names the JSON fields handleInput requires present --
 // not merely non-zero, since x=0 and keycode=0 are both coordinates and
@@ -64,6 +64,8 @@ var InputRequiredFields = map[string][]string{
 	// A wait with ms pauses that long; with a match instead it waits for
 	// the node to appear (InputMatchFields).
 	"wait": {"ms"},
+	// x and y are optional: they pick which scrollable a scroll drags in.
+	"scroll": {"direction"},
 }
 
 // InputMatchFields names the actions that can find their point in the view
@@ -348,6 +350,15 @@ type InputRequest struct {
 	// point. handleInput dumps the view hierarchy, taps the one node it
 	// names at its center, and answers with that node. See InputMatchFields.
 	Match *target.Match `json:"match,omitempty"`
+	// Direction is a scroll's heading, toward the content it reveals: up,
+	// down, left or right. See handleScroll.
+	Direction string `json:"direction,omitempty"`
+	// Until "edge" keeps a scroll going until the list stops moving.
+	Until string `json:"until,omitempty"`
+	// Find keeps a scroll going until this node is on screen.
+	Find *target.Match `json:"find,omitempty"`
+	// Max bounds a scroll's swipes: 1 by default, 20 with until or find.
+	Max int `json:"max,omitempty"`
 }
 
 // InputResponse is POST /api/input's 200. Matched is the node a tap with a
@@ -355,6 +366,13 @@ type InputRequest struct {
 type InputResponse struct {
 	OK      bool         `json:"ok"`
 	Matched *target.Node `json:"matched,omitempty"`
+	// Swipes, AtEdge and Region answer a scroll: the strokes it made,
+	// whether the last one moved nothing because the list was already at
+	// its edge, and the rectangle it dragged in and watched. A found node
+	// is in Matched.
+	Swipes int     `json:"swipes,omitempty"`
+	AtEdge bool    `json:"atEdge,omitempty"`
+	Region *[4]int `json:"region,omitempty"`
 }
 
 // validateInputRequest checks that body -- the raw request bytes, decoded
@@ -513,6 +531,11 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 		s.traceAgent(r, t.ID(), "wait", nil)
 		writeJSON(w, http.StatusOK, InputResponse{OK: true, Matched: matched})
+		return
+	case "scroll":
+		// A scroll is made of swipes, each sent back through this handler
+		// and arbitrated on its own, so the scroll itself is not.
+		s.handleScroll(w, r, t, req)
 		return
 	}
 
