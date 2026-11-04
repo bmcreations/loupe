@@ -125,6 +125,20 @@ func (p *Pacer) observeBase(rtt time.Duration) {
 // A zero rtt means the client has not reported yet; the pacer holds steady
 // rather than guessing.
 func (p *Pacer) Observe(rtt time.Duration) {
+	p.observe(rtt, true)
+}
+
+// ObserveRepeat takes a sample the pacer has already been given, such as the
+// client's last report re-read for the next frame. It still recovers, but it
+// does not back off again: the client reports once a second and a viewer sends
+// about 60 frames in that second, so backing off on each re-read turned one
+// late report into 60 backoffs. At 12:08:28 on 4 November one 406ms report
+// took keep to its floor, and the viewer shed for two seconds after it.
+func (p *Pacer) ObserveRepeat(rtt time.Duration) {
+	p.observe(rtt, false)
+}
+
+func (p *Pacer) observe(rtt time.Duration, fresh bool) {
 	if rtt <= 0 {
 		return
 	}
@@ -133,6 +147,9 @@ func (p *Pacer) Observe(rtt time.Duration) {
 
 	switch {
 	case excess > targetExcess:
+		if !fresh {
+			return
+		}
 		// Scale the backoff by how far over we are, so a 3s backlog collapses
 		// the stream quickly while a slightly-over one barely moves.
 		over := float64(excess-targetExcess) / float64(targetExcess)
