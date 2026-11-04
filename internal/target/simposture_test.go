@@ -159,3 +159,61 @@ func TestShutDownSimulatorHasNoSettings(t *testing.T) {
 		t.Fatal("a shut-down simulator claimed device settings")
 	}
 }
+
+// A Duo posture write and a slider angle that arrives during it go out in
+// order: the posture's hinge and settle wait first, then the angle. The
+// fake's panel lags a fold by one read, so the posture polls at least
+// twice, and an angle sent outside the coalescer would reach simcap
+// between the polls and open the panel under the posture's settle wait.
+func TestDuoHingeAngleWaitsForAPostureInFlight(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "simcap")
+	script := `#!/bin/sh
+p=opened
+while read -r line; do
+  case "$line" in
+    route) echo "ok hub" ;;
+    panels) echo "ok 2" ;;
+    posture) if [ "$lag" = 1 ]; then lag=0; echo "ok opened"; else echo "ok $p"; fi ;;
+    hinge\ *) n=${line#hinge }; echo "$n" >> "$(dirname "$0")/hinges"
+      if [ "$n" -eq 0 ]; then p=closed; lag=1; elif [ "$n" -ge 100 ]; then p=opened; fi; echo ok ;;
+    *) echo "err unknown" ;;
+  esac
+done
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := NewSimulator(SimInfo{UDID: "u", Name: "loupe-duo", State: "Booted"}, bin)
+	defer s.input().close()
+	ctx := t.Context()
+	if _, err := s.Settings(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	posture := make(chan error, 1)
+	go func() {
+		_, _, err := s.ApplySettings(ctx, map[string]any{"posture": "closed"})
+		posture <- err
+	}()
+	hinges := filepath.Join(dir, "hinges")
+	deadline := time.Now().Add(3 * time.Second)
+	for b, _ := os.ReadFile(hinges); string(b) != "0\n"; b, _ = os.ReadFile(hinges) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the posture's hinge never went out: %q", b)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if failed, _, err := s.ApplySettings(ctx, map[string]any{hingeAngleID: 120.0}); err != nil || failed != nil {
+		t.Fatalf("hingeAngle: failed %v, %v", failed, err)
+	}
+	if err := <-posture; err != nil {
+		t.Fatalf("posture: %v", err)
+	}
+	if b, _ := os.ReadFile(hinges); string(b) != "0\n120\n" {
+		t.Fatalf("simcap was sent %q", b)
+	}
+	if got, _ := s.Settings(ctx); got[0].Value != "opened" || got[1].Value != 120.0 {
+		t.Fatalf("posture %v, hingeAngle %v", got[0].Value, got[1].Value)
+	}
+}

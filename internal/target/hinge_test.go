@@ -42,14 +42,14 @@ func TestHingeCoalescerSendsOnlyTheNewestQueuedAngle(t *testing.T) {
 	ctx := t.Context()
 
 	first := make(chan error, 1)
-	go func() { first <- c.Set(ctx, 10, apply) }()
+	go func() { first <- setErr(&c, ctx, 10, apply) }()
 	<-started
 
 	results := make([]chan error, 5)
 	for i := range results {
 		results[i] = make(chan error, 1)
 		deg := 20 + i*10
-		go func(ch chan error) { ch <- c.Set(ctx, deg, apply) }(results[i])
+		go func(ch chan error) { ch <- setErr(&c, ctx, deg, apply) }(results[i])
 		// Each queues before the next, so the order is the drag's.
 		waitQueued(t, &c, deg)
 	}
@@ -97,10 +97,10 @@ func waitQueued(t *testing.T, c *hingeCoalescer, deg int) {
 func TestHingeCoalescerReportsTheWriteError(t *testing.T) {
 	var c hingeCoalescer
 	boom := errors.New("console gone")
-	if err := c.Set(t.Context(), 90, func(context.Context, int) error { return boom }); !errors.Is(err, boom) {
+	if err := setErr(&c, t.Context(), 90, func(context.Context, int) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("err = %v", err)
 	}
-	if err := c.Set(t.Context(), 91, func(context.Context, int) error { return nil }); err != nil {
+	if err := setErr(&c, t.Context(), 91, func(context.Context, int) error { return nil }); err != nil {
 		t.Fatalf("after a failure: %v", err)
 	}
 }
@@ -112,12 +112,12 @@ func TestHingeCoalescerCallerContextEnds(t *testing.T) {
 	release := make(chan struct{})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	err := c.Set(ctx, 90, func(context.Context, int) error { <-release; return nil })
+	err := setErr(&c, ctx, 90, func(context.Context, int) error { <-release; return nil })
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	close(release)
-	if err := c.Set(t.Context(), 91, func(context.Context, int) error { return nil }); err != nil {
+	if err := setErr(&c, t.Context(), 91, func(context.Context, int) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -133,4 +133,9 @@ func TestSettingJSONKeepsARangesZeroMin(t *testing.T) {
 	if string(b) != want {
 		t.Fatalf("got  %s\nwant %s", b, want)
 	}
+}
+
+func setErr(c *hingeCoalescer, ctx context.Context, deg int, apply func(context.Context, int) error) error {
+	_, err := c.Set(ctx, deg, apply)
+	return err
 }

@@ -211,30 +211,43 @@ func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (
 		return nil, nil, fmt.Errorf("%w: %s has one panel", ErrInvalidSetting, s.Label())
 	}
 	if hinge >= 0 {
-		err := s.hinge.Set(ctx, hinge, s.sendHinge)
-		if err != nil {
+		if _, err := s.hinge.Set(ctx, hinge, s.sendHinge); err != nil {
 			return []string{hingeAngleID}, nil, err
 		}
 		return nil, nil, nil
 	}
-	if err := s.sendHinge(ctx, simHingeDegrees[want]); err != nil {
+	// The posture goes through the same coalescer as hingeAngle, settle wait
+	// and all, so a slider angle queued behind it waits for it, and one
+	// queued before it is replaced by it. A posture replaced by a newer
+	// angle answers as a replaced angle does.
+	if _, err := s.hinge.Set(ctx, simHingeDegrees[want], func(ctx context.Context, deg int) error {
+		return s.setPosture(ctx, want, deg)
+	}); err != nil {
 		return []string{"posture"}, nil, err
+	}
+	return nil, nil, nil
+}
+
+// setPosture sends a posture's angle and waits for the lit panel to follow.
+func (s *Simulator) setPosture(ctx context.Context, want string, deg int) error {
+	if err := s.sendHinge(ctx, deg); err != nil {
+		return err
 	}
 	deadline := time.Now().Add(simPostureSettle)
 	for {
 		got, err := s.readPosture(ctx)
 		if err != nil {
-			return []string{"posture"}, nil, err
+			return err
 		}
 		if got == want {
-			return nil, nil, nil
+			return nil
 		}
 		if time.Now().After(deadline) {
-			return []string{"posture"}, nil, fmt.Errorf("posture: still %s %s after the hinge moved", got, simPostureSettle)
+			return fmt.Errorf("posture: still %s %s after the hinge moved", got, simPostureSettle)
 		}
 		select {
 		case <-ctx.Done():
-			return []string{"posture"}, nil, ctx.Err()
+			return ctx.Err()
 		case <-time.After(150 * time.Millisecond):
 		}
 	}

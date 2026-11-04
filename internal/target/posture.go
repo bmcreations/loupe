@@ -24,6 +24,10 @@ type emuFunc func(ctx context.Context, args ...string) (string, error)
 // nothing while it stood.
 var postureEmuIDs = map[string]int{"closed": 1, "halfOpened": 2, "opened": 3}
 
+// postureEmuDegrees is the hinge angle each console posture moves the
+// sensor to, the angle a posture write is queued under.
+var postureEmuDegrees = map[string]int{"closed": 0, "halfOpened": 90, "opened": 180}
+
 // postureOrder is the order Options lists them in, closed to open.
 var postureOrder = []string{"closed", "halfOpened", "opened"}
 
@@ -132,7 +136,14 @@ var (
 // postureField is the posture row for an emulator. It is built per target
 // rather than listed in settingFields because its write goes through the
 // emulator console, which the shared table's fields have no way to reach.
-func postureField(emu emuFunc) settingField {
+// The write, settle wait included, goes through the target's hinge
+// coalescer, so a hingeAngle write cannot land in the middle of it.
+func postureField(emu emuFunc, hinge *hingeCoalescer) settingField {
+	set := func(ctx context.Context, sh shellFunc, posture string) error {
+		return moveHinge(ctx, hinge, postureEmuDegrees[posture], func(ctx context.Context, _ int) error {
+			return setPosture(ctx, sh, emu, posture)
+		})
+	}
 	return settingField{
 		id:  "posture",
 		typ: SettingEnum,
@@ -145,11 +156,11 @@ func postureField(emu emuFunc) settingField {
 				return nil, fmt.Errorf("the current device state has no posture to restore")
 			}
 			return func(ctx context.Context, sh shellFunc) error {
-				return setPosture(ctx, sh, emu, cur)
+				return set(ctx, sh, cur)
 			}, nil
 		},
 		write: func(ctx context.Context, sh shellFunc, v any) error {
-			return setPosture(ctx, sh, emu, v.(string))
+			return set(ctx, sh, v.(string))
 		},
 		validate: func(_ settingField, v any) error {
 			s, ok := v.(string)
@@ -219,7 +230,13 @@ func writeHingeAngle(ctx context.Context, emu emuFunc, deg float64) error {
 
 // hingeAngleField is the hingeAngle row for an emulator, beside postureField.
 // Its rollback replays the angle read before the write, fraction and all.
-func hingeAngleField(emu emuFunc) settingField {
+// Both go through the target's hinge coalescer, as the fast path does.
+func hingeAngleField(emu emuFunc, hinge *hingeCoalescer) settingField {
+	set := func(ctx context.Context, deg float64) error {
+		return moveHinge(ctx, hinge, int(deg), func(ctx context.Context, _ int) error {
+			return writeHingeAngle(ctx, emu, deg)
+		})
+	}
 	return settingField{
 		id:  hingeAngleID,
 		typ: SettingRange,
@@ -230,11 +247,11 @@ func hingeAngleField(emu emuFunc) settingField {
 				return nil, err
 			}
 			return func(ctx context.Context, _ shellFunc) error {
-				return writeHingeAngle(ctx, emu, cur)
+				return set(ctx, cur)
 			}, nil
 		},
 		write: func(ctx context.Context, _ shellFunc, v any) error {
-			return writeHingeAngle(ctx, emu, v.(float64))
+			return set(ctx, v.(float64))
 		},
 		validate: func(_ settingField, v any) error {
 			_, err := parseHingeAngle(v)

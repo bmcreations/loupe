@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // foldADB is an adb stand-in for an emulator: print-states answers states,
@@ -123,4 +124,73 @@ func TestApplyHingeAngleFastPath(t *testing.T) {
 			t.Fatalf("failed %v, err %v", failed, err)
 		}
 	})
+}
+
+// A hingeAngle write that arrives while a posture write is on the console
+// waits for the posture to settle, then lands: the device ends at the angle,
+// the newer of the two, and the posture PUT is not cut into.
+func TestHingeAngleWaitsForAPostureInFlight(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "state"), []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "states"), []byte(foldStates), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path, argvFile := fakeADB(t, `d='`+dir+`'
+case "$*" in
+  *print-states) cat "$d/states" ;;
+  *print-state) cat "$d/state" ;;
+  *"emu posture 3") sleep 0.3; echo 2 > "$d/state"; echo OK ;;
+  *"emu sensor set hinge-angle0 "*) for n in "$@"; do :; done; if [ "$n" -lt 30 ]; then echo 0 > "$d/state"; fi; echo OK ;;
+esac
+`)
+	tgt := NewADBTarget(ADB{Path: path}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	ctx := context.Background()
+
+	posture := make(chan error, 1)
+	go func() {
+		_, _, err := tgt.ApplySettings(ctx, map[string]any{"posture": "opened"})
+		posture <- err
+	}()
+	waitForLine(t, argvFile, " emu posture 3")
+	if _, _, err := tgt.ApplySettings(ctx, map[string]any{hingeAngleID: 10.0}); err != nil {
+		t.Fatalf("hingeAngle: %v", err)
+	}
+	if err := <-posture; err != nil {
+		t.Fatalf("posture: %v", err)
+	}
+
+	argv := readArgv(t, argvFile)
+	lastState, set := -1, -1
+	for i, l := range argv {
+		if strings.HasSuffix(l, " print-state") {
+			lastState = i
+		}
+		if strings.HasSuffix(l, " emu sensor set hinge-angle0 10") {
+			set = i
+		}
+	}
+	if set < lastState {
+		t.Fatalf("the angle went out during the posture's settle wait:\n%s", strings.Join(argv, "\n"))
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "state")); strings.TrimSpace(string(b)) != "0" {
+		t.Fatalf("device state %q, want 0: the posture landed after the newer angle", b)
+	}
+}
+
+func waitForLine(t *testing.T, file, suffix string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if b, err := os.ReadFile(file); err == nil {
+			for _, l := range strings.Split(string(b), "\n") {
+				if strings.HasSuffix(l, suffix) {
+					return
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("%q never ran", suffix)
 }

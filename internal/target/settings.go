@@ -210,6 +210,9 @@ type androidSettings struct {
 	sh       shellFunc
 	emu      emuFunc
 	foldable func(ctx context.Context) (bool, error)
+	// hinge orders posture and hingeAngle writes against the fast path's.
+	// Nil runs them at once.
+	hinge *hingeCoalescer
 }
 
 // requireFold refuses a hingeAngle write on an emulator with no postures to
@@ -260,7 +263,7 @@ func (a *androidSettings) fields() []settingField {
 	if a.emu == nil {
 		return settingFields
 	}
-	return append(append([]settingField(nil), settingFields...), postureField(a.emu), hingeAngleField(a.emu))
+	return append(append([]settingField(nil), settingFields...), postureField(a.emu, a.hinge), hingeAngleField(a.emu, a.hinge))
 }
 
 // Settings reads current device state. It does not lock ADBTarget's
@@ -305,7 +308,7 @@ func (t *ADBTarget) applyHingeAngle(ctx context.Context, a *androidSettings, v a
 	if err := a.requireFold(ctx); err != nil {
 		return nil, nil, err
 	}
-	err = t.hinge.Set(ctx, deg, func(ctx context.Context, deg int) error {
+	_, err = t.hinge.Set(ctx, deg, func(ctx context.Context, deg int) error {
 		return writeHingeAngle(ctx, a.emu, float64(deg))
 	})
 	if err != nil {
@@ -338,6 +341,7 @@ func newAndroidSettings(t *ADBTarget) *androidSettings {
 			return t.adb.Emu(ctx, t.info.Serial, args...)
 		}
 		a.foldable = t.foldable
+		a.hinge = &t.hinge
 	}
 	return a
 }
