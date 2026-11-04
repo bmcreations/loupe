@@ -257,3 +257,33 @@ func TestPacerIgnoresMissingMeasurement(t *testing.T) {
 		t.Errorf("a missing measurement changed keep from %v to %v", before, p.Keep())
 	}
 }
+
+// One late client report, re-read for each of the 60 frames sent before the
+// next report, backs off once. Re-reading it used to back off on every frame
+// and took keep to the floor from a single 406ms sample.
+func TestPacerBacksOffOncePerReport(t *testing.T) {
+	p, advance := testPacer()
+	observeFor(p, advance, 2*time.Second, 5*time.Millisecond)
+
+	p.Observe(406 * time.Millisecond)
+	once := p.keep
+	for i := 0; i < 59; i++ {
+		p.ObserveRepeat(406 * time.Millisecond)
+	}
+	if p.keep != once {
+		t.Fatalf("repeats of one report moved keep from %.3f to %.3f", once, p.keep)
+	}
+	if once < 0.7 {
+		t.Fatalf("one late report took keep to %.3f, want one backoff step", once)
+	}
+
+	// A good report re-read recovers as before.
+	p.Observe(5 * time.Millisecond)
+	before := p.keep
+	for i := 0; i < 10; i++ {
+		p.ObserveRepeat(5 * time.Millisecond)
+	}
+	if p.keep <= before {
+		t.Fatalf("repeats of a good report did not recover: %.3f -> %.3f", before, p.keep)
+	}
+}

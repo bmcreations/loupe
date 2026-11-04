@@ -407,7 +407,8 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		// measurements or on the phone's reports.
 		rttSource := "none"
 		// pathRTT gathers the two signals and applies pickRTT to them.
-		pathRTT := func() time.Duration {
+		var lastClientAt time.Time
+		pathRTT := func() (time.Duration, bool) {
 			var quicRTT time.Duration
 			if pr, ok := conn.(interface{ PathRTT() time.Duration }); ok {
 				quicRTT = pr.PathRTT()
@@ -421,7 +422,13 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 			}
 			var rtt time.Duration
 			rtt, rttSource = pickRTT(quicRTT, ms, age)
-			return rtt
+			// A transport rtt is measured continuously; a client one is the
+			// same report until the next arrives.
+			fresh := rttSource != "client" || !at.Equal(lastClientAt)
+			if rttSource == "client" {
+				lastClientAt = at
+			}
+			return rtt, fresh
 		}
 
 		// checkPeerWindow asks the client to move to a fresh connection when
@@ -471,7 +478,11 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					continue
 				}
 
-				pacer.Observe(pathRTT())
+				if rtt, fresh := pathRTT(); fresh {
+					pacer.Observe(rtt)
+				} else {
+					pacer.ObserveRepeat(rtt)
+				}
 
 				// Parameter sets and keyframes are never shed: dropping them
 				// leaves the decoder with nothing to resynchronize against.
