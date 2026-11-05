@@ -625,6 +625,10 @@ type TargetInfo struct {
 	// Paused is true for a running AVD paused for being idle. The next open
 	// or agent call resumes it.
 	Paused bool `json:"paused,omitempty"`
+	// StartSavedAt is when an AVD's start state was last saved on purpose
+	// (shutdown with save=1), RFC 3339. Omitted when it boots from the
+	// snapshot loupe took after its first boot.
+	StartSavedAt string `json:"startSavedAt,omitempty"`
 	// Server names the peer that owns the target. Omitted for this server's
 	// own rows. On a peer's row, ID is "<server>/<owner's id>" and every
 	// other field is the owner's, apart from Active and LastError, which
@@ -702,6 +706,11 @@ func (m *Manager) targetRows(ctx context.Context, withPeers bool) []TargetInfo {
 		}
 		if b, ok := t.(target.Booter); ok {
 			info.BootsOnOpen = b.BootsOnOpen()
+		}
+		if ss, ok := t.(target.StartStater); ok {
+			if at := ss.StartSavedAt(); !at.IsZero() {
+				info.StartSavedAt = at.UTC().Format(time.RFC3339)
+			}
 		}
 		if e, ok := t.(*target.Emulator); ok {
 			info.Serial = e.Serial()

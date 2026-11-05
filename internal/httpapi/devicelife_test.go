@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,8 +28,14 @@ type lifeTarget struct {
 	stopErr, deleteErr error
 	stops, deletes     atomic.Int32
 	saves              atomic.Int32
-	resets, bootCalls  atomic.Int32
-	bootErr            error
+	// warmSaves counts SaveWarm calls, warmErr is what they return, and
+	// warmBeforeStop is how many Stop found already made.
+	warmSaves, warmBeforeStop atomic.Int32
+	warmErr                   error
+	// startAt is what StartSavedAt reports.
+	startAt           time.Time
+	resets, bootCalls atomic.Int32
+	bootErr           error
 	// savedBeforeStop is how many saves Stop found already made.
 	savedBeforeStop atomic.Int32
 	boots           bool
@@ -58,6 +65,13 @@ func (l *lifeTarget) SaveState(context.Context) (bool, error) {
 	return true, nil
 }
 
+func (l *lifeTarget) SaveWarm(context.Context) error {
+	l.warmSaves.Add(1)
+	return l.warmErr
+}
+
+func (l *lifeTarget) StartSavedAt() time.Time { return l.startAt }
+
 func (l *lifeTarget) ResetState(context.Context) error {
 	l.resets.Add(1)
 	return nil
@@ -77,6 +91,7 @@ func (l *lifeTarget) Boot(ctx context.Context) error {
 
 func (l *lifeTarget) Stop(context.Context) error {
 	l.savedBeforeStop.Store(l.saves.Load())
+	l.warmBeforeStop.Store(l.warmSaves.Load())
 	l.stops.Add(1)
 	if l.holdStop != nil {
 		l.entered <- struct{}{}
@@ -110,9 +125,10 @@ func TestDeviceActionsRule(t *testing.T) {
 		ti   TargetInfo
 		want string
 	}{
-		{TargetInfo{ID: "avd:a", Available: true}, "shutdown,delete"},
-		{TargetInfo{ID: "avd:a", Available: true, BootsOnOpen: true}, "delete"},
+		{TargetInfo{ID: "avd:a", Available: true}, "save,shutdown,delete"},
+		{TargetInfo{ID: "avd:a", Available: true, BootsOnOpen: true}, "reset,delete"},
 		{TargetInfo{ID: "sim:U", Available: true}, "shutdown,delete"},
+		{TargetInfo{ID: "sim:U", Available: true, BootsOnOpen: true}, "delete"},
 		{TargetInfo{ID: "sim-new:x", Available: true}, ""},
 		{TargetInfo{ID: "avd:a", Available: true, State: "creating"}, ""},
 		{TargetInfo{ID: "avd:a", Available: false, State: "adbUnreachable"}, ""},
@@ -229,6 +245,7 @@ func TestShutdownRefusesWhileRecording(t *testing.T) {
 
 	for _, c := range []struct{ method, path string }{
 		{http.MethodPost, "/api/devices/shutdown?target=avd:a"},
+		{http.MethodPost, "/api/devices/shutdown?target=avd:a&save=1"},
 		{http.MethodDelete, "/api/devices?target=avd:a"},
 	} {
 		w = doRecord(s, c.method, c.path, nil)
@@ -238,7 +255,7 @@ func TestShutdownRefusesWhileRecording(t *testing.T) {
 			t.Errorf("%s = %d %s; want 409 recording id %s", c.path, w.Code, w.Body.String(), rec.ID)
 		}
 	}
-	if lt.stops.Load() != 0 || lt.deletes.Load() != 0 {
+	if lt.stops.Load() != 0 || lt.deletes.Load() != 0 || lt.warmSaves.Load() != 0 {
 		t.Error("the device was touched during a recording")
 	}
 }
@@ -811,5 +828,111 @@ func TestABootHoldsOnlyTheHoldersClaim(t *testing.T) {
 	s.claims.mu.Unlock()
 	if holds != 0 {
 		t.Fatalf("holds = %d after a non-holder's hold; want 0", holds)
+	}
+}
+
+// save=1 saves the start state, then shuts down the way a plain shutdown
+// does, and leaves the keep-state save out of it.
+func TestShutdownSaveSavesThenStops(t *testing.T) {
+	s, lt := newLifeServer(t, "avd:a", nil)
+	sess, err := s.mgr.Acquire(t.Context(), "avd:a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := doRecord(s, http.MethodPost, "/api/devices/shutdown?target=avd:a&save=1", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("save = %d %s", w.Code, w.Body.String())
+	}
+	if lt.warmSaves.Load() != 1 || lt.saves.Load() != 0 || lt.stops.Load() != 1 || lt.warmBeforeStop.Load() != 1 {
+		t.Errorf("warmSaves %d saves %d stops %d warmBeforeStop %d; want one warm save, then one stop, and no keep-state save",
+			lt.warmSaves.Load(), lt.saves.Load(), lt.stops.Load(), lt.warmBeforeStop.Load())
+	}
+	if got := sess.EndReason(); got != "shutDown" {
+		t.Errorf("session end reason = %q, want shutDown", got)
+	}
+}
+
+// A save someone asked for that fails is not a shutdown that goes on: the
+// device stays up, and can be opened again at once.
+func TestShutdownSaveFailureKeepsItRunning(t *testing.T) {
+	s, lt := newLifeServer(t, "avd:a", nil)
+	lt.warmErr = errors.New("disk full")
+	w := doRecord(s, http.MethodPost, "/api/devices/shutdown?target=avd:a&save=1", nil)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("save = %d %s; want 502", w.Code, w.Body.String())
+	}
+	if lt.stops.Load() != 0 {
+		t.Error("Stop was called after the save failed")
+	}
+	if _, err := s.mgr.Acquire(t.Context(), "avd:a"); err != nil {
+		t.Errorf("open after a failed save: %v", err)
+	}
+}
+
+func TestShutdownSaveLingeringIs409(t *testing.T) {
+	s, lt := newLifeServer(t, "avd:a", nil)
+	lt.warmErr = fmt.Errorf("save a: %w", target.ErrStreamLingering)
+	w := doRecord(s, http.MethodPost, "/api/devices/shutdown?target=avd:a&save=1", nil)
+	if w.Code != http.StatusConflict || errCode(t, w) != ErrCodeBusy {
+		t.Fatalf("save = %d %s; want 409 busy", w.Code, w.Body.String())
+	}
+	if lt.stops.Load() != 0 {
+		t.Error("Stop was called after the save was refused")
+	}
+}
+
+// A plain shutdown may stop a boot that never came up; saving one would make
+// every later boot resume a half-booted VM.
+func TestShutdownSaveWhileBootingIs422(t *testing.T) {
+	m := NewManager(target.Options{})
+	lt := &lifeTarget{describingTarget: describingTarget{id: "avd:stuck"}, boots: true}
+	m.Register(stuckBootTarget{lt})
+	s := &Server{mgr: m}
+	t.Cleanup(m.Shutdown)
+	w := doRecord(s, http.MethodPost, "/api/devices/shutdown?target=avd:stuck&save=1", nil)
+	if w.Code != http.StatusUnprocessableEntity || errCode(t, w) != ErrCodeNotSupported {
+		t.Fatalf("save = %d %s; want 422 notSupported", w.Code, w.Body.String())
+	}
+	if lt.warmSaves.Load() != 0 || lt.stops.Load() != 0 {
+		t.Error("a booting AVD was touched")
+	}
+}
+
+func TestShutdownSaveOfASimulatorIs422(t *testing.T) {
+	s, lt := newLifeServer(t, "sim:abc", nil)
+	w := doRecord(s, http.MethodPost, "/api/devices/shutdown?target=sim:abc&save=1", nil)
+	if w.Code != http.StatusUnprocessableEntity || errCode(t, w) != ErrCodeNotSupported {
+		t.Fatalf("save = %d %s; want 422 notSupported", w.Code, w.Body.String())
+	}
+	if lt.warmSaves.Load() != 0 || lt.stops.Load() != 0 {
+		t.Error("the simulator was touched")
+	}
+}
+
+func TestListingCarriesStartSavedAt(t *testing.T) {
+	s, lt := newLifeServer(t, "avd:a", nil)
+	at := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
+	lt.startAt = at
+	var info TargetInfo
+	for _, ti := range s.mgr.Targets(t.Context()) {
+		if ti.ID == "avd:a" {
+			info = ti
+		}
+	}
+	if info.StartSavedAt != "2026-11-04T10:00:00Z" {
+		t.Errorf("StartSavedAt = %q, want 2026-11-04T10:00:00Z", info.StartSavedAt)
+	}
+	lt.startAt = time.Time{}
+	for _, ti := range s.mgr.Targets(t.Context()) {
+		if ti.ID != "avd:a" {
+			continue
+		}
+		b, err := json.Marshal(ti)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "startSavedAt") {
+			t.Errorf("listing with no saved start state carries the key: %s", b)
+		}
 	}
 }
