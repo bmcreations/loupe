@@ -373,6 +373,11 @@ func (e *Emulator) keepWarm(ctx context.Context, serial, snapshot, logPath strin
 			rec["error"] = err.Error()
 		} else {
 			rec["snapshot"] = "saved"
+			// The state someone saved on purpose is gone with the old
+			// loupe-warm.
+			if err := e.clearStartMarker(); err != nil {
+				rec["markerError"] = err.Error()
+			}
 		}
 		rec["saveMs"] = time.Since(t0).Milliseconds()
 	}

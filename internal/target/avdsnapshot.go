@@ -3,6 +3,7 @@ package target
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -144,9 +145,91 @@ func (e *Emulator) SaveState(ctx context.Context) (bool, error) {
 	if e.cfg.KeepState == nil || !e.cfg.KeepState() || e.cfg.Dir == "" {
 		return false, nil
 	}
+	if e.current() == nil {
+		return false, nil
+	}
+	err := e.saveWarm(ctx, false)
+	return err == nil, err
+}
+
+// WarmSaver saves a running emulator's state as the one every later boot
+// starts from, whatever KeepState says.
+type WarmSaver interface {
+	SaveWarm(ctx context.Context) error
+}
+
+// StartStater reports when a start state was last saved on purpose.
+type StartStater interface {
+	StartSavedAt() time.Time
+}
+
+// ErrStreamLingering is SaveWarm refusing to save with a scrcpy server still
+// in the guest: every later boot would restore it with its socket gone.
+var ErrStreamLingering = errors.New("a scrcpy server is still in the guest")
+
+// startMarker in an AVD's directory holds the time, RFC 3339, of the last
+// SaveWarm. It describes loupe-warm, so whatever replaces or removes that
+// snapshot removes it too: a reset, or a cold boot's fresh save.
+const startMarker = "loupe-start"
+
+// SaveWarm saves the running emulator over loupe-warm because someone asked
+// for it, so it is stricter than SaveState: it refuses with no AVD
+// directory, when the emulator is not running, and while a scrcpy server is
+// still in the guest after scrcpyGone, instead of saving anyway. It leaves
+// startMarker behind.
+func (e *Emulator) SaveWarm(ctx context.Context) error {
+	if e.cfg.Dir == "" {
+		return fmt.Errorf("save %s: no AVD directory", e.cfg.AVD)
+	}
+	if e.current() == nil {
+		return fmt.Errorf("save %s: not running", e.cfg.AVD)
+	}
+	if err := e.saveWarm(ctx, true); err != nil {
+		return err
+	}
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	if err := os.WriteFile(filepath.Join(e.cfg.Dir, startMarker), []byte(stamp), 0o644); err != nil {
+		e.traceWith("startMarker", "", time.Now(), err, nil)
+	}
+	return nil
+}
+
+// StartSavedAt is the time startMarker holds, or zero when there is none or
+// it does not parse.
+func (e *Emulator) StartSavedAt() time.Time {
+	if e.cfg.Dir == "" {
+		return time.Time{}
+	}
+	b, err := os.ReadFile(filepath.Join(e.cfg.Dir, startMarker))
+	if err != nil {
+		return time.Time{}
+	}
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b)))
+	if err != nil {
+		return time.Time{}
+	}
+	return at
+}
+
+// clearStartMarker removes startMarker, for whatever replaces loupe-warm.
+func (e *Emulator) clearStartMarker() error {
+	if e.cfg.Dir == "" {
+		return nil
+	}
+	if err := os.Remove(filepath.Join(e.cfg.Dir, startMarker)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// saveWarm saves loupe-warm from the running emulator, waiting for scrcpy to
+// leave the guest first unless it is paused. Strict, a server still there
+// after the wait refuses the save; otherwise it saves anyway and the trace
+// carries lingered.
+func (e *Emulator) saveWarm(ctx context.Context, strict bool) error {
 	in := e.current()
 	if in == nil {
-		return false, nil
+		return fmt.Errorf("save %s: not running", e.cfg.AVD)
 	}
 	serial := in.Info().Serial
 	started := time.Now()
@@ -155,13 +238,20 @@ func (e *Emulator) SaveState(ctx context.Context) (bool, error) {
 		lingered = e.awaitScrcpyExit(ctx, serial)
 	}
 	waited := time.Since(started)
-	err := e.adb.SaveSnapshot(ctx, serial, WarmSnapshot)
-	e.traceWith("save", serial, started, err, map[string]any{
+	extra := map[string]any{
 		"snapshot": WarmSnapshot,
 		"waitMs":   waited.Milliseconds(),
 		"lingered": lingered,
-	})
-	return err == nil, err
+		"explicit": strict,
+	}
+	if strict && lingered {
+		err := fmt.Errorf("save %s: %w", e.cfg.AVD, ErrStreamLingering)
+		e.traceWith("save", serial, started, err, extra)
+		return err
+	}
+	err := e.adb.SaveSnapshot(ctx, serial, WarmSnapshot)
+	e.traceWith("save", serial, started, err, extra)
+	return err
 }
 
 // awaitScrcpyExit waits, up to scrcpyGone, for no scrcpy server of loupe's
