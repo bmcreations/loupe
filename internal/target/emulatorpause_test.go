@@ -67,6 +67,7 @@ case "$*" in
     if [ -e "$flag" ]; then echo shell-while-paused >> "$log"; exit 1; fi
     echo shell >> "$log"
     case "$*" in
+      *pgrep*) [ -e "$flag.scrcpy" ] && echo 4242 ;;
       *"getprop sys.boot_completed"*) echo 1 ;;
       *"getprop ro.boot.qemu.avd_name"*) echo test_avd ;;
       *getprop*)

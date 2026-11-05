@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -26,8 +27,15 @@ func deviceActions(ti TargetInfo) []string {
 	if ti.State == "creating" || !ti.Available {
 		return nil
 	}
+	avd := strings.HasPrefix(ti.ID, "avd:")
 	if ti.BootsOnOpen {
+		if avd {
+			return []string{"reset", "delete"}
+		}
 		return []string{"delete"}
+	}
+	if avd {
+		return []string{"save", "shutdown", "delete"}
 	}
 	return []string{"shutdown", "delete"}
 }
@@ -41,8 +49,14 @@ func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 	s.handleCreateDevice(w, r)
 }
 
-// handleDeviceShutdown is POST /api/devices/shutdown?target=.
+// handleDeviceShutdown is POST /api/devices/shutdown?target=[&save=1]. With
+// save=1 it saves the AVD's state as the one every later boot starts from
+// before it stops it.
 func (s *Server) handleDeviceShutdown(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("save") == "1" {
+		s.deviceLife(w, r, "save")
+		return
+	}
 	s.deviceLife(w, r, "shutdown")
 }
 
@@ -124,7 +138,20 @@ func (s *Server) deviceLife(w http.ResponseWriter, r *http.Request, action strin
 	defer cancel()
 	var err error
 	saved := false
-	if action == "reset" {
+	if action == "save" {
+		// Unlike a keep-state save, this one was asked for: if it fails,
+		// the device stays up rather than shutting down without it.
+		if ws, ok := t.(target.WarmSaver); !ok {
+			err = fmt.Errorf("%s has no state to save", id)
+		} else if err = ws.SaveWarm(ctx); err == nil {
+			saved = true
+			if st, ok := t.(target.Stopper); !ok {
+				err = fmt.Errorf("%s cannot be shut down", id)
+			} else {
+				err = st.Stop(ctx)
+			}
+		}
+	} else if action == "reset" {
 		if rs, ok := t.(target.Resetter); !ok {
 			err = fmt.Errorf("%s has no saved state to reset", id)
 		} else {
@@ -163,7 +190,15 @@ func (s *Server) deviceLife(w http.ResponseWriter, r *http.Request, action strin
 	}
 	s.traceInputWith(r, id, action, c, err, map[string]any{
 		"platform": platform, "tookMs": time.Since(began).Milliseconds(), "outcome": outcome, "saved": saved,
+		"save": action == "save",
 	})
+	if errors.Is(err, target.ErrStreamLingering) {
+		writeJSON(w, http.StatusConflict, ErrorResponse{
+			Error: fmt.Sprintf("%s is still streaming, so its state was not saved; try again", id),
+			Code:  ErrCodeBusy,
+		})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 		return
@@ -203,6 +238,8 @@ func notSupportedReason(ti TargetInfo, id, action string) string {
 	switch {
 	case ti.Server != "":
 		return fmt.Sprintf("%s belongs to server %s; %s it there", id, ti.Server, action)
+	case action == "save" && !strings.HasPrefix(id, "avd:"):
+		return fmt.Sprintf("%s is not a loupe AVD; only an AVD keeps a saved start state", id)
 	case action == "reset" && !strings.HasPrefix(id, "avd:"):
 		return fmt.Sprintf("%s is not a loupe AVD; only an AVD keeps a saved state to reset", id)
 	case !strings.HasPrefix(id, "avd:") && !strings.HasPrefix(id, "sim:"):

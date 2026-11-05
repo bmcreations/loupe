@@ -4038,6 +4038,9 @@
         "server": {
           "type": "string"
         },
+        "startSavedAt": {
+          "type": "string"
+        },
         "state": {
           "type": "string"
         },

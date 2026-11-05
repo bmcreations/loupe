@@ -103,7 +103,8 @@ the tools, and [docs/agent-api.md](docs/agent-api.md) every HTTP route.
   one unplugged stays listed as missing, with the reason.
 - **Every installed AVD**, booted or not. Opening one boots it from a warm
   snapshot. An idle emulator is paused after 5 minutes and shut down after
-  30. Reset returns one to a clean state, and New device creates an AVD from
+  30. Save & Shut Down keeps what you installed for every later boot, Reset
+  returns one to a clean state, and New device creates an AVD from
   the system images you have.
 - **iOS simulators** through [simcap](https://github.com/bmcreations/simcap).
   Physical iPhones and iPads are a preview: they stream over a cable, and

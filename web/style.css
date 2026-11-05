@@ -1852,7 +1852,8 @@ html.multi .pane .overlay .card { max-width: 100%; }
   color: var(--label-on-platform);
 }
 .pickerAction--shutdown { background: var(--platform-other); }
-.pickerAction--delete { background: var(--status-danger); }
+.pickerAction--delete,
+.pickerAction--reset { background: var(--status-danger); }
 .pickerAction--handsoff { background: var(--status-warning, var(--platform-other)); }
 .pickerAction--allow { background: var(--status-success); }
 .pickerAction--release { background: var(--tint); }
