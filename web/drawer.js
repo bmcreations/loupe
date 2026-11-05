@@ -207,6 +207,8 @@ export function rowModel(t, currentId, fps) {
       tone = 'live';
     }
   }
+  const saved = disabled ? '' : startSavedLine(t);
+  if (saved) parts.push(saved);
 
   return { id: t.id, label: t.label, icon, tile, detail: parts.join(' · '), tone, current, disabled, progress, ...(t.server ? { server: String(t.server) } : {}), actions: rowActions(t).concat(agentActions(t)), ...agentLine(t) };
 }
@@ -250,7 +252,20 @@ export function rowActions(t) {
   const id = typeof t.id === 'string' ? t.id : '';
   if (!id.startsWith('avd:') && !id.startsWith('sim:')) return [];
   if (t.state === 'creating' || t.available === false) return [];
-  return t.bootsOnOpen ? ['delete'] : ['shutdown', 'delete'];
+  const avd = id.startsWith('avd:');
+  if (t.bootsOnOpen) return avd ? ['reset', 'delete'] : ['delete'];
+  return avd ? ['save', 'shutdown', 'delete'] : ['shutdown', 'delete'];
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// startSavedLine is the row's note about a start state saved on purpose
+// (Save & Shut Down), in the viewer's local date, or '' when there is none.
+export function startSavedLine(t) {
+  if (typeof t.startSavedAt !== 'string' || !t.startSavedAt) return '';
+  const d = new Date(t.startSavedAt);
+  if (Number.isNaN(d.getTime())) return '';
+  return `Start state saved ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
 // swipeDecide turns a pointer's travel into the row's offset. The axis locks
@@ -365,7 +380,7 @@ export function rowHTML(row, { paneKey = '⌃' } = {}) {
     </div>${link}`;
 }
 
-const ACTION_LABELS = { shutdown: 'Shut Down', delete: 'Delete', handsoff: 'Hands Off', allow: 'Allow Agents', release: 'Release' };
+const ACTION_LABELS = { save: 'Save & Shut Down', reset: 'Reset', shutdown: 'Shut Down', delete: 'Delete', handsoff: 'Hands Off', allow: 'Allow Agents', release: 'Release' };
 
 const NEW_DEVICE_ROW = `
         <button type="button" class="pickerRow" data-action="new">

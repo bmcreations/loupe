@@ -603,10 +603,10 @@ function onOpenBeside(id) {
   p.connect();
 }
 
-// onPickerAction runs a row's swipe action. A shutdown or delete the server
-// refuses (409 busy, recording or humanHeld, 422 notSupported) throws the
-// message for the drawer to toast; delete asks first, since it cannot be
-// undone. Either way the list is fetched again, as the poll does, because
+// onPickerAction runs a row's swipe action: Save & Shut Down, Shut Down,
+// Reset or Delete. One the server refuses (409 busy, recording or humanHeld,
+// 422 notSupported) throws the message for the drawer to toast; delete and
+// reset ask first, since neither can be undone. Either way the list is fetched again, as the poll does, because
 // the row's state or presence has changed.
 async function onPickerAction(id, action) {
   const t = lastTargets.find((x) => x.id === id);
@@ -627,12 +627,23 @@ async function onPickerAction(id, action) {
       return;
     }
   }
-  const event = action === 'delete' ? 'picker-delete' : 'picker-shutdown';
-  const url = action === 'delete' ? '/api/devices' : '/api/devices/shutdown';
+  if (action === 'reset') {
+    const answer = await ask({
+      title: `Reset ${label}?`,
+      message: 'It goes back to a clean device: installed apps and anything set up by hand are lost, and the next open is a cold boot.',
+      actions: [{ id: 'reset', label: 'Reset', destructive: true }],
+    });
+    if (answer !== 'reset') {
+      report({ event: 'picker-reset', kind: t && t.kind, target: id, outcome: 'cancelled' });
+      return;
+    }
+  }
+  const route = PICKER_ROUTES[action] || PICKER_ROUTES.shutdown;
+  const event = route.event;
   let res;
   try {
-    res = await fetch(`${url}?target=${encodeURIComponent(id)}`, {
-      method: action === 'delete' ? 'DELETE' : 'POST',
+    res = await fetch(`${route.url}?target=${encodeURIComponent(id)}${route.query}`, {
+      method: route.method,
       headers: focused().viewerHeaders(),
     });
   } catch (err) {
@@ -646,9 +657,18 @@ async function onPickerAction(id, action) {
     throw new Error(result.message);
   }
   report({ event, kind: t && t.kind, target: id, outcome: 'ok' });
+  if (action === 'save') showToast(el.toast, 'Saved. Every boot starts here.');
   const { current, result: latest } = await fetchTargetsLatest();
   if (!latest.failed && current) takeTargets(latest.list);
 }
+
+// PICKER_ROUTES is the request each device swipe action makes.
+const PICKER_ROUTES = {
+  shutdown: { url: '/api/devices/shutdown', query: '', method: 'POST', event: 'picker-shutdown' },
+  save: { url: '/api/devices/shutdown', query: '&save=1', method: 'POST', event: 'picker-save' },
+  reset: { url: '/api/devices/reset', query: '', method: 'POST', event: 'picker-reset' },
+  delete: { url: '/api/devices', query: '', method: 'DELETE', event: 'picker-delete' },
+};
 
 // agentRowAction marks a row hands off, allows agents again, or ends someone
 // else's claim on it. Release is forced: the person in the picker outranks

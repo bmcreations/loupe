@@ -463,9 +463,9 @@ reason. They are arbitrated like `launch`, so `humanHeld`, `claimedBy` and
 |---|---|---|
 | `POST /api/devices/boot?target=[&wait=]` | Boots without opening a stream. A running target answers 200 at once. `wait` is how long to hold the request: a duration (`90s`, `10m`) or seconds, default 4 minutes, at most 15 minutes. `wait=0` starts the boot in the background and answers at once. | 200 `TargetInfo` once up; 202 `BootStatus` for `wait=0`; 504 when `wait` ran out first |
 | `GET /api/devices/boot?target=avd:<name>` | How an AVD's boot is going, without waking or arbitrating anything. | 200 `BootStatus` |
-| `POST /api/devices/shutdown?target=` | Stops the target. Refused if it is already `bootsOnOpen`, unless an emulator process for the AVD is still booting; that stop saves no snapshot. | 200 `TargetInfo` |
+| `POST /api/devices/shutdown?target=[&save=1]` | Stops the target. Refused if it is already `bootsOnOpen`, unless an emulator process for the AVD is still booting; stopping a boot that never came up saves no snapshot. `save=1` (an AVD only) first saves its state over `loupe-warm`, even with `emulatorKeepState` off, so every later boot starts from it, and the listing then carries `startSavedAt`. With `save=1`, a stream that has not let go is 409 `busy`, a failed save is 502 and the AVD stays up, and a simulator or an AVD still booting is 422 `notSupported`. | 200 `TargetInfo` |
 | `DELETE /api/devices?target=` | Stops it if running, then deletes it. | 204 |
-| `POST /api/devices/reset?target=avd:<name>` | Stops the AVD without saving, discards `loupe-warm` and wipes its data on the next boot. Works on a stopped AVD. A simulator is 422 `notSupported`. | 200 `TargetInfo` |
+| `POST /api/devices/reset?target=avd:<name>` | Stops the AVD without saving, discards `loupe-warm` and any saved start state, and wipes its data on the next boot. Works on a stopped AVD. A simulator is 422 `notSupported`. | 200 `TargetInfo` |
 
 Other errors:
 
