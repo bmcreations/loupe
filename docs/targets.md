@@ -54,7 +54,8 @@ the next open starts there, and each later boot still discards what its own
 session changed. The save writes the 1.7-2GB snapshot again and pauses the VM
 for 1-2s. The picker row then reads "Start state saved <date>", from
 `startSavedAt` in the listing. A save that fails, or a stream that has not let
-go within 3s, leaves the AVD running and unsaved. Reset goes back to the
+go within 3s, leaves the AVD running and unsaved; the stream has already
+ended by then, so reopen it to keep watching. Reset goes back to the
 system image's own data and removes the saved start state.
 
 `emulatorKeepState` (off by default, `-emulator-keep-state`) saves the state
