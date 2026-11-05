@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -265,11 +266,19 @@ func (e *Emulator) saveWarm(ctx context.Context, strict bool) error {
 func (e *Emulator) awaitScrcpyExit(ctx context.Context, serial string) bool {
 	deadline := time.Now().Add(scrcpyGone)
 	for time.Now().Before(deadline) && ctx.Err() == nil {
-		out, err := e.adb.Shell(ctx, serial, "pgrep", "-f", shellQuote("com.genymobile.scrcpy.Server "+e.version))
+		out, err := e.adb.Shell(ctx, serial, "pgrep", "-f", shellQuote(scrcpyPattern(e.version)))
 		if err != nil || strings.TrimSpace(out) == "" {
 			return false
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	return true
+}
+
+// scrcpyPattern is the pgrep -f pattern for loupe's scrcpy server at version.
+// adb shell runs pgrep under `sh -c`, whose command line holds the pattern
+// itself; "[S]erver" matches the server's "Server" but not the literal text
+// in that sh, which a plain pattern found on every call.
+func scrcpyPattern(version string) string {
+	return "com.genymobile.scrcpy.[S]erver " + regexp.QuoteMeta(version)
 }
