@@ -4887,6 +4887,9 @@
           },
           "type": "array"
         },
+        "package": {
+          "type": "string"
+        },
         "reason": {
           "type": "string"
         },

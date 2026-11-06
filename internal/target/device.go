@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bmcreations/loupe/internal/h264"
@@ -29,6 +30,10 @@ type ADBTarget struct {
 	// colon-separated list, and two overlapping PUTs racing that would let
 	// one caller's change clobber the other's read.
 	settingsMu sync.Mutex
+
+	// lastFix is the last location ApplySettings wrote, the only way to
+	// report one: Android can't read an emulator's fix back. See location.go.
+	lastFix atomic.Pointer[Point]
 
 	// kbMu guards hwKeyboard and streams. See adbkeyboard.go.
 	kbMu       sync.Mutex

@@ -1,7 +1,7 @@
 // Tests for devicesettings.js's pure functions. Run: node web/devicesettings.test.mjs
 import assert from 'node:assert/strict';
 
-const { labelFor, optionLabel, clampRange, parseSettingsError, applyResponse } = await import('./devicesettings.js');
+const { labelFor, optionLabel, shownInPanel, clampRange, parseSettingsError, applyResponse } = await import('./devicesettings.js');
 
 let failures = 0;
 // test() has to accommodate the mount()-level tests added for client Task 9's
@@ -20,6 +20,16 @@ function test(name, fn) {
     catch (err) { failures++; console.log(`  FAIL ${name}\n        ${err.message}`); }
   })());
 }
+
+// --- shownInPanel -----------------------------------------------------
+
+test('shownInPanel skips the settings this panel has no control for', () => {
+  assert.equal(shownInPanel({ id: 'darkMode', type: 'bool' }), true);
+  assert.equal(shownInPanel({ id: 'posture', type: 'enum' }), true);
+  assert.equal(shownInPanel({ id: 'location', type: 'point' }), false);
+  assert.equal(shownInPanel({ id: 'appLanguage', type: 'enum' }), false);
+  assert.equal(shownInPanel(null), false);
+});
 
 // --- labelFor -----------------------------------------------------------
 

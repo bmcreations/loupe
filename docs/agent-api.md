@@ -46,7 +46,7 @@ Common refusals on routes that change a device:
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
-| `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture |
+| `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture, app language, location |
 | `GET`, `PUT`, `DELETE /api/presets`, `POST /api/presets/apply` | Named groups of device settings |
 | `GET`, `POST /api/clipboard` | Device clipboard |
 | `GET`, `POST /api/clipboard/shared` | Shared clipboard |
@@ -572,9 +572,17 @@ was saved. Synthetic answers 501.
 ### `GET /api/settings?target=<id>`, `PUT /api/settings?target=<id>`
 
 `GET` lists the device's settings, each with `id`, `type` (`bool`, `range`,
-`enum`), `value`, and `supported`. `PUT {"changes":{"darkMode":true}}` changes
+`enum`, `point`), `value`, and `supported`. `PUT {"changes":{"darkMode":true}}` changes
 them at once and answers with the list read back. If one change fails, the
 ones before it are put back and the answer is 409 with `failed`.
+
+- `appLanguage` is the language of the app in front, named in `package`
+  (Android 13 and later). `""` puts the app back on the system language. The
+  system language itself can't be changed without a reboot, so it isn't
+  offered. With no app in front it reports `supported: false`.
+- `location` (emulators only) is a `point`, `{"lat": 37.42, "lng": -122.08}`,
+  sent as the emulator's GPS fix. Android can't read the fix back, so
+  `value` is the last one loupe set, or `null` before the first.
 
 ### `/api/presets`
 

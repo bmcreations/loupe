@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,6 +39,9 @@ const (
 	// SettingEnum is a setting whose Value is one of Options: posture, on a
 	// foldable emulator.
 	SettingEnum SettingType = "enum"
+	// SettingPoint is a setting whose Value is a Point, or null when it
+	// isn't known: location, on an emulator.
+	SettingPoint SettingType = "point"
 )
 
 // Setting is one device-wide accessibility or display toggle, reported the
@@ -65,6 +69,9 @@ type Setting struct {
 	Max float64 `json:"max,omitempty"`
 	// Options applies only to SettingEnum: the allowed values for Value.
 	Options []string `json:"options,omitempty"`
+	// Package is the app a per-app setting (appLanguage) applies to: the
+	// one in front when this was read.
+	Package string `json:"package,omitempty"`
 	// Supported is false when the setting cannot be changed on this device
 	// (TalkBack not installed, so far the only case), and Reason says why.
 	Supported bool   `json:"supported"`
@@ -201,14 +208,27 @@ func validateRange(f settingField, v any) error {
 type androidSettings struct {
 	sh  shellFunc
 	emu emuFunc
+	// fix is the last location written to this device; see location.go.
+	fix *atomic.Pointer[Point]
 }
 
-// fields is settingFields, plus posture on an emulator.
-func (a *androidSettings) fields() []settingField {
-	if a.emu == nil {
-		return settingFields
+// lastFix returns fix, made on first use for an androidSettings built
+// without a target (tests).
+func (a *androidSettings) lastFix() *atomic.Pointer[Point] {
+	if a.fix == nil {
+		a.fix = new(atomic.Pointer[Point])
 	}
-	return append(append([]settingField(nil), settingFields...), postureField(a.emu))
+	return a.fix
+}
+
+// fields is settingFields and appLanguage, plus posture and location on an
+// emulator.
+func (a *androidSettings) fields() []settingField {
+	out := append(append([]settingField(nil), settingFields...), appLanguageField)
+	if a.emu == nil {
+		return out
+	}
+	return append(out, postureField(a.emu), locationField(a.emu, a.lastFix()))
 }
 
 // Settings reads current device state. It does not lock ADBTarget's
@@ -239,7 +259,7 @@ func (t *ADBTarget) ApplySettings(ctx context.Context, changes map[string]any) (
 func newAndroidSettings(t *ADBTarget) *androidSettings {
 	a := &androidSettings{sh: func(ctx context.Context, args ...string) (string, error) {
 		return t.adb.Shell(ctx, t.info.Serial, args...)
-	}}
+	}, fix: &t.lastFix}
 	if strings.HasPrefix(t.info.Serial, "emulator-") {
 		a.emu = func(ctx context.Context, args ...string) (string, error) {
 			return t.adb.Emu(ctx, t.info.Serial, args...)
@@ -363,13 +383,20 @@ func settingsScript(nonce string, withPosture bool) string {
 		cmds = append(cmds, "cmd device_state print-states", "cmd device_state print-state")
 	}
 	var b strings.Builder
-	for i, c := range cmds {
+	for i, c := range cmds[:8] {
 		b.WriteString(sectionEcho(nonce, i))
 		b.WriteString("; ")
 		b.WriteString(c)
 		b.WriteString("\n")
 	}
-	b.WriteString(sectionEcho(nonce, len(cmds)))
+	appLanguageCommands(&b, nonce, 8)
+	for i, c := range cmds[8:] {
+		b.WriteString(sectionEcho(nonce, 11+i))
+		b.WriteString("; ")
+		b.WriteString(c)
+		b.WriteString("\n")
+	}
+	b.WriteString(sectionEcho(nonce, len(cmds)+3))
 	b.WriteString("\n")
 	return b.String()
 }
@@ -380,9 +407,9 @@ func (a *androidSettings) Settings(ctx context.Context) ([]Setting, error) {
 		return nil, fmt.Errorf("settings: %w", err)
 	}
 	withPosture := a.emu != nil
-	n := 8
+	n := 11
 	if withPosture {
-		n = 10
+		n = 13
 	}
 	out, shErr := a.sh(ctx, settingsScript(nonce, withPosture))
 	sec, complete := splitSections(out, nonce, n)
@@ -430,13 +457,17 @@ func (a *androidSettings) Settings(ctx context.Context) ([]Setting, error) {
 	// fold has nothing to report, which is not the same as a TalkBack that
 	// is not installed.
 	if withPosture {
-		byID, options := parsePostureStates(sec[8])
+		byID, options := parsePostureStates(sec[11])
 		if postureSupported(options) {
 			out2 = append(out2, Setting{
-				ID: "posture", Type: SettingEnum, Value: currentPosture(sec[9], byID),
+				ID: "posture", Type: SettingEnum, Value: currentPosture(sec[12], byID),
 				Options: options, Supported: true, Applies: "immediately",
 			})
 		}
+	}
+	out2 = append(out2, appLanguageSetting(parseAppLanguage(sec[8], sec[9], sec[10])))
+	if withPosture {
+		out2 = append(out2, locationSetting(a.lastFix()))
 	}
 	return out2, nil
 }
