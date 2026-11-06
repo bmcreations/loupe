@@ -51,6 +51,14 @@ const claimLease = 10 * time.Minute
 // this long after an agent's input went through.
 const drivingShown = 10 * time.Second
 
+// waitingShown is how long a waiting agent stays on the row after its last
+// refusal: the arbiter's hold plus the retry an agent makes after it, so an
+// agent that is still retrying never drops off between refusals.
+const waitingShown = 20 * time.Second
+
+// refusedShown is how long the last refusal stays on the row.
+const refusedShown = time.Minute
+
 // claimLinkMax bounds the link a claim carries, which is drawn in the picker.
 const claimLinkMax = 512
 
@@ -71,6 +79,27 @@ type ClaimInfo struct {
 	// IdleMs is how long since the holder's last call; the claim lapses at
 	// claimLease.
 	IdleMs int64 `json:"idleMs"`
+	// RecentHumanInputMs is set only on a claim's 200: how long ago a person
+	// last used the device through a viewer. It is missing when nobody has
+	// the device open, or nobody has touched it since it was opened, because
+	// only an open session sees a person's input.
+	RecentHumanInputMs *int64 `json:"recentHumanInputMs,omitempty"`
+}
+
+// WaitingInfo is an agent refused because a person holds the target, from
+// its first refusal in a run. It stays on the row until the agent's next
+// action goes through, or waitingShown after its last refusal.
+type WaitingInfo struct {
+	Agent   string    `json:"agent"`
+	Session string    `json:"session,omitempty"`
+	Since   time.Time `json:"since"`
+}
+
+// RefusedInfo is the last refusal of an agent on a target, for refusedShown.
+type RefusedInfo struct {
+	Agent string    `json:"agent"`
+	Code  string    `json:"code"`
+	At    time.Time `json:"at"`
 }
 
 type claim struct {
@@ -111,6 +140,16 @@ type driver struct {
 	at    time.Time
 }
 
+type waiter struct {
+	agent, session string
+	since, last    time.Time
+}
+
+type refusalNote struct {
+	agent, code string
+	at          time.Time
+}
+
 // claimBook holds every claim, the hands-off set and who last drove each
 // target. It is apart from the session's arbiter because a session exists
 // only while something streams, and an agent driving a device nobody is
@@ -122,6 +161,8 @@ type claimBook struct {
 	claims   map[string]*claim
 	handsOff map[string]bool
 	driving  map[string]driver
+	waiting  map[string]waiter
+	refused  map[string]refusalNote
 	// path is the hands-off file and claimsPath the claims file. Empty
 	// keeps that one in memory only. They are apart so the hands-off file
 	// says only what the person marked, and nothing an agent did.
@@ -135,6 +176,8 @@ func newClaimBook(record func(map[string]any)) *claimBook {
 		claims:   map[string]*claim{},
 		handsOff: map[string]bool{},
 		driving:  map[string]driver{},
+		waiting:  map[string]waiter{},
+		refused:  map[string]refusalNote{},
 	}
 }
 
@@ -455,7 +498,33 @@ func (b *claimBook) acted(id, agent string) {
 	}
 	b.mu.Lock()
 	b.driving[id] = driver{agent: agent, at: b.now()}
+	delete(b.waiting, id)
 	b.mu.Unlock()
+}
+
+// refusedAgent notes that agent was refused on id with code. A humanHeld
+// refusal also shows the agent waiting; one that was already waiting keeps
+// its first refusal's time.
+func (b *claimBook) refusedAgent(id, agent, session, code string) {
+	if b == nil {
+		return
+	}
+	if agent == "" {
+		agent = "agent"
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now()
+	b.refused[id] = refusalNote{agent: agent, code: code, at: now}
+	if code != ErrCodeHumanHeld {
+		return
+	}
+	w, ok := b.waiting[id]
+	if !ok || w.agent != agent || w.session != session || now.Sub(w.last) >= waitingShown {
+		w = waiter{agent: agent, session: session, since: now}
+	}
+	w.last = now
+	b.waiting[id] = w
 }
 
 // setHandsOff marks or clears id and writes the set. The change stands in
@@ -518,6 +587,12 @@ func (b *claimBook) decorate(rows []TargetInfo) {
 		rows[i].HandsOff = b.handsOff[id]
 		if d, ok := b.driving[id]; ok && now.Sub(d.at) < drivingShown {
 			rows[i].DrivenBy = d.agent
+		}
+		if w, ok := b.waiting[id]; ok && now.Sub(w.last) < waitingShown {
+			rows[i].Waiting = &WaitingInfo{Agent: w.agent, Session: w.session, Since: w.since}
+		}
+		if r, ok := b.refused[id]; ok && now.Sub(r.at) < refusedShown {
+			rows[i].Refused = &RefusedInfo{Agent: r.agent, Code: r.code, At: r.at}
 		}
 	}
 }
@@ -610,6 +685,12 @@ func (s *Server) handleClaims(w http.ResponseWriter, r *http.Request) {
 	// a paused VM hangs. Best effort; the pause pass never starts on a claimed
 	// emulator, so a failed resume is not a claim failure.
 	s.mgr.WakeEmulator(r.Context(), id)
+	if sess, ok := s.mgr.Session(id); ok {
+		if since, ok := sess.SinceHumanInput(); ok {
+			ms := since.Milliseconds()
+			got.RecentHumanInputMs = &ms
+		}
+	}
 	writeJSON(w, http.StatusOK, got)
 }
 

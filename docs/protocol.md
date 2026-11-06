@@ -419,7 +419,8 @@ Fixture: `testdata/protocol/event.hex`.
 | `t` | unix milliseconds |
 | `source` | `"viewer"` or `"agent"` |
 | `viewer` | which viewer produced it; omitted for an agent-sourced event, and for a person on the owner of a peer target, whose id names a viewer of the owner (see Streams in [remote-targets.md](remote-targets.md)) |
-| `kind` | `tap`, `longPress`, `swipe`, `pinch`, `multiTouch`, `scroll`, `key`, `text`, `button` or `rotate` |
+| `kind` | `tap`, `longPress`, `swipe`, `pinch`, `multiTouch`, `scroll`, `key`, `text`, `button` or `rotate`, or `refused` for an agent action loupe turned away (nothing reached the device) |
+| `action` | for a `refused` event, the `/api/input` action that was refused |
 | `from`, `to` | `[x, y]`, fraction of the screen `[0,1]` on each axis, rounded to 3 decimals -- a fraction rather than pixels because a viewer's touch is in stream coordinates and an agent's is in device pixels, and a fraction is the one space both map into |
 | `ms` | gesture duration, where applicable |
 | `pointers` | pointer count, for `multiTouch` |
@@ -429,7 +430,7 @@ Fixture: `testdata/protocol/event.hex`.
 | `text` | typed text, or the redaction marker -- see below |
 | `rotation` | quarter turns, for a `rotate` event; a pointer field because `0` (back to portrait) is a real value distinct from "no rotation" |
 | `scroll` | `[h, v]` delta, the same two-float shape as `from`/`to` but unbounded and signed -- not a `[0,1]` fraction |
-| `err` | the underlying action's error, when it failed. Set on an agent action (`publishAgentEvent`) and equally on a viewer's own key event that the device rejected (`Session.ViewerKey`); the event still publishes either way, so a failed input is visible on the event log rather than only in the HTTP response or (for a viewer) nowhere at all. |
+| `err` | for a `refused` event, the refusal's code (`humanHeld`, `claimedBy`, `handsOff`, `interrupted`). Otherwise the underlying action's error, when it failed. Set on an agent action (`publishAgentEvent`) and equally on a viewer's own key event that the device rejected (`Session.ViewerKey`); the event still publishes either way, so a failed input is visible on the event log rather than only in the HTTP response or (for a viewer) nowhere at all. |
 
 Fields at their zero value are omitted (`omitempty`), which is why the tap
 fixture above carries only `seq`, `t`, `source`, `viewer`, `kind` and

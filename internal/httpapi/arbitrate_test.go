@@ -67,8 +67,8 @@ func TestAnAgentIsRefusedWhileAViewerHoldsTheTarget(t *testing.T) {
 		t.Errorf("Retry-After = %q; want whole seconds >= 1", rec.Header().Get("Retry-After"))
 	}
 	for _, e := range sess.EventsAfter(0) {
-		if e.Source == "agent" {
-			t.Errorf("a refused action published %+v", e)
+		if e.Source == "agent" && e.Kind != "refused" {
+			t.Errorf("a refused action published %+v as if it went through", e)
 		}
 	}
 	if st := sess.ControlState(); st.Agent != session.AgentWaiting || st.AgentName != "claude" {

@@ -106,6 +106,18 @@ func (s *Session) ControlState() ControlState {
 	return s.arbiter().State()
 }
 
+// SinceHumanInput is how long ago a viewer last used the target, and false
+// if no viewer has since the session opened.
+func (s *Session) SinceHumanInput() (time.Duration, bool) {
+	s.ctlMu.Lock()
+	defer s.ctlMu.Unlock()
+	at := s.arbiter().LastHuman()
+	if at.IsZero() {
+		return 0, false
+	}
+	return time.Since(at), true
+}
+
 func (s *Session) noteTouch(viewer uint64, e TouchEvent) {
 	s.control(func(a *Arbiter, now time.Time) []ControlChange {
 		return a.Touch(viewer, e.Action, e.PointerID, now)

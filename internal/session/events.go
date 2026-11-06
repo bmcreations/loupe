@@ -74,8 +74,10 @@ type Event struct {
 	// an agent that sent no name.
 	Agent string `json:"agent,omitempty"`
 	// Kind is tap, longPress, swipe, pinch, multiTouch, scroll, key, text,
-	// button or rotate.
+	// button or rotate, or refused for an agent's action that loupe turned
+	// away: Action names the action and Err the refusal's code.
 	Kind     string `json:"kind"`
+	Action   string `json:"action,omitempty"`
 	From     *Point `json:"from,omitempty"`
 	To       *Point `json:"to,omitempty"`
 	Ms       int    `json:"ms,omitempty"`

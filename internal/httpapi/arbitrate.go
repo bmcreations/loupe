@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -147,6 +148,7 @@ func (s *Server) mayAct(r *http.Request, targetID, action string, c inputCaller)
 			}
 			c.annotate(rec)
 			s.trace.Record(rec)
+			s.noteRefusal(targetID, action, c, refused.Code)
 			return refused
 		}
 		if id, stopped := s.flags.interrupted(targetID, callerKey(c.agent, c.session)); stopped && held(action) {
@@ -156,6 +158,7 @@ func (s *Server) mayAct(r *http.Request, targetID, action string, c inputCaller)
 			}
 			c.annotate(rec)
 			s.trace.Record(rec)
+			s.noteRefusal(targetID, action, c, ErrCodeInterrupted)
 			return &ErrorResponse{
 				Error: fmt.Sprintf("the person interrupted you with flag %d; read it (GET /api/flags?id=%d, or the flag tool) and check the screen before acting again", id, id),
 				Code:  ErrCodeInterrupted,
@@ -185,10 +188,24 @@ func (s *Server) mayAct(r *http.Request, targetID, action string, c inputCaller)
 	}
 	c.annotate(rec)
 	s.trace.Record(rec)
+	s.noteRefusal(targetID, action, c, ErrCodeHumanHeld)
 	return &ErrorResponse{
 		Error:        fmt.Sprintf("a person is using this device; retry in %.1fs", retry.Seconds()),
 		Code:         ErrCodeHumanHeld,
 		RetryAfterMs: max(retry.Milliseconds(), 1),
+	}
+}
+
+// noteRefusal keeps a refused agent on the target's row, where the picker
+// shows it waiting or refused without a session open, and adds the refusal
+// to the session's events when one is open, so the Activity list shows it.
+func (s *Server) noteRefusal(targetID, action string, c inputCaller, code string) {
+	s.claims.refusedAgent(targetID, c.agent, c.session, code)
+	if sess, ok := s.mgr.Session(targetID); ok {
+		sess.PublishEvent(session.Event{
+			Source: "agent", Agent: cmpOr(c.agent, "agent"),
+			Kind: "refused", Action: action, Err: code,
+		})
 	}
 }
 

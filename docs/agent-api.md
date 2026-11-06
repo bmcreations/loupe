@@ -759,6 +759,22 @@ agent's claim, then the human hold. None of them refuses a person: a live
 
 `/api/targets` carries `claim`, `handsOff` and `drivenBy` (the agent whose
 input went through in the last 10 seconds, with or without an open session).
+Two more fields come from refusals, also with or without an open session:
+
+- `waiting {agent, session, since}`: an agent a person's hold is refusing.
+  `since` is its first refusal in the run. It clears when the agent's next
+  action goes through, or 20 seconds after its last refusal.
+- `refused {agent, code, at}`: the last refusal on the target, any code, for
+  a minute.
+
+With a session open, each refusal is also an `/api/events` record with
+`kind:"refused"`, the refused `action` and the code in `err`.
+
+A claim's 200 carries `recentHumanInputMs`, how long ago a person last used
+the device through a viewer. It is a warning, not a refusal: a few seconds
+means someone is probably at the device, so check with them before acting.
+It is missing when nobody has the device open or nobody has touched it since
+it was opened, because only an open session sees a person's input.
 The picker shows them under the row's detail (hands off outranks a claim, a
 claim outranks driving) and draws the claim's `link` as Open session when it
 is https.
