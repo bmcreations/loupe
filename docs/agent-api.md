@@ -46,6 +46,8 @@ Common refusals on routes that change a device:
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
+| `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture |
+| `GET`, `PUT`, `DELETE /api/presets`, `POST /api/presets/apply` | Named groups of device settings |
 | `GET`, `POST /api/clipboard` | Device clipboard |
 | `GET`, `POST /api/clipboard/shared` | Shared clipboard |
 | `GET /api/handoff` | Link that moves a session to another browser |
@@ -564,6 +566,32 @@ is the package, and `build` and `version` are its versionCode and versionName.
 A call resumes a paused emulator. Dropbox lives under `/data`, so without
 `emulatorKeepState` a boot from `loupe-warm` discards every report since it
 was saved. Synthetic answers 501.
+
+## Device settings and presets
+
+### `GET /api/settings?target=<id>`, `PUT /api/settings?target=<id>`
+
+`GET` lists the device's settings, each with `id`, `type` (`bool`, `range`,
+`enum`), `value`, and `supported`. `PUT {"changes":{"darkMode":true}}` changes
+them at once and answers with the list read back. If one change fails, the
+ones before it are put back and the answer is 409 with `failed`.
+
+### `/api/presets`
+
+A preset is a name and a `settings` object in the shape of `changes`. Presets
+belong to the server, not to a device, and are kept in `presets.json` beside
+the config.
+
+- `GET /api/presets` lists them, sorted by name.
+- `PUT /api/presets` with `{"name":"Large text","settings":{"fontScale":1.3}}`
+  saves one, replacing a preset with the same name.
+- `DELETE /api/presets?name=<name>` removes one.
+- `POST /api/presets/apply?name=<name>&target=<id>` applies one the way
+  `PUT /api/settings` does. Settings the device doesn't have or can't change
+  are left out and named in `skipped`, so a preset with `posture` still
+  applies its other settings on a phone. If nothing is left, the answer is 409.
+
+The MCP tool is `apply_preset`.
 
 ## Clipboard
 

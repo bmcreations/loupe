@@ -21,6 +21,9 @@
     "DELETE /api/pairings/ 404": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
+    "DELETE /api/presets": {
+      "$ref": "#/$defs/httpapi.PresetsResponse"
+    },
     "DELETE /api/servers 404": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
@@ -110,6 +113,9 @@
         "$ref": "#/$defs/httpapi.PairingInfo"
       },
       "type": "array"
+    },
+    "GET /api/presets": {
+      "$ref": "#/$defs/httpapi.PresetsResponse"
     },
     "GET /api/record": {
       "items": {
@@ -273,6 +279,12 @@
     "POST /api/pairings request": {
       "$ref": "#/$defs/httpapi.PairingRequest"
     },
+    "POST /api/presets/apply": {
+      "$ref": "#/$defs/httpapi.PresetApplyResponse"
+    },
+    "POST /api/presets/apply 409": {
+      "$ref": "#/$defs/httpapi.SettingsConflictResponse"
+    },
     "POST /api/record 201": {
       "$ref": "#/$defs/httpapi.RecordStartResponse"
     },
@@ -362,6 +374,12 @@
         }
       },
       "type": "object"
+    },
+    "PUT /api/presets": {
+      "$ref": "#/$defs/httpapi.PresetsResponse"
+    },
+    "PUT /api/presets request": {
+      "$ref": "#/$defs/httpapi.Preset"
     },
     "PUT /api/settings 200": {
       "$ref": "#/$defs/httpapi.SettingsResponse"
@@ -3599,6 +3617,57 @@
         "id",
         "code",
         "expiresAt"
+      ],
+      "type": "object"
+    },
+    "httpapi.Preset": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": {},
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "settings"
+      ],
+      "type": "object"
+    },
+    "httpapi.PresetApplyResponse": {
+      "properties": {
+        "settings": {
+          "items": {
+            "$ref": "#/$defs/target.Setting"
+          },
+          "type": "array"
+        },
+        "skipped": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "settings",
+        "skipped"
+      ],
+      "type": "object"
+    },
+    "httpapi.PresetsResponse": {
+      "properties": {
+        "presets": {
+          "items": {
+            "$ref": "#/$defs/httpapi.Preset"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "presets"
       ],
       "type": "object"
     },

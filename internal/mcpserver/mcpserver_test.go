@@ -515,3 +515,19 @@ func TestBootStatusReadsWithoutClaiming(t *testing.T) {
 		t.Errorf("requests %v, want %v", got, want)
 	}
 }
+
+func TestApplyPresetPostsUnderAClaim(t *testing.T) {
+	fake := &fakeLoupe{}
+	cs, stop := connect(t, fake)
+	call(t, cs, "apply_preset", map[string]any{"target": "avd:Pixel_10", "name": "Large text"})
+	stop()
+
+	want := []string{
+		"POST /api/claims?target=avd%3APixel_10",
+		"POST /api/presets/apply?name=Large+text&target=avd%3APixel_10",
+		"DELETE /api/claims?target=avd%3APixel_10",
+	}
+	if got := fake.requests(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("requests:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
