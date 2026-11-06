@@ -234,6 +234,14 @@ test('agentLine: hands off outranks a claim', () => {
   assert.deepEqual(agentLine({ id: 'avd:a', claim, handsOff: true }),
     { agent: 'Hands off · agents are refused', agentTone: 'handsoff', agentLink: '' });
 });
+test('agentLine: an agent waiting on a person outranks its claim and driving', () => {
+  assert.deepEqual(agentLine({ id: 'avd:a', claim, drivenBy: 'loupe: xctest touch', waiting: { agent: 'claude', since: '2026-11-06T12:00:00Z' } }),
+    { agent: 'claude is waiting for you', agentTone: 'waiting', agentLink: '' });
+});
+test('agentLine: hands off names the agent it refused', () => {
+  assert.equal(agentLine({ id: 'avd:a', handsOff: true, refused: { agent: 'codex', code: 'handsOff', at: '2026-11-06T12:00:00Z' } }).agent,
+    'Hands off · codex was refused');
+});
 test('agentActions: any listed target can be marked hands off', () => {
   assert.deepEqual(agentActions({ id: 'R5' }), ['handsoff']);
 });

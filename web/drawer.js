@@ -221,8 +221,17 @@ export function rowModel(t, currentId, fps) {
 export function agentLine(t) {
   const claim = t.claim && typeof t.claim === 'object' ? t.claim : null;
   const driver = typeof t.drivenBy === 'string' ? t.drivenBy : '';
+  const refused = t.refused && typeof t.refused === 'object' && t.refused.code === 'handsOff' ? t.refused.agent : '';
   if (t.handsOff) {
-    return { agent: driver ? `Hands off · ${driver} was refused` : 'Hands off · agents are refused', agentTone: 'handsoff', agentLink: '' };
+    const who = refused || driver;
+    return { agent: who ? `Hands off · ${who} was refused` : 'Hands off · agents are refused', agentTone: 'handsoff', agentLink: '' };
+  }
+  // A person's hold outranks a claim and driving: the agent can do nothing
+  // until they hand the device back or the hold runs out.
+  const waiting = t.waiting && typeof t.waiting === 'object' ? (t.waiting.agent || 'an agent') : '';
+  if (waiting) {
+    const link = claim && typeof claim.link === 'string' && claim.link.startsWith('https://') ? claim.link : '';
+    return { agent: `${waiting} is waiting for you`, agentTone: 'waiting', agentLink: link };
   }
   if (claim) {
     const who = claim.agent || claim.session || 'an agent';
