@@ -26,6 +26,16 @@ const LABELS = {
   posture: 'Posture',
 };
 
+// shownInPanel(setting) -> whether this panel draws a row for it. location
+// (a point) and appLanguage (a long list of languages) have no control here
+// yet; the Mac app sets both, and so does PUT /api/settings.
+const NOT_SHOWN = new Set(['appLanguage']);
+
+export function shownInPanel(setting) {
+  if (!setting || NOT_SHOWN.has(setting.id)) return false;
+  return setting.type === 'bool' || setting.type === 'range' || setting.type === 'enum';
+}
+
 export function labelFor(id) {
   return LABELS[id] || id;
 }
@@ -198,7 +208,7 @@ export function mount(container, deps = {}) {
     currentByTarget.set(t, settings);
     container.innerHTML = '';
     for (const setting of settings) {
-      container.appendChild(renderRow(setting));
+      if (shownInPanel(setting)) container.appendChild(renderRow(setting));
     }
   }
 

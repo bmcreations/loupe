@@ -46,6 +46,8 @@ Common refusals on routes that change a device:
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
+| `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture, app language, location |
+| `GET`, `PUT`, `DELETE /api/presets`, `POST /api/presets/apply` | Named groups of device settings |
 | `GET`, `POST /api/clipboard` | Device clipboard |
 | `GET`, `POST /api/clipboard/shared` | Shared clipboard |
 | `GET /api/handoff` | Link that moves a session to another browser |
@@ -564,6 +566,40 @@ is the package, and `build` and `version` are its versionCode and versionName.
 A call resumes a paused emulator. Dropbox lives under `/data`, so without
 `emulatorKeepState` a boot from `loupe-warm` discards every report since it
 was saved. Synthetic answers 501.
+
+## Device settings and presets
+
+### `GET /api/settings?target=<id>`, `PUT /api/settings?target=<id>`
+
+`GET` lists the device's settings, each with `id`, `type` (`bool`, `range`,
+`enum`, `point`), `value`, and `supported`. `PUT {"changes":{"darkMode":true}}` changes
+them at once and answers with the list read back. If one change fails, the
+ones before it are put back and the answer is 409 with `failed`.
+
+- `appLanguage` is the language of the app in front, named in `package`
+  (Android 13 and later). `""` puts the app back on the system language. The
+  system language itself can't be changed without a reboot, so it isn't
+  offered. With no app in front it reports `supported: false`.
+- `location` (emulators only) is a `point`, `{"lat": 37.42, "lng": -122.08}`,
+  sent as the emulator's GPS fix. Android can't read the fix back, so
+  `value` is the last one loupe set, or `null` before the first.
+
+### `/api/presets`
+
+A preset is a name and a `settings` object in the shape of `changes`. Presets
+belong to the server, not to a device, and are kept in `presets.json` beside
+the config.
+
+- `GET /api/presets` lists them, sorted by name.
+- `PUT /api/presets` with `{"name":"Large text","settings":{"fontScale":1.3}}`
+  saves one, replacing a preset with the same name.
+- `DELETE /api/presets?name=<name>` removes one.
+- `POST /api/presets/apply?name=<name>&target=<id>` applies one the way
+  `PUT /api/settings` does. Settings the device doesn't have or can't change
+  are left out and named in `skipped`, so a preset with `posture` still
+  applies its other settings on a phone. If nothing is left, the answer is 409.
+
+The MCP tool is `apply_preset`.
 
 ## Clipboard
 

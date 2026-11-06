@@ -159,15 +159,23 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, id string, 
 		return
 	}
 
+	s.applySettings(w, r, id, ds, req.Changes, map[string]any{"action": "settings-put"}, func(settings []target.Setting) any {
+		return SettingsResponse{Settings: nonNilSettings(settings)}
+	})
+}
+
+// applySettings applies changes to ds and answers the way PUT /api/settings
+// does: 400 for a change rejected before anything ran, 502 for a device that
+// did not answer, 409 with what was rolled back, or 200 with ok's body built
+// from a fresh read. rec carries the trace fields that name the caller's
+// route; the target, changes and outcome are added here.
+func (s *Server) applySettings(w http.ResponseWriter, r *http.Request, id string, ds target.DeviceSettings, changes map[string]any, rec map[string]any, ok func([]target.Setting) any) {
 	ctx, cancel := context.WithTimeout(r.Context(), agentTimeout)
 	defer cancel()
 
-	failed, notRestored, applyErr := ds.ApplySettings(ctx, req.Changes)
+	failed, notRestored, applyErr := ds.ApplySettings(ctx, changes)
 
-	rec := map[string]any{
-		"kind": "agent", "target": id, "action": "settings-put",
-		"ua": r.UserAgent(), "changes": req.Changes,
-	}
+	rec["kind"], rec["target"], rec["ua"], rec["changes"] = "agent", id, r.UserAgent(), changes
 	if len(failed) > 0 {
 		rec["failed"] = failed
 	}
@@ -223,5 +231,5 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, id string, 
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, SettingsResponse{Settings: nonNilSettings(settings)})
+	writeJSON(w, http.StatusOK, ok(settings))
 }

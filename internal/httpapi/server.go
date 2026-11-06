@@ -40,6 +40,8 @@ type Server struct {
 	exts *extensionRegistry
 	// flags holds what people flagged for agents (flags.go).
 	flags *flagStore
+	// presets holds named groups of device settings (presets.go).
+	presets *presetStore
 	// findT3 locates the T3 CLI; nil uses t3.Find. Tests swap in a fake.
 	findT3 func() (t3.CLI, error)
 	// flagDir is where flags sent to T3 are written; empty is the user
@@ -141,6 +143,7 @@ func (s *Server) EnableWebTransport(wt *webtransport.Server) { s.wtServer = wt }
 func NewServer(mgr *Manager, web fs.FS, tracer *trace.Writer) *Server {
 	s := &Server{mgr: mgr, web: web, trace: tracer}
 	s.claims = newClaimBook(tracer.Record)
+	s.presets = &presetStore{}
 	s.exts = newExtensionRegistry()
 	s.flags = newFlagStore()
 	mgr.SetTrace(tracer)
@@ -290,6 +293,8 @@ var routes = []route{
 	{"/api/events", []string{http.MethodGet}, (*Server).handleEvents, "GET only"},
 	{"/api/app", []string{http.MethodGet}, (*Server).handleApp, ""},
 	{"/api/settings", []string{http.MethodGet, http.MethodPut}, (*Server).handleSettings, ""},
+	{"/api/presets", []string{http.MethodGet, http.MethodPut, http.MethodDelete}, (*Server).handlePresets, ""},
+	{"/api/presets/apply", []string{http.MethodPost}, (*Server).handlePresetApply, ""},
 	{"/api/clipboard", []string{http.MethodGet, http.MethodPost}, (*Server).handleClipboard, ""},
 	{"/api/clipboard/shared", []string{http.MethodGet, http.MethodPost}, (*Server).handleSharedClipboard, ""},
 	{"/api/flags", []string{http.MethodGet, http.MethodPost}, (*Server).handleFlags, ""},

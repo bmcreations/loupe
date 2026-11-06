@@ -53,6 +53,7 @@ var toolRoutes = []toolRoute{
 	{"drop", http.MethodPost, "/api/drop"},
 	{"boot", http.MethodPost, "/api/devices/boot"},
 	{"boot_status", http.MethodGet, "/api/devices/boot"},
+	{"apply_preset", http.MethodPost, "/api/presets/apply"},
 	{"release", http.MethodDelete, "/api/claims"},
 	{"flags", http.MethodGet, "/api/flags"},
 	{"flag", http.MethodGet, "/api/flags"},
@@ -201,6 +202,11 @@ type crashesIn struct {
 type crashIn struct {
 	Targeted
 	ID string `json:"id" jsonschema:"a report id from the crashes tool"`
+}
+
+type applyPresetIn struct {
+	Targeted
+	Name string `json:"name" jsonschema:"the preset's name, as a person saved it in Handset or with PUT /api/presets"`
 }
 
 type installIn struct {
@@ -438,6 +444,16 @@ func addTools(s *mcp.Server, c *Client) {
 		Description: "How an AVD's boot is going: state (up, booting, stopped), whether the emulator process is alive, adb's state, sys.boot_completed and the boot log's path. For a boot started with wait 0 or one that outran its wait. Reads only; it claims nothing.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in Targeted) (*mcp.CallToolResult, any, error) {
 		return jsonResult(c.getJSON(ctx, "/api/devices/boot", url.Values{"target": {in.Target}}))
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "apply_preset",
+		Description: "Apply a saved preset of device settings (dark mode, text size, reduce motion, posture and so on) to a target. Settings the target doesn't have are skipped and listed in skipped; if one change fails, the ones before it are put back. Claimed like the input tools.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in applyPresetIn) (*mcp.CallToolResult, any, error) {
+		q := url.Values{"target": {in.Target}, "name": {in.Name}}
+		return jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
+			return c.postJSON(ctx, "/api/presets/apply", q, nil)
+		}))
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

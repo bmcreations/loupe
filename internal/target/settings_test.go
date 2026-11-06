@@ -94,7 +94,13 @@ func (f *fakeShell) run(ctx context.Context, args ...string) (string, error) {
 				if f.breakScript {
 					return "", errors.New("device unreachable")
 				}
-				resp, _ := nonceFakeResponse(nonce, f.scriptAnswers)
+				// scriptAnswers names the first sections; the rest (the
+				// appLanguage reads) answer empty.
+				answers := append([]string(nil), f.scriptAnswers...)
+				for len(answers) < len(scriptCommands(args[0])) {
+					answers = append(answers, "")
+				}
+				resp, _ := nonceFakeResponse(nonce, answers)
 				return resp, f.errAlongsideComplete
 			}
 			cmds := scriptCommands(args[0])
@@ -622,7 +628,7 @@ func TestWriteTalkBackQuotesTheServiceListItWrites(t *testing.T) {
 
 // --- Settings() via the combined script -----------------------------------
 
-func TestSettingsReportsAllFiveFields(t *testing.T) {
+func TestSettingsReportsEveryField(t *testing.T) {
 	f := &fakeShell{scriptAnswers: []string{
 		"Night mode: yes", // darkMode
 		"1.2",             // fontScale
@@ -635,7 +641,9 @@ func TestSettingsReportsAllFiveFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(settings) != 5 {
+	// The five toggles, plus appLanguage (unsupported here: the fake
+	// answers no SDK level).
+	if len(settings) != 6 {
 		t.Fatalf("got %d settings", len(settings))
 	}
 	byID := map[string]Setting{}
