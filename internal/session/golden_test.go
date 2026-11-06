@@ -279,7 +279,7 @@ func TestEventJSONTagsAreExplicit(t *testing.T) {
 	// miss exactly that, and omitempty is what makes a zero-value field
 	// invisible to every fixture above.
 	want := []string{
-		"seq", "t", "source", "viewer,omitempty", "agent,omitempty", "kind", "from,omitempty",
+		"seq", "t", "source", "viewer,omitempty", "agent,omitempty", "kind", "action,omitempty", "from,omitempty",
 		"to,omitempty", "ms,omitempty", "pointers,omitempty",
 		"scale,omitempty", "keycode,omitempty", "button,omitempty", "text,omitempty",
 		"rotation,omitempty", "scroll,omitempty", "redacted,omitempty",

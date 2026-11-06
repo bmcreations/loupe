@@ -546,6 +546,16 @@
         "link": {
           "type": "string"
         },
+        "recentHumanInputMs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "session": {
           "type": "string"
         },
@@ -3638,6 +3648,26 @@
       ],
       "type": "object"
     },
+    "httpapi.RefusedInfo": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent",
+        "code",
+        "at"
+      ],
+      "type": "object"
+    },
     "httpapi.RevokeResponse": {
       "properties": {
         "revoked": {
@@ -4035,6 +4065,16 @@
         "reason": {
           "type": "string"
         },
+        "refused": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.RefusedInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "serial": {
           "type": "string"
         },
@@ -4049,6 +4089,16 @@
         },
         "transport": {
           "type": "string"
+        },
+        "waiting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.WaitingInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -4110,6 +4160,25 @@
         "height",
         "rotation",
         "nodes"
+      ],
+      "type": "object"
+    },
+    "httpapi.WaitingInfo": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "since": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent",
+        "since"
       ],
       "type": "object"
     },
@@ -4262,6 +4331,9 @@
     },
     "session.Event": {
       "properties": {
+        "action": {
+          "type": "string"
+        },
         "agent": {
           "type": "string"
         },

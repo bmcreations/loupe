@@ -1244,6 +1244,13 @@ test('EventLog.merge: a gap whose `before` exactly equals the ring\'s oldest is 
   assert.equal(gap.lost, true);
 });
 
+test('formatRow: a refused agent action names the action and the code', () => {
+  const row = formatRow({ seq: 1, t: 0, source: 'agent', agent: 'claude', kind: 'refused', action: 'tap', err: 'humanHeld' });
+  assert.equal(row.what, 'Refused tap · humanHeld');
+  assert.equal(row.failed, true);
+});
+
 await runAll();
 console.log(failures ? `\n${failures} failing` : '\nall passing');
 process.exit(failures ? 1 : 0);
+
