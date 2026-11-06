@@ -35,6 +35,14 @@ type ControlState struct {
 	Holder    uint64 `json:"holder,omitempty"`
 	Agent     string `json:"agent"`
 	AgentName string `json:"agentName,omitempty"`
+	// HoldMs is how long a holder's last input keeps the target held. It is
+	// the window, not what is left of it: the deadline moves with every
+	// touch, and sending it would send MsgControl per touch. The holder
+	// knows when its own last input was, and counts down from there.
+	HoldMs int64 `json:"holdMs,omitempty"`
+	// PinnedUntil is the Unix time in milliseconds a pinned hold ends at the
+	// latest, while one is pinned. Set once per pin, so it is safe to send.
+	PinnedUntil int64 `json:"pinnedUntil,omitempty"`
 }
 
 // ControlChange is one transition, for the trace. State is "held" or "free"
@@ -148,6 +156,18 @@ func (a *Arbiter) Unpin(now time.Time) []ControlChange {
 		a.lastHuman = now
 	}
 	return a.Tick(now)
+}
+
+// Release is a viewer handing the target back before its hold runs out. It
+// frees the target at once, pin and all, if viewer holds it, and changes
+// nothing otherwise. A waiting agent stays waiting until its next action
+// lands, so the handover is still one change from waiting to driving.
+func (a *Arbiter) Release(viewer uint64, now time.Time) []ControlChange {
+	changes := a.Tick(now)
+	if viewer != 0 && a.holder == viewer {
+		changes = append(changes, a.free(now))
+	}
+	return changes
 }
 
 func (a *Arbiter) take(viewer uint64, now time.Time) []ControlChange {
@@ -272,6 +292,12 @@ func (a *Arbiter) State() ControlState {
 	st := ControlState{Held: a.holder != 0, Holder: a.holder, Agent: a.agent}
 	if a.agent != AgentIdle {
 		st.AgentName = a.agentName
+	}
+	if a.holder != 0 {
+		st.HoldMs = a.hold.Milliseconds()
+		if !a.pinnedUntil.IsZero() {
+			st.PinnedUntil = a.pinnedUntil.UnixMilli()
+		}
 	}
 	return st
 }

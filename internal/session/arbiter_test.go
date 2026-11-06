@@ -326,3 +326,60 @@ func TestAPinRunsOutAtItsCap(t *testing.T) {
 		t.Fatalf("a hold after the pin ran out did not end with its window: %+v", c)
 	}
 }
+
+func TestReleaseFreesTheHolderAtOnce(t *testing.T) {
+	a := NewArbiter(5 * time.Second)
+	a.Human(3, at(0))
+	a.Agent("claude", at(500)) // refused, shown waiting
+	changes := a.Release(3, at(1000))
+	if len(changes) != 1 || changes[0].State != "free" || changes[0].Viewer != 3 || changes[0].HeldMs != 1000 {
+		t.Fatalf("changes = %+v, want free of 3 after 1s", changes)
+	}
+	if st := a.State(); st.Held || st.Agent != AgentWaiting {
+		t.Fatalf("State = %+v; want free, agent still waiting until it acts", st)
+	}
+	if ok, _, _ := a.Agent("claude", at(1100)); !ok {
+		t.Fatal("agent refused after the hold was handed back")
+	}
+}
+
+func TestReleaseByAnotherViewerChangesNothing(t *testing.T) {
+	a := NewArbiter(5 * time.Second)
+	a.Human(3, at(0))
+	if c := a.Release(4, at(1000)); len(c) != 0 {
+		t.Fatalf("release by a non-holder reported %+v", c)
+	}
+	if c := a.Release(0, at(1000)); len(c) != 0 {
+		t.Fatalf("release by viewer 0 reported %+v", c)
+	}
+	if st := a.State(); !st.Held || st.Holder != 3 {
+		t.Fatalf("State = %+v, want still held by 3", st)
+	}
+}
+
+func TestReleaseEndsAPin(t *testing.T) {
+	a := NewArbiter(5 * time.Second)
+	a.Pin(3, at(60_000), at(0))
+	if st := a.State(); st.PinnedUntil != at(60_000).UnixMilli() || st.HoldMs != 5000 {
+		t.Fatalf("pinned State = %+v; want pinnedUntil and holdMs", st)
+	}
+	a.Release(3, at(1000))
+	if ok, _, _ := a.Agent("claude", at(1100)); !ok {
+		t.Fatal("agent refused after a pinned hold was handed back")
+	}
+	if st := a.State(); st.PinnedUntil != 0 || st.HoldMs != 0 {
+		t.Fatalf("free State = %+v; want no hold fields", st)
+	}
+}
+
+func TestStateReportsTheWindowNotTheDeadline(t *testing.T) {
+	a := NewArbiter(5 * time.Second)
+	a.Touch(3, down, 1, at(0))
+	before := a.State()
+	a.Touch(3, move, 1, at(400))
+	// control() sends MsgControl whenever State changes; a moving deadline
+	// would send one per touch.
+	if after := a.State(); after != before {
+		t.Fatalf("a move changed State: %+v -> %+v", before, after)
+	}
+}
