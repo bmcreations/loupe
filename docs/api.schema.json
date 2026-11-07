@@ -3548,6 +3548,9 @@
     },
     "httpapi.PairingInfo": {
       "properties": {
+        "agent": {
+          "type": "boolean"
+        },
         "canPair": {
           "type": "boolean"
         },
@@ -3585,6 +3588,9 @@
     },
     "httpapi.PairingRequest": {
       "properties": {
+        "agent": {
+          "type": "boolean"
+        },
         "canPair": {
           "type": "boolean"
         },
@@ -3864,6 +3870,9 @@
     },
     "httpapi.SessionInfo": {
       "properties": {
+        "agent": {
+          "type": "boolean"
+        },
         "canPair": {
           "type": "boolean"
         },
