@@ -80,7 +80,10 @@ type Session struct {
 	// or ParentMaster.
 	Parent string `json:"parent"`
 	// CanPair lets this session mint codes of its own.
-	CanPair    bool       `json:"canPair,omitempty"`
+	CanPair bool `json:"canPair,omitempty"`
+	// Agent marks a token minted for an AI agent rather than a paired
+	// device or browser.
+	Agent      bool       `json:"agent,omitempty"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	LastUsedAt time.Time  `json:"lastUsedAt"`
 	ExpiresAt  time.Time  `json:"expiresAt"`
@@ -102,6 +105,7 @@ type Code struct {
 	Target    []string  `json:"target,omitempty"`
 	Label     string    `json:"label,omitempty"`
 	CanPair   bool      `json:"canPair,omitempty"`
+	Agent     bool      `json:"agent,omitempty"`
 	Parent    string    `json:"parent"`
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -113,6 +117,8 @@ type MintRequest struct {
 	Label  string
 	// CanPair is passed on to the session the code is redeemed for.
 	CanPair bool
+	// Agent is passed on to the session, marking it as an agent's token.
+	Agent bool
 	// Parent is the minting session's id, or ParentMaster.
 	Parent string
 }
@@ -216,6 +222,7 @@ func (s *Store) Mint(req MintRequest) (Code, string, error) {
 		Target:    append([]string(nil), req.Target...),
 		Label:     req.Label,
 		CanPair:   req.CanPair,
+		Agent:     req.Agent,
 		Parent:    req.Parent,
 		CreatedAt: now,
 		ExpiresAt: now.Add(CodeTTL),
@@ -263,6 +270,7 @@ func (s *Store) Redeem(code string, req RedeemRequest) (Session, string, Code, e
 		Label:      label,
 		Parent:     c.Parent,
 		CanPair:    c.CanPair,
+		Agent:      c.Agent,
 		CreatedAt:  now,
 		LastUsedAt: now,
 		ExpiresAt:  now.Add(SessionTTL),

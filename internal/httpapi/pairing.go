@@ -229,6 +229,9 @@ type PairingRequest struct {
 	Label string `json:"label,omitempty"`
 	// CanPair lets the session the code is redeemed for mint codes itself.
 	CanPair bool `json:"canPair,omitempty"`
+	// Agent marks the session the code is redeemed for as an AI agent's
+	// token, so clients can list agents apart from paired devices.
+	Agent bool `json:"agent,omitempty"`
 }
 
 // PairingResponse is a freshly minted code. Code is returned here and never
@@ -246,6 +249,7 @@ type PairingInfo struct {
 	Target    []string  `json:"target,omitempty"`
 	Label     string    `json:"label,omitempty"`
 	CanPair   bool      `json:"canPair,omitempty"`
+	Agent     bool      `json:"agent,omitempty"`
 	Parent    string    `json:"parent"`
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -274,6 +278,7 @@ type SessionInfo struct {
 	Label      string     `json:"label,omitempty"`
 	Parent     string     `json:"parent"`
 	CanPair    bool       `json:"canPair,omitempty"`
+	Agent      bool       `json:"agent,omitempty"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	LastUsedAt time.Time  `json:"lastUsedAt"`
 	ExpiresAt  time.Time  `json:"expiresAt"`
@@ -287,7 +292,7 @@ type SessionInfo struct {
 func sessionInfo(row pairing.Session, current string) SessionInfo {
 	return SessionInfo{
 		ID: row.ID, Kind: row.Kind, Label: row.Label, Parent: row.Parent,
-		CanPair: row.CanPair, CreatedAt: row.CreatedAt, LastUsedAt: row.LastUsedAt,
+		CanPair: row.CanPair, Agent: row.Agent, CreatedAt: row.CreatedAt, LastUsedAt: row.LastUsedAt,
 		ExpiresAt: row.ExpiresAt, RevokedAt: row.RevokedAt, UserAgent: row.UserAgent,
 		RemoteAddr: row.RemoteAddr, Current: current != "" && row.ID == current,
 	}
@@ -344,7 +349,7 @@ func (s *Server) handlePairings(w http.ResponseWriter, r *http.Request) {
 		codes := s.pairing.Codes()
 		out := make([]PairingInfo, 0, len(codes))
 		for _, p := range codes {
-			out = append(out, PairingInfo{ID: p.ID, Target: p.Target, Label: p.Label, CanPair: p.CanPair, Parent: p.Parent, CreatedAt: p.CreatedAt, ExpiresAt: p.ExpiresAt})
+			out = append(out, PairingInfo{ID: p.ID, Target: p.Target, Label: p.Label, CanPair: p.CanPair, Agent: p.Agent, Parent: p.Parent, CreatedAt: p.CreatedAt, ExpiresAt: p.ExpiresAt})
 		}
 		writeJSON(w, http.StatusOK, out)
 		return
@@ -354,7 +359,7 @@ func (s *Server) handlePairings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "body: " + err.Error()})
 		return
 	}
-	code, raw, err := s.pairing.Mint(pairing.MintRequest{Target: req.Target, Label: req.Label, CanPair: req.CanPair, Parent: c.parent()})
+	code, raw, err := s.pairing.Mint(pairing.MintRequest{Target: req.Target, Label: req.Label, CanPair: req.CanPair, Agent: req.Agent, Parent: c.parent()})
 	if errors.Is(err, pairing.ErrParentGone) {
 		writeJSON(w, http.StatusForbidden, ErrorResponse{Error: err.Error()})
 		return
