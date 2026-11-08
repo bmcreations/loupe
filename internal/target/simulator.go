@@ -130,6 +130,10 @@ type Simulator struct {
 	// panels is the device type's built-in panel count once simcap has
 	// answered it, and 0 before. Two makes it foldable (simposture.go).
 	panels atomic.Int32
+	// hinge coalesces hingeAngle writes, and hingeSent is the last angle
+	// sent (simposture.go).
+	hinge     hingeCoalescer
+	hingeSent simHinge
 	// panelsRead is set once Describe has started the capabilities.plist
 	// read, so a single-panel device type is read once, not every listing.
 	panelsRead atomic.Bool
@@ -197,7 +201,16 @@ func (s *Simulator) Update(info SimInfo) {
 	s.mu.Lock()
 	s.info = info
 	s.mu.Unlock()
-	s.booted.Store(info.Booted())
+	s.setBooted(info.Booted())
+}
+
+// setBooted records whether the simulator is up. A boot or a shutdown
+// leaves the hinge wherever the next boot puts it, so the last angle sent
+// no longer says anything.
+func (s *Simulator) setBooted(b bool) {
+	if s.booted.Swap(b) != b {
+		s.hingeSent.reset()
+	}
 }
 
 // BootsOnOpen implements Booter.
@@ -294,7 +307,7 @@ func (s *Simulator) ensureBooted(ctx context.Context) error {
 	if out, err := exec.CommandContext(ctx, "xcrun", "simctl", "bootstatus", udid, "-b").CombinedOutput(); err != nil {
 		return fmt.Errorf("wait for %s to boot: %v: %s", s.Label(), err, strings.TrimSpace(string(out)))
 	}
-	s.booted.Store(true)
+	s.setBooted(true)
 	s.claimed.Store(true)
 	if slimRec != nil {
 		if len(wanted) > 0 {
