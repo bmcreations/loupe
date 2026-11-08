@@ -129,7 +129,8 @@ iOS-simulator behaviors. The routes and error codes are `POST /api/drop` and
 
 A Duo streams whichever panel is lit, so a folded Duo does not stream black.
 The viewer's fold button changes posture (`/api/settings` offers `posture`
-as `closed` or `opened`; a fold takes about 2.4s and an unfold 1s). Every
+as `closed` or `opened`; a fold takes about 2.4s and an unfold 1s), and
+`hingeAngle` sets the hinge to a degree (`docs/agent-api.md`, Device settings). Every
 other simulator answers 501 to a posture change.
 
 ### Untested
