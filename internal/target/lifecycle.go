@@ -142,6 +142,9 @@ func (e *Emulator) ResetState(ctx context.Context) error {
 	if err := os.WriteFile(filepath.Join(e.cfg.Dir, wipeMarker), nil, 0o644); err != nil {
 		return fmt.Errorf("reset %s: %w", e.cfg.AVD, err)
 	}
+	if err := e.clearStartMarker(); err != nil {
+		return fmt.Errorf("reset %s: %w", e.cfg.AVD, err)
+	}
 	return nil
 }
 

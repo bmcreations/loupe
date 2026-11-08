@@ -47,6 +47,17 @@ changed: files written to `/sdcard/Download` are gone, and an `/api/install`
 lasts only while that emulator process runs. The snapshot costs 1.7-2GB in
 each AVD directory loupe has cold-booted.
 
+To keep an install, or anything else set up by hand, for every later boot,
+use Save & Shut Down in the picker (`POST /api/devices/shutdown?save=1`). It
+ends the stream, saves the state over `loupe-warm` and shuts the AVD down;
+the next open starts there, and each later boot still discards what its own
+session changed. The save writes the 1.7-2GB snapshot again and pauses the VM
+for 1-2s. The picker row then reads "Start state saved <date>", from
+`startSavedAt` in the listing. A save that fails, or a stream that has not let
+go within 3s, leaves the AVD running and unsaved; the stream has already
+ended by then, so reopen it to keep watching. Reset goes back to the
+system image's own data and removes the saved start state.
+
 `emulatorKeepState` (off by default, `-emulator-keep-state`) saves the state
 over `loupe-warm` before a shutdown, the idle one and the picker's Shut Down,
 so the next open resumes where the last left off. Delete never saves. A failed
@@ -88,11 +99,14 @@ that is paused. A claim lapses 10 minutes after its holder's last call.
 
 | Action | Route | Result |
 | --- | --- | --- |
+| Save & Shut Down | `POST /api/devices/shutdown?target=avd:<name>&save=1` | Saves the state over `loupe-warm`, then stops the emulator; every later boot starts from it |
 | Shut Down | `POST /api/devices/shutdown?target=avd:<name>` | Stops the emulator; the AVD stays and opens from `loupe-warm` |
 | Delete | `DELETE /api/devices?target=avd:<name>` | Stops it, then removes the AVD and its `loupe-warm` snapshot |
 | Reset | `POST /api/devices/reset?target=avd:<name>` | Stops it without saving and wipes it: the next boot is a cold `-wipe-data` boot, then a fresh `loupe-warm` |
 
-The picker's swipe actions call the first two (see `docs/agent-api.md`).
+The picker offers Save & Shut Down, Shut Down and Delete on a running AVD,
+and Reset and Delete on a shut-down one (see `docs/agent-api.md`). Reset in
+the picker asks first.
 
 - Shutdown took about 1.6s with a viewer attached; delete about 1.8s.
 - After a Shut Down or Delete, a plain open of that target is refused for 10s,

@@ -110,8 +110,9 @@ test('refocusTarget returns null against an empty list', () => {
 // Swipe actions. rowActions is the same rule as devicelife.go's deviceActions.
 const base = { kind: 'emulator', label: 'x' };
 for (const [name, t, want] of [
-  ['a running avd offers both', { ...base, id: 'avd:a' }, ['shutdown', 'delete']],
-  ['a shut-down avd offers delete only', { ...base, id: 'avd:a', bootsOnOpen: true }, ['delete']],
+  ['a running avd offers save, shutdown and delete', { ...base, id: 'avd:a' }, ['save', 'shutdown', 'delete']],
+  ['a shut-down avd offers reset and delete', { ...base, id: 'avd:a', bootsOnOpen: true }, ['reset', 'delete']],
+  ['a shut-down simulator offers delete only', { ...base, id: 'sim:U', bootsOnOpen: true }, ['delete']],
   ['a running simulator offers both', { ...base, id: 'sim:U' }, ['shutdown', 'delete']],
   ['a pending simulator offers nothing', { ...base, id: 'sim-new:n' }, []],
   ['a creating avd offers nothing', { ...base, id: 'avd:a', state: 'creating' }, []],
@@ -378,5 +379,20 @@ test('addGroupHTML offers Add server alone, both rows, or nothing', () => {
 });
 
 await Promise.all(pending);
+// A saved start state shows on the row, in the viewer's local date. Noon UTC
+// is Nov 4 in every zone from UTC-11 to UTC+11.
+test('rowModel: a shut-down avd with a saved start state says so', () => {
+  const m = rowModel({ ...base, id: 'avd:a', bootsOnOpen: true, startSavedAt: '2026-11-04T12:00:00Z' }, null, 0);
+  assert.equal(m.detail, 'Emulator · Shut down · boots when opened · Start state saved Nov 4');
+});
+test('rowModel: a running avd with a saved start state ends with it', () => {
+  const m = rowModel({ ...base, id: 'avd:a', os: 'android', osVersion: '14', startSavedAt: '2026-11-04T12:00:00Z' }, null, 0);
+  assert.ok(m.detail.endsWith(' · Start state saved Nov 4'), m.detail);
+});
+test('rowModel: an unparseable startSavedAt adds nothing', () => {
+  const m = rowModel({ ...base, id: 'avd:a', bootsOnOpen: true, startSavedAt: 'soon' }, null, 0);
+  assert.equal(m.detail, 'Emulator · Shut down · boots when opened');
+});
+
 console.log(failures ? `\n${failures} failing` : '\nall passing');
 process.exit(failures ? 1 : 0);
