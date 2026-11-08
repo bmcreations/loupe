@@ -2,6 +2,7 @@ package target
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,5 +93,64 @@ func TestSimulatorRotateSetsTheOrientationAndRotationReadsItBack(t *testing.T) {
 func TestSimulatorRotateNeedsABootedSimulator(t *testing.T) {
 	if err := (&Simulator{}).Rotate(context.Background(), 1); err == nil {
 		t.Fatal("Rotate on a shut-down simulator succeeded")
+	}
+}
+
+// A simulator turned counter-clockwise (landscapeLeft, Rotator 1) draws its
+// content turned clockwise inside the portrait picture, so the client turns
+// the picture back by three clockwise quarters to stand it up.
+func TestSimContentRotationTurnsThePictureBackClockwise(t *testing.T) {
+	for to, want := range []int{0, 3, 2, 1} {
+		if got := simContentRotation(to); got != want {
+			t.Errorf("simContentRotation(%d) = %d, want %d", to, got, want)
+		}
+	}
+}
+
+func TestSimulatorContentRotationFollowsRotate(t *testing.T) {
+	bin, _ := statefulSimcap(t)
+	in := &simInput{bin: bin, udid: "u"}
+	defer in.close()
+	s := &Simulator{}
+	s.inputOnce.Do(func() { s.in = in })
+	s.booted.Store(true)
+	ctx := context.Background()
+
+	if got := s.contentRotation(ctx); got != 0 {
+		t.Fatalf("contentRotation of a fresh simulator = %d, want 0", got)
+	}
+	if err := s.Rotate(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.contentRotation(ctx); got != 3 {
+		t.Fatalf("contentRotation after Rotate(1) = %d, want 3", got)
+	}
+	if err := s.Rotate(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.contentRotation(ctx); got != 0 {
+		t.Fatalf("contentRotation after Rotate(0) = %d, want 0", got)
+	}
+}
+
+func TestSimulatorContentRotationIsZeroWhenShutDown(t *testing.T) {
+	if got := (&Simulator{}).contentRotation(context.Background()); got != 0 {
+		t.Fatalf("contentRotation of a shut-down simulator = %d, want 0", got)
+	}
+}
+
+// An upright frame marshals exactly as it did before contentRotation
+// existed, so an older client reads the same JSON.
+func TestDeviceFrameOmitsAnUprightContentRotation(t *testing.T) {
+	b, err := json.Marshal(&DeviceFrame{Width: 10, Height: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "contentRotation") {
+		t.Errorf("upright frame marshalled %s", b)
+	}
+	b, _ = json.Marshal(&DeviceFrame{Width: 10, Height: 20, ContentRotation: 3})
+	if !strings.Contains(string(b), `"contentRotation":3`) {
+		t.Errorf("turned frame marshalled %s", b)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 var _ Rotator = (*Simulator)(nil)
@@ -63,4 +64,32 @@ func (s *Simulator) Rotation(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("orient get: empty reply")
 	}
 	return simRotationFromName(f[0]), nil
+}
+
+// simContentRotation turns a Rotator quarter-turn count (counter-clockwise)
+// into DeviceFrame.ContentRotation (clockwise): a simulator turned
+// counter-clockwise has its content drawn turned clockwise inside the
+// portrait picture, so the client turns the picture back the other way.
+func simContentRotation(to int) int {
+	return ((4-to)%4 + 4) % 4
+}
+
+// contentRotation is the frame's ContentRotation, read from `orient get`.
+// A shut-down simulator, or one whose simcap cannot answer, reads as upright:
+// a frame drawn upright is what every client got before simulators turned.
+// This starts the input process on a single-panel simulator too; any Rotate
+// would have.
+func (s *Simulator) contentRotation(ctx context.Context) int {
+	if s.requireBooted() != nil {
+		return 0
+	}
+	// A CoreDevice lookup can hang (see framePanel), and an upright frame is
+	// better than none.
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	to, err := s.Rotation(ctx)
+	if err != nil {
+		return 0
+	}
+	return simContentRotation(to)
 }

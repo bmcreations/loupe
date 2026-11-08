@@ -14,10 +14,11 @@ import (
 // handleFrame describes the bezel to draw around a target's stream.
 //
 // This is a property of the device rather than of a session: it needs no
-// stream open, and it does not change while one is. That is why it is its own
+// stream open, and only a turn or a fold changes it. That is why it is its own
 // endpoint and not a field on the stream metadata the client already receives,
 // which describes what the encoder produced and exists only while something is
-// streaming.
+// streaming. A simulator's turn leaves the stream's size alone, so a client
+// refetches the frame after a rotate.
 func (s *Server) handleFrame(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.agentTarget(w, r)
 	if !ok {
