@@ -129,13 +129,10 @@ type probeOptions struct {
 	checkTimeout time.Duration
 
 	// skipDrain disables the drainVideoUniStreams goroutine below. It exists
-	// only for TestHealthFailsWithoutDrainingVideoStreams, which proves the
-	// comment at that call site is true of the actual code rather than just
-	// asserted in prose: without draining, OpenUniStream starts failing once
-	// the session's uni-stream credit runs out -- MaxIncomingUniStreams: 64
-	// in runWithOptions below, so around the 64th access unit synthetic
-	// produces -- frameDelivered treats that as fatal, and the viewer is torn
-	// down well before check 4 sees a MsgStats.
+	// only for TestHealthSurvivesUndrainedVideoStreams, which checks that a
+	// viewer that never accepts its video streams still gets MsgStats: the
+	// server resets a stalled viewer's in-flight inter frames, and stats
+	// keep arriving after it.
 	skipDrain bool
 }
 
@@ -218,12 +215,10 @@ func runWithOptions(rawURL string, opts probeOptions) ([]checkResult, error) {
 	// section), and OpenUniStream does not block on a stream nobody accepts
 	// -- it refuses immediately once session stream credit runs out
 	// (webtransport.go's SendFrame, "open frame stream: too many open
-	// streams"). frameDelivered treats that as fatal, so the writer
-	// goroutine returns and the viewer is torn down, not blocked: without
-	// this, check 4 loses the session outright within the first few frames
-	// on a synthetic target producing them as fast as a real one would,
-	// which is exactly what a browser or cmd/wtprobe accepting the streams
-	// avoids. TestHealthFailsWithoutDrainingVideoStreams reproduces it.
+	// streams"). The server now resets a stalled viewer's in-flight inter
+	// frames on needKey, and the session now survives without the
+	// drain (TestHealthSurvivesUndrainedVideoStreams), but a probe that drains
+	// behaves like a browser or cmd/wtprobe and never relies on the reset.
 	if !opts.skipDrain {
 		go drainVideoUniStreams(ctx, wtSess)
 	}

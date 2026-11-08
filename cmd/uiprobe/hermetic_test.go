@@ -860,28 +860,14 @@ func TestRunRefusesADisallowedTargetWithoutDialing(t *testing.T) {
 	}
 }
 
-// TestHealthFailsWithoutDrainingVideoStreams is round 2's item 3 (and round
-// 3's item 1, which caught this test passing with the drain left ON): it
-// proves the comment at drainVideoUniStreams's call site in run is actually
-// true of the code, not just asserted in prose, and that draining is what
-// makes the difference rather than health failing either way.
-//
-// MsgStats goes out once a second (internal/httpapi/viewer.go's stats
-// ticker), so a healthTimeout has to be at least that long for a PASS to be
-// possible at all -- round 2's version used 500ms, under which health FAILs
-// regardless of the drain and the test would still be green with skipDrain
-// forced true by a mutation. It is checkTimeout (2s) here, the package's own
-// documented floor for this kind of wait: measured, drain on PASSes around
-// 1.0s and drain off FAILs around 3.0s, since 10 access units land in the
-// first 150ms or so at 60fps and MaxIncomingUniStreams is 64 but each stream
-// is refused, not queued, once that credit runs out.
-//
-// Two cases in one table: drain on must PASS, drain off must FAIL. A single
-// skipDrain:true case cannot tell "health correctly needs the drain" apart
-// from "health always fails at this timeout", which is exactly how the
-// original test passed for the wrong reason. Only health is exercised --
-// forceInput is left false, since check 4 needs nothing from checks 2/3.
-func TestHealthFailsWithoutDrainingVideoStreams(t *testing.T) {
+// TestHealthSurvivesUndrainedVideoStreams covers a viewer that never accepts
+// its video uni streams. Before the server reset a stalled viewer's in-flight
+// inter frames (staleReleaser, on entering needKey), OpenUniStream failed once
+// the 64-stream credit ran out and the viewer was torn down before check 4 saw
+// a MsgStats, so this test required health to FAIL with the drain off. Now the
+// session survives (measured: health PASS in about 1.4s), so both cases
+// PASS. checkTimeout (2s) is long enough for the once-a-second MsgStats.
+func TestHealthSurvivesUndrainedVideoStreams(t *testing.T) {
 	requireFFmpeg(t)
 	t.Parallel()
 	cases := []struct {
@@ -890,7 +876,7 @@ func TestHealthFailsWithoutDrainingVideoStreams(t *testing.T) {
 		want      string
 	}{
 		{"drain on", false, "PASS"},
-		{"drain off", true, "FAIL"},
+		{"drain off", true, "PASS"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
