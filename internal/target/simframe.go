@@ -98,6 +98,7 @@ func (s *Simulator) DeviceFrame(ctx context.Context) (*DeviceFrame, error) {
 		return nil, c.err
 	}
 	f := *c.frame
+	f.ContentRotation = s.contentRotation(ctx)
 	return &f, nil
 }
 
@@ -129,8 +130,8 @@ func (s *Simulator) FrameAsset(ctx context.Context, name string) ([]byte, string
 
 // framePanel is the screen ID whose frame to draw, or 0 for the device
 // type's own chrome. Only a device type with two panels asks simcap which is
-// lit, so a single-panel simulator never starts an input process to answer
-// /api/frame.
+// lit. (DeviceFrame also asks a booted simulator's orientation, which
+// starts an input process on a single-panel one too.)
 func (s *Simulator) framePanel(ctx context.Context) int {
 	panels := s.chromePanels(ctx)
 	if len(panels) < 2 || s.requireBooted() != nil {

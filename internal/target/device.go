@@ -34,6 +34,12 @@ type ADBTarget struct {
 	// lastFix is the last location ApplySettings wrote, the only way to
 	// report one: Android can't read an emulator's fix back. See location.go.
 	lastFix atomic.Pointer[Point]
+	// hinge sends hingeAngle writes to an emulator, newest first. See
+	// hinge.go.
+	hinge hingeCoalescer
+	// folds is set once print-states has listed two postures or more, the
+	// rule a GET lists hingeAngle by. See foldable in settings.go.
+	folds atomic.Bool
 
 	// kbMu guards hwKeyboard and streams. See adbkeyboard.go.
 	kbMu       sync.Mutex

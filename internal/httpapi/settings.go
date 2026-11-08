@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/bmcreations/loupe/internal/target"
@@ -173,7 +174,22 @@ func (s *Server) applySettings(w http.ResponseWriter, r *http.Request, id string
 	ctx, cancel := context.WithTimeout(r.Context(), agentTimeout)
 	defer cancel()
 
-	failed, notRestored, applyErr := ds.ApplySettings(ctx, changes)
+	var (
+		failed, notRestored []string
+		applyErr            error
+		minimal             *target.Setting
+	)
+	if hw, ok := ds.(target.HingeWriter); ok && hingeOnly(changes) && prefersMinimal(r) {
+		sent, err := hw.WriteHingeAngle(ctx, changes[hingeAngleID])
+		if err != nil {
+			failed, applyErr = []string{hingeAngleID}, err
+		} else {
+			row := target.HingeSetting(float64(sent))
+			minimal = &row
+		}
+	} else {
+		failed, notRestored, applyErr = ds.ApplySettings(ctx, changes)
+	}
 
 	rec["kind"], rec["target"], rec["ua"], rec["changes"] = "agent", id, r.UserAgent(), changes
 	if len(failed) > 0 {
@@ -202,6 +218,13 @@ func (s *Server) applySettings(w http.ResponseWriter, r *http.Request, id string
 			writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: applyErr.Error()})
 			return
 		}
+		if errors.Is(applyErr, target.ErrStillSending) {
+			// The request ran out of time with the hinge write still
+			// queued or on its way. It may yet land, so this is not the
+			// 409 rollback shape.
+			writeJSON(w, http.StatusGatewayTimeout, ErrorResponse{Error: applyErr.Error() + "; GET to see where the hinge ended"})
+			return
+		}
 		if failed == nil {
 			// Failed carries no omitempty -- the schema promises an array --
 			// and every path here is expected to name at least one setting,
@@ -226,10 +249,40 @@ func (s *Server) applySettings(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 
+	if minimal != nil {
+		w.Header().Set("Preference-Applied", "return=minimal")
+		writeJSON(w, http.StatusOK, SettingsResponse{Settings: []target.Setting{*minimal}})
+		return
+	}
 	settings, err := ds.Settings(ctx)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, ok(settings))
+}
+
+const hingeAngleID = "hingeAngle"
+
+// hingeOnly is a PUT that changes hingeAngle and nothing else, the one a
+// slider sends.
+func hingeOnly(changes map[string]any) bool {
+	_, ok := changes[hingeAngleID]
+	return ok && len(changes) == 1
+}
+
+// prefersMinimal reports a `Prefer: return=minimal` (RFC 7240) on r. A
+// hinge-only PUT that carries it answers with the hingeAngle row alone,
+// built from the angle sent, and skips reading every setting back. It is
+// opt-in because the browser replaces its whole list with the response.
+func prefersMinimal(r *http.Request) bool {
+	for _, h := range r.Header.Values("Prefer") {
+		for _, pref := range strings.Split(h, ",") {
+			tok, _, _ := strings.Cut(pref, ";")
+			if strings.EqualFold(strings.ReplaceAll(strings.TrimSpace(tok), " ", ""), "return=minimal") {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -37,7 +37,7 @@ const (
 	SettingBool  SettingType = "bool"
 	SettingRange SettingType = "range"
 	// SettingEnum is a setting whose Value is one of Options: posture, on a
-	// foldable emulator.
+	// foldable emulator or an iPhone Duo.
 	SettingEnum SettingType = "enum"
 	// SettingPoint is a setting whose Value is a Point, or null when it
 	// isn't known: location, on an emulator.
@@ -64,9 +64,14 @@ type Setting struct {
 	ID    string      `json:"id"`
 	Type  SettingType `json:"type"`
 	Value any         `json:"value"`
-	// Min and Max apply only to SettingRange.
-	Min float64 `json:"min,omitempty"`
-	Max float64 `json:"max,omitempty"`
+	// Min, Max and Step apply only to SettingRange, and are nil on any
+	// other type. They are pointers so a min of 0 (hingeAngle's) is still
+	// written. Step is the increment a slider should move in. Only
+	// hingeAngle refuses a write between steps; fontScale takes any value
+	// in range.
+	Min  *float64 `json:"min,omitempty"`
+	Max  *float64 `json:"max,omitempty"`
+	Step *float64 `json:"step,omitempty"`
 	// Options applies only to SettingEnum: the allowed values for Value.
 	Options []string `json:"options,omitempty"`
 	// Package is the app a per-app setting (appLanguage) applies to: the
@@ -139,9 +144,9 @@ type shellFunc func(ctx context.Context, args ...string) (string, error)
 // reaches a shell command is a bool or a validated float formatted by this
 // package itself.
 type settingField struct {
-	id       string
-	typ      SettingType
-	min, max float64
+	id             string
+	typ            SettingType
+	min, max, step float64
 	// readRestore captures the exact raw state a field is in right now and
 	// returns a closure that writes that same raw state back. Settings()
 	// itself reads current values through the combined script and its own
@@ -164,7 +169,7 @@ type settingField struct {
 // rollback test assert on which settings were restored and which never ran.
 var settingFields = []settingField{
 	{id: "darkMode", typ: SettingBool, readRestore: readRestoreDarkMode, write: writeDarkMode, validate: validateBool},
-	{id: "fontScale", typ: SettingRange, min: 0.85, max: 2.0, readRestore: readRestoreFontScale, write: writeFontScale, validate: validateRange},
+	{id: "fontScale", typ: SettingRange, min: 0.85, max: 2.0, step: 0.05, readRestore: readRestoreFontScale, write: writeFontScale, validate: validateRange},
 	{id: "reduceMotion", typ: SettingBool, readRestore: readRestoreReduceMotion, write: writeReduceMotion, validate: validateBool},
 	{id: "layoutBounds", typ: SettingBool, readRestore: readRestoreLayoutBounds, write: writeLayoutBounds, validate: validateBool},
 	{id: "talkBack", typ: SettingBool, readRestore: readRestoreTalkBack, write: writeTalkBack, validate: validateBool},
@@ -178,6 +183,8 @@ func (a *androidSettings) fieldByID(id string) (settingField, bool) {
 	}
 	return settingField{}, false
 }
+
+func ptr(f float64) *float64 { return &f }
 
 func validateBool(_ settingField, v any) error {
 	if _, ok := v.(bool); !ok {
@@ -204,10 +211,16 @@ func validateRange(f settingField, v any) error {
 // separate from ADBTarget so it can be tested with a fake shellFunc instead
 // of a device.
 //
-// emu is set only on an emulator, and adds the posture field.
+// emu is set only on an emulator, and adds the posture and hingeAngle fields.
+// foldable, when set, answers requireFold in place of a fresh print-states
+// read; ADBTarget sets it to its cached check.
 type androidSettings struct {
-	sh  shellFunc
-	emu emuFunc
+	sh       shellFunc
+	emu      emuFunc
+	foldable func(ctx context.Context) (bool, error)
+	// hinge orders posture and hingeAngle writes against the fast path's.
+	// Nil runs them at once.
+	hinge *hingeCoalescer
 	// fix is the last location written to this device; see location.go.
 	fix *atomic.Pointer[Point]
 }
@@ -221,14 +234,57 @@ func (a *androidSettings) lastFix() *atomic.Pointer[Point] {
 	return a.fix
 }
 
-// fields is settingFields and appLanguage, plus posture and location on an
-// emulator.
+// requireFold refuses a hingeAngle write on an emulator with no postures to
+// move between, the same rule Settings lists the row by. Without it a flat
+// AVD's console could take `sensor set hinge-angle0` for a row the GET never
+// offered.
+func (a *androidSettings) requireFold(ctx context.Context) error {
+	check := a.foldable
+	if check == nil {
+		check = func(ctx context.Context) (bool, error) { return readFoldable(ctx, a.sh) }
+	}
+	ok, err := check(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrDeviceUnreachable, hingeAngleID, err)
+	}
+	if !ok {
+		return fmt.Errorf("%w: %s: this emulator does not fold", ErrInvalidSetting, hingeAngleID)
+	}
+	return nil
+}
+
+func readFoldable(ctx context.Context, sh shellFunc) (bool, error) {
+	_, options, err := readPosture(ctx, sh)
+	if err != nil {
+		return false, err
+	}
+	return postureSupported(options), nil
+}
+
+// foldable is requireFold's check on a live target. A yes is kept for the
+// life of the target, since an AVD's device states do not change while it
+// runs and a reattach builds a new ADBTarget, so a slider pays the two
+// print-states reads once. A no is read again each time: it only costs a
+// refused write, and it keeps a read taken early in a boot from sticking.
+func (t *ADBTarget) foldable(ctx context.Context) (bool, error) {
+	if t.folds.Load() {
+		return true, nil
+	}
+	ok, err := readFoldable(ctx, newAndroidSettings(t).sh)
+	if ok {
+		t.folds.Store(true)
+	}
+	return ok, err
+}
+
+// fields is settingFields and appLanguage, plus posture, hingeAngle and
+// location on an emulator.
 func (a *androidSettings) fields() []settingField {
 	out := append(append([]settingField(nil), settingFields...), appLanguageField)
 	if a.emu == nil {
 		return out
 	}
-	return append(out, postureField(a.emu), locationField(a.emu, a.lastFix()))
+	return append(out, postureField(a.emu, a.hinge), hingeAngleField(a.emu, a.hinge), locationField(a.emu, a.lastFix()))
 }
 
 // Settings reads current device state. It does not lock ADBTarget's
@@ -251,9 +307,74 @@ func (t *ADBTarget) ApplySettings(ctx context.Context, changes map[string]any) (
 	if !t.info.Ready() {
 		return nil, nil, fmt.Errorf("%w: device %s is in state %q", ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
+	a := newAndroidSettings(t)
+	if v, ok := changes[hingeAngleID]; ok && len(changes) == 1 && a.emu != nil {
+		return t.applyHingeAngle(ctx, a, v)
+	}
 	t.settingsMu.Lock()
 	defer t.settingsMu.Unlock()
-	return newAndroidSettings(t).ApplySettings(ctx, changes)
+	return a.ApplySettings(ctx, changes)
+}
+
+// applyHingeAngle is a PUT that changes hingeAngle alone, the one a slider
+// drag sends many of. It skips settingsMu and the rollback table: there is
+// one console write, nothing to roll back if it fails, and the coalescer
+// already sends one write at a time. Only the newest of the angles queued
+// behind a running write is sent.
+func (t *ADBTarget) applyHingeAngle(ctx context.Context, a *androidSettings, v any) ([]string, []string, error) {
+	if _, err := t.sendHingeAngle(ctx, a, v); err != nil {
+		if errors.Is(err, ErrInvalidSetting) || errors.Is(err, ErrDeviceUnreachable) {
+			return nil, nil, err
+		}
+		return []string{hingeAngleID}, nil, err
+	}
+	return nil, nil, nil
+}
+
+func (t *ADBTarget) sendHingeAngle(ctx context.Context, a *androidSettings, v any) (int, error) {
+	deg, err := parseHingeAngle(v)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s", ErrInvalidSetting, err)
+	}
+	if err := a.requireFold(ctx); err != nil {
+		return 0, err
+	}
+	sent, err := t.hinge.Set(ctx, deg, func(ctx context.Context, deg int) error {
+		ctx, cancel := context.WithTimeout(ctx, emuHingeWriteTimeout)
+		defer cancel()
+		return writeHingeAngle(ctx, a.emu, float64(deg))
+	})
+	if err != nil {
+		if errors.Is(err, ErrInvalidSetting) {
+			return 0, err
+		}
+		return 0, fmt.Errorf("%s: %w", hingeAngleID, err)
+	}
+	return sent, nil
+}
+
+// WriteHingeAngle implements HingeWriter.
+func (t *ADBTarget) WriteHingeAngle(ctx context.Context, v any) (int, error) {
+	if !t.info.Ready() {
+		return 0, fmt.Errorf("%w: device %s is in state %q", ErrDeviceUnreachable, t.info.Serial, t.info.State)
+	}
+	a := newAndroidSettings(t)
+	if a.emu == nil {
+		return 0, fmt.Errorf("%w: unknown setting %q", ErrInvalidSetting, hingeAngleID)
+	}
+	return t.sendHingeAngle(ctx, a, v)
+}
+
+// rejectPostureWithHinge refuses a PUT that sets posture and hingeAngle at
+// once. Both move the one hinge, so whichever ran second would win, and
+// which that is would be the table's order, not the caller's.
+func rejectPostureWithHinge(changes map[string]any) error {
+	_, p := changes["posture"]
+	_, h := changes[hingeAngleID]
+	if p && h {
+		return fmt.Errorf("%w: posture and %s both move the hinge; send one", ErrInvalidSetting, hingeAngleID)
+	}
+	return nil
 }
 
 func newAndroidSettings(t *ADBTarget) *androidSettings {
@@ -264,6 +385,8 @@ func newAndroidSettings(t *ADBTarget) *androidSettings {
 		a.emu = func(ctx context.Context, args ...string) (string, error) {
 			return t.adb.Emu(ctx, t.info.Serial, args...)
 		}
+		a.foldable = t.foldable
+		a.hinge = &t.hinge
 	}
 	return a
 }
@@ -449,7 +572,7 @@ func (a *androidSettings) Settings(ctx context.Context) ([]Setting, error) {
 			Supported: supported[f.id], Reason: reasons[f.id], Applies: "immediately",
 		}
 		if f.typ == SettingRange {
-			s.Min, s.Max = f.min, f.max
+			s.Min, s.Max, s.Step = ptr(f.min), ptr(f.max), ptr(f.step)
 		}
 		out2 = append(out2, s)
 	}
@@ -463,6 +586,13 @@ func (a *androidSettings) Settings(ctx context.Context) ([]Setting, error) {
 				ID: "posture", Type: SettingEnum, Value: currentPosture(sec[12], byID),
 				Options: options, Supported: true, Applies: "immediately",
 			})
+			// The hinge is read from the console, not the shell script:
+			// the sensor lives in the emulator, not in Android. An
+			// emulator whose console will not say leaves the row out
+			// rather than failing the whole read.
+			if deg, err := readHingeAngle(ctx, a.emu); err == nil {
+				out2 = append(out2, hingeSetting(deg))
+			}
 		}
 	}
 	out2 = append(out2, appLanguageSetting(parseAppLanguage(sec[8], sec[9], sec[10])))
@@ -484,6 +614,9 @@ type appliedChange struct {
 func (a *androidSettings) ApplySettings(ctx context.Context, changes map[string]any) (failed, notRestored []string, err error) {
 	if len(changes) == 0 {
 		return nil, nil, fmt.Errorf("%w: no changes given", ErrInvalidSetting)
+	}
+	if err := rejectPostureWithHinge(changes); err != nil {
+		return nil, nil, err
 	}
 
 	// Validate every requested id and value before writing anything. A
@@ -510,6 +643,11 @@ func (a *androidSettings) ApplySettings(ctx context.Context, changes map[string]
 		}
 		if err := f.validate(f, v); err != nil {
 			return nil, nil, fmt.Errorf("%w: %s: %s", ErrInvalidSetting, id, err)
+		}
+		if f.id == hingeAngleID {
+			if err := a.requireFold(ctx); err != nil {
+				return nil, nil, err
+			}
 		}
 		if f.id == "posture" {
 			_, options, perr := readPosture(ctx, a.sh)
