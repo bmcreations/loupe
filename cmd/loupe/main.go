@@ -224,6 +224,7 @@ func main() {
 		androidCLI    = flag.String("android-cli", "", "path to Google's android CLI, which creates AVDs from the picker (default: /usr/local/bin/android, then /opt/homebrew/bin/android)")
 		gpu           = flag.String("gpu", "host", "emulator -gpu mode; only 'host' reaches 60fps")
 		synthetic     = flag.Bool("synthetic", false, "register a synthetic 60fps test pattern target")
+		syntheticIdle = flag.Bool("synthetic-fallback", true, "register the synthetic target when no device, emulator or simulator is found; Handset turns this off so a Mac with none shows none")
 		noDevices     = flag.Bool("no-devices", false, "skip adb device discovery")
 		xcrunnerPath  = flag.String("xcrunner", ".build/xcrunner", "built XCUITest runner (make xcrunner TEAM=...); iPhones below iOS 27 take touches through it over a cable")
 		simcapPath    = flag.String("simcap", "", "path to the simcap helper (default: .build/simcap when it exists, then simcap on PATH); iOS simulators are listed only when it exists (make simcap)")
@@ -586,7 +587,7 @@ func main() {
 		}
 	}
 
-	if *synthetic || registered == 0 {
+	if *synthetic || (registered == 0 && *syntheticIdle) {
 		mgr.Register(&target.Synthetic{})
 		fmt.Println("target: synthetic 60fps test pattern")
 		registered++

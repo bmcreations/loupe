@@ -405,3 +405,21 @@ func TestQUICOpenAcceptsAPairedSession(t *testing.T) {
 		t.Fatalf("a revoked session token was accepted")
 	}
 }
+
+func TestAnAgentCodeMarksTheSessionItPairs(t *testing.T) {
+	_, h := pairingServer(t)
+	agent := pairBearer(t, h, mintCode(t, h, master, `{"label":"claude","agent":true}`).Code)
+	phone := pairBearer(t, h, mintCode(t, h, master, `{"label":"iPhone"}`).Code)
+
+	rows := decode[[]SessionInfo](t, pdo(h, call{method: http.MethodGet, path: "/api/sessions", auth: master}))
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.ID] = r.Agent
+	}
+	if !got[agent.ID] {
+		t.Errorf("the agent code's session lists agent=false")
+	}
+	if a, ok := got[phone.ID]; !ok || a {
+		t.Errorf("the plain code's session: listed=%v agent=%v, want listed and false", ok, a)
+	}
+}
