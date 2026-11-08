@@ -53,6 +53,7 @@ var cliCommands = []cliCommand{
 	{"drop", "drop", []string{"target", "x", "y", "path"}},
 	{"boot", "boot", []string{"target"}},
 	{"boot-status", "boot_status", []string{"target"}},
+	{"preset", "apply_preset", []string{"target", "name"}},
 	{"release", "release", []string{"target"}},
 	{"flags", "flags", nil},
 	{"flag", "flag", []string{"id"}},

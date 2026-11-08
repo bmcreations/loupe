@@ -46,7 +46,8 @@ Common refusals on routes that change a device:
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
-| `GET`, `PUT /api/settings` | Device settings, posture and hinge angle |
+| `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture, hinge angle, app language, location |
+| `GET`, `PUT`, `DELETE /api/presets`, `POST /api/presets/apply` | Named groups of device settings |
 | `GET`, `POST /api/clipboard` | Device clipboard |
 | `GET`, `POST /api/clipboard/shared` | Shared clipboard |
 | `GET /api/handoff` | Link that moves a session to another browser |
@@ -566,12 +567,12 @@ A call resumes a paused emulator. Dropbox lives under `/data`, so without
 `emulatorKeepState` a boot from `loupe-warm` discards every report since it
 was saved. Synthetic answers 501.
 
-## Device settings
+## Device settings and presets
 
 ### `GET /api/settings?target=<id>`, `PUT /api/settings?target=<id>`
 
 `GET` answers `{"settings": [...]}`, one row per setting: `id`, `type`
-(`bool`, `range` or `enum`), `value`, `supported`, `applies`, and `min`, `max`
+(`bool`, `range`, `enum` or `point`), `value`, `supported`, `applies`, and `min`, `max`
 and `step` on a `range` or `options` on an `enum`. A client should draw only
 the rows it is given. `PUT {"changes": {"<id>": <value>, ...}}` applies them and
 answers the same shape as `GET`, read again after the write. A bad value is
@@ -584,6 +585,14 @@ A `posture` or `hingeAngle` write the request stopped waiting on is 504: it
 runs on and may still land, nothing is rolled back, and a `GET` says where the
 hinge ended. For a superseded `PUT` only the newer write sent in its place can
 land; its own value never goes to the device.
+
+- `appLanguage` is the language of the app in front, named in `package`
+  (Android 13 and later). `""` puts the app back on the system language. The
+  system language itself can't be changed without a reboot, so it isn't
+  offered. With no app in front it reports `supported: false`.
+- `location` (emulators only) is a `point`, `{"lat": 37.42, "lng": -122.08}`,
+  sent as the emulator's GPS fix. Android can't read the fix back, so
+  `value` is the last one loupe set, or `null` before the first.
 
 #### Posture and hinge angle
 
@@ -639,6 +648,23 @@ angle is sent, or when the lit panel contradicts the last one (the panel reads
 reports the posture's angle instead. `posture` is the lit panel, so it only
 reads `closed` or `opened`, and which one an angle between 5 and 135 gives
 depends on the path the hinge took.
+
+### `/api/presets`
+
+A preset is a name and a `settings` object in the shape of `changes`. Presets
+belong to the server, not to a device, and are kept in `presets.json` beside
+the config.
+
+- `GET /api/presets` lists them, sorted by name.
+- `PUT /api/presets` with `{"name":"Large text","settings":{"fontScale":1.3}}`
+  saves one, replacing a preset with the same name.
+- `DELETE /api/presets?name=<name>` removes one.
+- `POST /api/presets/apply?name=<name>&target=<id>` applies one the way
+  `PUT /api/settings` does. Settings the device doesn't have or can't change
+  are left out and named in `skipped`, so a preset with `posture` still
+  applies its other settings on a phone. If nothing is left, the answer is 409.
+
+The MCP tool is `apply_preset`.
 
 ## Clipboard
 

@@ -31,6 +31,9 @@ type ADBTarget struct {
 	// one caller's change clobber the other's read.
 	settingsMu sync.Mutex
 
+	// lastFix is the last location ApplySettings wrote, the only way to
+	// report one: Android can't read an emulator's fix back. See location.go.
+	lastFix atomic.Pointer[Point]
 	// hinge sends hingeAngle writes to an emulator, newest first. See
 	// hinge.go.
 	hinge hingeCoalescer

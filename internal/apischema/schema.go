@@ -85,6 +85,12 @@ var endpoints = []endpoint{
 	{"PUT /api/settings request", dirRequest, httpapi.SettingsPutRequest{}},
 	{"PUT /api/settings 200", dirResponse, httpapi.SettingsResponse{}},
 	{"PUT /api/settings 409", dirResponse, httpapi.SettingsConflictResponse{}},
+	{"GET /api/presets", dirResponse, httpapi.PresetsResponse{}},
+	{"PUT /api/presets request", dirRequest, httpapi.Preset{}},
+	{"PUT /api/presets", dirResponse, httpapi.PresetsResponse{}},
+	{"DELETE /api/presets", dirResponse, httpapi.PresetsResponse{}},
+	{"POST /api/presets/apply", dirResponse, httpapi.PresetApplyResponse{}},
+	{"POST /api/presets/apply 409", dirResponse, httpapi.SettingsConflictResponse{}},
 	{"GET /api/config", dirResponse, httpapi.ConfigResponse{}},
 	// config.Merge decodes a PUT /api/config body into exactly this type --
 	// see internal/config.Merge -- before re-marshaling the current config

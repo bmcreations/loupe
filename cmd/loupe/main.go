@@ -619,6 +619,10 @@ func main() {
 
 	api := httpapi.NewServer(mgr, web.FS, tracer)
 	api.SetAAPT2(target.AAPT2Binary(target.SDKRoot(*androidSDK)))
+	// Presets beside it, for the same reason.
+	if err := api.SetPresetsPath(filepath.Join(filepath.Dir(cfgPath), "presets.json")); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: presets unreadable, starting with none: %v\n", err)
+	}
 	// Hands-off sits beside the config, so a spare server with its own
 	// -config keeps its own set.
 	if err := api.SetHandsOffPath(filepath.Join(filepath.Dir(cfgPath), "handsoff.json")); err != nil {

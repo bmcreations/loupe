@@ -45,6 +45,7 @@ claim before input, and requests. Routes, parameters and errors are in
 | `drop` | `drop` | target x y path |
 | `boot`, `release` | `boot`, `release` | target |
 | `boot-status` | `boot_status` | target |
+| `preset` | `apply_preset` | target name |
 | `flags` | `flags` | |
 | `flag` | `flag` | id |
 
