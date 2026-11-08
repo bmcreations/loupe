@@ -54,6 +54,7 @@ and simcap has only been run against iPhones.
 | Keyboard | Opening the phone's keyboard from the viewer hides the simulator's on-screen keyboard, so it does not cover the lower half. |
 | Open URL | `https` links open in the app that claims them (below). |
 | Drop | A picture dropped on a text field is pasted (below). |
+| Rotate | `/api/input {"action":"rotate"}` turns a booted simulator through CoreDevice's orientation control (Device Hub's rotate buttons). `to` is 0..3 counter-clockwise quarter turns, 1 landscapeLeft; with no `to` it steps one. The framebuffer keeps its size and the content is drawn turned inside it. Needs a simcap with `orient`. |
 | Install | `/api/install` with a simulator build, as a zipped `.app` or an `.ipa` (`docs/agent-api.md`). |
 
 **`occluded` catches only part of what is covered.** With Settings' search
