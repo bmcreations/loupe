@@ -148,6 +148,8 @@ var endpoints = []endpoint{
 	// 409 with code "busy" (a shut down or delete of the target is running) or "humanHeld".
 	{"POST /api/devices/boot 409", dirResponse, httpapi.ErrorResponse{}},
 	{"POST /api/devices/handsoff 200", dirResponse, httpapi.HandsOffResponse{}},
+	// Also the body of MsgControl on the stream.
+	{"POST /api/control/release 200", dirResponse, session.ControlState{}},
 	{"GET /api/claims", dirResponse, []httpapi.ClaimInfo{}},
 	{"POST /api/claims request", dirRequest, httpapi.ClaimRequest{}},
 	{"POST /api/claims 200", dirResponse, httpapi.ClaimInfo{}},

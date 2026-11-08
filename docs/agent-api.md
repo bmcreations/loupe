@@ -55,6 +55,7 @@ Common refusals on routes that change a device:
 | `GET`, `POST /api/extensions` | Extension registry and proxy |
 | `GET`, `POST`, `DELETE /api/claims` | Claims |
 | `POST /api/devices/handsoff` | Hands-off marker |
+| `POST /api/control/release` | A viewer hands the target back before its hold runs out |
 
 ## Read the screen
 
@@ -772,6 +773,18 @@ request the person's, and anything else is an agent's.
 Viewers show a banner: "claude is driving" while an agent's input landed in the
 last 10 seconds, and "claude is waiting for you" while one was refused and no
 action of its has settled since.
+
+A viewer done with the target can hand it back without waiting out the hold:
+`POST /api/control/release?target=<id>` with its `X-Loupe-Viewer` frees the
+target at once, an interrupt's pin included, and answers the control state. A
+waiting agent's next action then lands. A viewer that does not hold the target
+gets the state unchanged; a missing viewer id is 400, and one not attached to
+the target's session is 409. Agents have no use for it.
+
+The control state, here and in the stream's control message, has `held`,
+`holder`, `agent` and `agentName`, and while held, `holdMs` (the window each
+input restarts, not what is left of it) and `pinnedUntil` (Unix milliseconds,
+while an interrupt pins the hold).
 
 ### Claims
 

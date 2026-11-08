@@ -209,3 +209,18 @@ func (s *Session) control(fn func(a *Arbiter, now time.Time) []ControlChange) {
 		}
 	}
 }
+
+// ReleaseHold hands the target back for a viewer that holds it, before its
+// hold runs out, and returns the state after. See Arbiter.Release.
+func (s *Session) ReleaseHold(viewer uint64) (ControlState, error) {
+	if !s.HasViewer(viewer) {
+		return ControlState{}, fmt.Errorf("release: viewer %d is not attached", viewer)
+	}
+	var st ControlState
+	s.control(func(a *Arbiter, now time.Time) []ControlChange {
+		changes := a.Release(viewer, now)
+		st = a.State()
+		return changes
+	})
+	return st, nil
+}
