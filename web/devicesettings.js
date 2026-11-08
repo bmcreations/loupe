@@ -1,7 +1,8 @@
 // Device settings (design spec "Tools sheet" section 3, client Task 9).
 // GET/PUT /api/settings, over the field table internal/target/settings.go's
 // Setting describes: darkMode, fontScale, reduceMotion, layoutBounds,
-// talkBack, and posture on a foldable emulator. Built against that struct, not the plan's prose -- the real
+// talkBack, and posture and hingeAngle on a foldable emulator or an iPhone
+// Duo. Built against that struct, not the plan's prose -- the real
 // Setting has Min/Max instead of a nested range object, Supported/Reason
 // instead of a single "why", and Applies is always "immediately" (there is
 // no "nextSession" here the way /api/config has).
@@ -24,6 +25,7 @@ const LABELS = {
   layoutBounds: 'Layout bounds',
   talkBack: 'TalkBack',
   posture: 'Posture',
+  hingeAngle: 'Hinge angle',
 };
 
 export function labelFor(id) {
@@ -51,6 +53,14 @@ export function clampRange(value, min, max) {
   if (typeof min === 'number' && v < min) v = min;
   if (typeof max === 'number' && v > max) v = max;
   return v;
+}
+
+// rangeStep(setting) -> the slider step for a range setting: the one the
+// server sends (fontScale 0.05, hingeAngle 1), or 0.05 from a server that
+// predates step.
+export function rangeStep(setting) {
+  const s = setting && setting.step;
+  return typeof s === 'number' && s > 0 ? s : 0.05;
 }
 
 // parseSettingsError(status, body) -> {status, message, failed, notRestored,
@@ -298,7 +308,7 @@ export function mount(container, deps = {}) {
     input.className = 'settingRange';
     input.min = String(setting.min);
     input.max = String(setting.max);
-    input.step = '0.05';
+    input.step = String(rangeStep(setting));
     input.value = String(clampRange(Number(setting.value), setting.min, setting.max));
     input.disabled = !setting.supported || pending.has(pendingKey(setting.id));
     const out = document.createElement('output');

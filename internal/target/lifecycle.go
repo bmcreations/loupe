@@ -213,7 +213,7 @@ func (s *Simulator) Stop(ctx context.Context) error {
 	// inputOnce, and reading it bare races that write. An unstarted input
 	// process closes as a no-op.
 	s.input().close()
-	s.booted.Store(false)
+	s.setBooted(false)
 	info := s.Info()
 	info.State = "Shutdown"
 	s.Update(info)
