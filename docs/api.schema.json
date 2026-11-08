@@ -4579,6 +4579,9 @@
         "background": {
           "type": "string"
         },
+        "contentRotation": {
+          "type": "integer"
+        },
         "cornerRadius": {
           "type": "integer"
         },
@@ -4807,10 +4810,24 @@
           "type": "string"
         },
         "max": {
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "min": {
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "options": {
           "items": {
@@ -4820,6 +4837,16 @@
         },
         "reason": {
           "type": "string"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "supported": {
           "type": "boolean"
