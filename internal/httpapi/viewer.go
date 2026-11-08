@@ -511,7 +511,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		late := lateGate{canLate: canRelease}
 		var tr sendTrace
 		// cfg makes sure the current parameter sets precede every keyframe.
-		var cfg cfgGate
+		cfg := cfgGate{passthrough: passthrough}
 
 		// rttSource records which signal the last pacer sample came from, so a
 		// trace row says whether the controller was steering on transport
@@ -653,9 +653,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					}
 				}
 
-				// CurrentConfig is the H.264 encoder's; a passthrough viewer's
-				// parameter sets travel in its own track.
-				if c, ok := cfg.before(msg, sess.CurrentConfig); ok && !passthrough {
+				if c, ok := cfg.before(msg, sess.CurrentConfig); ok {
 					cd := c.QueuedAt.Add(deadlineFor(false, true, late.canLate, pacer.Base(), nowRTT()))
 					err := conn.SendFrame(c, cd)
 					if _, fatal := frameDelivered(err); fatal {

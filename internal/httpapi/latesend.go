@@ -97,7 +97,14 @@ type sendTrace struct {
 // sent. Config reaches a viewer by the fan-out queue, which drops when full,
 // and by replay at join, so a keyframe can be next in line for a viewer whose
 // decoder has no SPS/PPS: every keyframe then fails to decode.
-type cfgGate struct{ sent uint64 }
+//
+// The cached config is the H.264 encoder's. A passthrough viewer is sent the
+// device's HEVC stream, whose parameter sets travel in its own track, so its
+// gate never resends: H.264 SPS/PPS ahead of an HEVC keyframe breaks it.
+type cfgGate struct {
+	sent        uint64
+	passthrough bool
+}
 
 // noteWritten records a delivered Config message.
 func (g *cfgGate) noteWritten(msg session.OutMsg) {
@@ -109,7 +116,7 @@ func (g *cfgGate) noteWritten(msg session.OutMsg) {
 // before returns the config to write ahead of msg, if msg is a keyframe and
 // the viewer has not had the current parameter sets.
 func (g *cfgGate) before(msg session.OutMsg, cur func() (session.OutMsg, bool)) (session.OutMsg, bool) {
-	if !msg.Key || msg.Config {
+	if g.passthrough || !msg.Key || msg.Config {
 		return session.OutMsg{}, false
 	}
 	cfg, ok := cur()

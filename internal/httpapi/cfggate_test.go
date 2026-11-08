@@ -41,3 +41,13 @@ func TestCfgGate(t *testing.T) {
 		t.Fatalf("config changed: got %v %v, want gen 2", c, ok)
 	}
 }
+
+// The cached config is H.264's; a passthrough viewer decodes HEVC and must
+// never be sent it, even on a keyframe it has no config for.
+func TestCfgGatePassthroughNeverResends(t *testing.T) {
+	cur := func() (session.OutMsg, bool) { return session.OutMsg{Config: true, CfgGen: 1}, true }
+	g := cfgGate{passthrough: true}
+	if c, ok := g.before(session.OutMsg{Key: true}, cur); ok {
+		t.Fatalf("passthrough viewer was sent H.264 config gen %d ahead of a keyframe", c.CfgGen)
+	}
+}
