@@ -161,6 +161,15 @@ func (e *Emulator) ApplySettings(ctx context.Context, changes map[string]any) ([
 	return in.ApplySettings(ctx, changes)
 }
 
+func (e *Emulator) WriteHingeAngle(ctx context.Context, v any) (int, error) {
+	in, done, err := e.running()
+	if err != nil {
+		return 0, err
+	}
+	defer done()
+	return in.WriteHingeAngle(ctx, v)
+}
+
 func (e *Emulator) ForegroundApp(ctx context.Context) (*App, error) {
 	in, done, err := e.running()
 	if err != nil {

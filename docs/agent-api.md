@@ -46,7 +46,7 @@ Common refusals on routes that change a device:
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
-| `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture, app language, location |
+| `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture, hinge angle, app language, location |
 | `GET`, `PUT`, `DELETE /api/presets`, `POST /api/presets/apply` | Named groups of device settings |
 | `GET`, `POST /api/clipboard` | Device clipboard |
 | `GET`, `POST /api/clipboard/shared` | Shared clipboard |
@@ -571,10 +571,20 @@ was saved. Synthetic answers 501.
 
 ### `GET /api/settings?target=<id>`, `PUT /api/settings?target=<id>`
 
-`GET` lists the device's settings, each with `id`, `type` (`bool`, `range`,
-`enum`, `point`), `value`, and `supported`. `PUT {"changes":{"darkMode":true}}` changes
-them at once and answers with the list read back. If one change fails, the
-ones before it are put back and the answer is 409 with `failed`.
+`GET` answers `{"settings": [...]}`, one row per setting: `id`, `type`
+(`bool`, `range`, `enum` or `point`), `value`, `supported`, `applies`, and `min`, `max`
+and `step` on a `range` or `options` on an `enum`. A client should draw only
+the rows it is given. `PUT {"changes": {"<id>": <value>, ...}}` applies them and
+answers the same shape as `GET`, read again after the write. A bad value is
+400 and nothing is applied. A write the device refuses is 409
+`{"error","failed","notRestored","settings"}`: the writes already made are
+rolled back, `notRestored` names any that could not be, and `settings` is read
+again after. That 409 has no `code`; it is told apart from a `humanHeld`,
+`claimedBy`, `handsOff` or `interrupted` 409 by having one. A target with no settings is 501.
+A `posture` or `hingeAngle` write the request stopped waiting on is 504: it
+runs on and may still land, nothing is rolled back, and a `GET` says where the
+hinge ended. For a superseded `PUT` only the newer write sent in its place can
+land; its own value never goes to the device.
 
 - `appLanguage` is the language of the app in front, named in `package`
   (Android 13 and later). `""` puts the app back on the system language. The
@@ -583,6 +593,61 @@ ones before it are put back and the answer is 409 with `failed`.
 - `location` (emulators only) is a `point`, `{"lat": 37.42, "lng": -122.08}`,
   sent as the emulator's GPS fix. Android can't read the fix back, so
   `value` is the last one loupe set, or `null` before the first.
+
+#### Posture and hinge angle
+
+A foldable emulator (one whose `cmd device_state print-states` lists two or
+more of closed, half-opened and opened) and the iPhone Duo simulator have two rows that move the same hinge:
+
+| `id` | Type | Values |
+|---|---|---|
+| `posture` | `enum` | `closed`, `halfOpened`, `opened` on an emulator; `closed`, `opened` on a Duo |
+| `hingeAngle` | `range` | `0` (shut) to `180` (flat), `step` 1 |
+
+- A `hingeAngle` write must be a whole number of degrees in range. 90.5 and
+  `"90"` are 400, not rounded.
+- A `PUT` that sets both `posture` and `hingeAngle` is 400: whichever ran
+  second would win.
+- A write to one shows on a read of the other. A `posture` write moves the
+  hinge to that posture's angle (emulator: closed 0, halfOpened 90, opened
+  180; Duo: closed 0, opened 180).
+- A `hingeAngle` write does not wait for the posture to follow, so a slider can
+  send one per tick. Writes to one target are coalesced: while one is going to
+  the device, only the newest write queued behind it is sent. A superseded
+  `PUT`, `posture` included, waits for the write sent in its place and
+  answers with it: 200 once it reached the device, or that write's error.
+  Its full body is read after that write, so it can show a newer angle than
+  the `PUT`'s own. A client should keep its own value rather than move its
+  slider to that one.
+- The server keeps the newest `PUT` to arrive, not the newest sent. A client
+  should keep one `PUT` in flight and send only its latest angle when that one
+  returns. Parallel `PUT`s on separate connections can arrive out of order and
+  leave an older angle applied.
+- A hinge-only `PUT` with `Prefer: return=minimal` answers
+  `{"settings": [<hingeAngle row>]}` and skips reading every setting back,
+  with `Preference-Applied: return=minimal`. The row's `value` is the angle
+  that went to the device: the `PUT`'s own, or, for a superseded `PUT`, the
+  angle of the write sent in its place.
+  `posture` is not in it; `GET` for that. Without the
+  header, or with any other setting in the `PUT`, the answer is the whole
+  list. A client that replaces its list with the response, as the browser
+  does, should not send it. Errors answer as any `PUT`'s do.
+
+On an emulator, `hingeAngle` is the console's `sensor set hinge-angle0`, and a
+`GET` reads it back with `sensor get hinge-angle0`, one console round trip
+on top of the shell read every `GET` makes. Android's device state
+follows the sensor: `posture` on the next `GET` is the band the angle falls in,
+though at the edge of a band it can lag about half a second. A `PUT` takes
+about 130 ms, most of it the read after the write, which
+`Prefer: return=minimal` skips.
+
+On a Duo, `hingeAngle` is simcap's `hinge <deg>`. simcap has no way to read the
+hinge back, so a `GET` reports the last angle this server sent. Before any
+angle is sent, or when the lit panel contradicts the last one (the panel reads
+`closed` at 135 or more, or `opened` at 5 or less, 4 s after the write), it
+reports the posture's angle instead. `posture` is the lit panel, so it only
+reads `closed` or `opened`, and which one an angle between 5 and 135 gives
+depends on the path the hinge took.
 
 ### `/api/presets`
 

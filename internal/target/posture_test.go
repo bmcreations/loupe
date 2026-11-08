@@ -3,6 +3,8 @@ package target
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +29,8 @@ type fakeFold struct {
 	states  string
 	state   int    // committed state id
 	reply   string // console reply; "" means OK
+	hinge   float64
+	noHinge bool // the console has no hinge-angle0
 	emus    []string
 	failing map[string]error
 }
@@ -62,14 +66,38 @@ func (f *fakeFold) emu(_ context.Context, args ...string) (string, error) {
 	if f.reply != "" {
 		return f.reply, nil
 	}
-	// The console's posture ids are one more than the fold's state ids.
+	if strings.HasPrefix(joined, "sensor ") && f.noHinge {
+		return "KO: unknown sensor name: hinge-angle0, run 'sensor status' to get available sensors.\n", nil
+	}
+	if v, ok := strings.CutPrefix(joined, "sensor set hinge-angle0 "); ok {
+		deg, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return "KO: bad value\n", nil
+		}
+		// The bands are pixel_fold's hw.sensor.hinge_angles_posture_definitions.
+		f.hinge = deg
+		switch {
+		case deg < 30:
+			f.state = 0
+		case deg < 150:
+			f.state = 1
+		default:
+			f.state = 2
+		}
+		return "OK\n", nil
+	}
+	if joined == "sensor get hinge-angle0" {
+		return fmt.Sprintf("hinge-angle0 = %g\nOK\n", f.hinge), nil
+	}
+	// The console's posture ids are one more than the fold's state ids, and
+	// each moves the hinge sensor to the middle of its band.
 	switch joined {
 	case "posture 1":
-		f.state = 0
+		f.state, f.hinge = 0, 0
 	case "posture 2":
-		f.state = 1
+		f.state, f.hinge = 1, 90
 	case "posture 3":
-		f.state = 2
+		f.state, f.hinge = 2, 180
 	}
 	return "OK\n", nil
 }
@@ -194,5 +222,121 @@ func TestPostureRollsBackToThePostureItFound(t *testing.T) {
 	}
 	if strings.Join(fold.emus, ";") != "posture 1;posture 2" {
 		t.Fatalf("emus %v", fold.emus)
+	}
+}
+
+// The replies are what pixel_fold_hinge (API 36) answered.
+func TestParseHingeSensor(t *testing.T) {
+	cases := map[string]struct {
+		out  string
+		want float64
+		ok   bool
+	}{
+		"whole":        {"hinge-angle0 = 120\nOK\n", 120, true},
+		"crlf":         {"hinge-angle0 = 0\r\nOK\r\n", 0, true},
+		"fraction":     {"hinge-angle0 = 33.5\nOK\n", 33.5, true},
+		"out of range": {"hinge-angle0 = 250\nOK\n", 250, true},
+		"no sensor":    {"KO: unknown sensor name: hinge-angle0, run 'sensor status' to get available sensors.\n", 0, false},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := parseHingeSensor(c.out)
+			if (err == nil) != c.ok || got != c.want {
+				t.Fatalf("parseHingeSensor = %v, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestSettingsListsHingeAngleBesidePosture(t *testing.T) {
+	fold := &fakeFold{states: foldStates, state: 1, hinge: 90}
+	got, err := fold.settings().Settings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, ok := byID(got)[hingeAngleID]
+	if !ok || h.Type != SettingRange || h.Value != 90.0 || *h.Min != 0 || *h.Max != 180 || *h.Step != 1 || !h.Supported {
+		t.Fatalf("hingeAngle = %+v", h)
+	}
+	if fs := byID(got)["fontScale"]; fs.Step == nil || *fs.Step != 0.05 {
+		t.Fatalf("fontScale step = %v", fs.Step)
+	}
+
+	flat := &fakeFold{states: flatStates}
+	got, _ = flat.settings().Settings(context.Background())
+	if _, ok := byID(got)[hingeAngleID]; ok {
+		t.Fatal("a phone that does not fold lists hingeAngle")
+	}
+	if len(flat.emus) != 0 {
+		t.Fatalf("a flat phone's console was sent %v", flat.emus)
+	}
+
+	// A console that cannot read the hinge drops the row, not the read.
+	odd := &fakeFold{states: foldStates, state: 2, noHinge: true}
+	got, err = odd.settings().Settings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := byID(got)[hingeAngleID]; ok {
+		t.Fatal("hingeAngle listed with no sensor to read")
+	}
+	if _, ok := byID(got)["posture"]; !ok {
+		t.Fatal("posture dropped with the hinge")
+	}
+}
+
+// A hinge write moves the posture too, and posture reads it back: the two
+// are one hinge.
+func TestApplyHingeAngleMovesPosture(t *testing.T) {
+	fold := &fakeFold{states: foldStates, state: 2, hinge: 180}
+	a := fold.settings()
+	if _, _, err := a.ApplySettings(context.Background(), map[string]any{hingeAngleID: 45.0}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := a.Settings(context.Background())
+	if p, h := byID(got)["posture"].Value, byID(got)[hingeAngleID].Value; p != "halfOpened" || h != 45.0 {
+		t.Fatalf("posture %v, hingeAngle %v", p, h)
+	}
+	if _, _, err := a.ApplySettings(context.Background(), map[string]any{"posture": "closed"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = a.Settings(context.Background())
+	if h := byID(got)[hingeAngleID].Value; h != 0.0 {
+		t.Fatalf("after posture closed, hingeAngle %v", h)
+	}
+}
+
+func TestApplyHingeAngleRefusesBeforeWriting(t *testing.T) {
+	cases := map[string]map[string]any{
+		"too far":        {hingeAngleID: 181.0},
+		"negative":       {hingeAngleID: -1.0},
+		"a fraction":     {hingeAngleID: 90.5},
+		"not a number":   {hingeAngleID: "90"},
+		"with a posture": {hingeAngleID: 90.0, "posture": "opened"},
+	}
+	for name, changes := range cases {
+		t.Run(name, func(t *testing.T) {
+			fold := &fakeFold{states: foldStates, hinge: 180}
+			_, _, err := fold.settings().ApplySettings(context.Background(), changes)
+			if !errors.Is(err, ErrInvalidSetting) {
+				t.Fatalf("err = %v, want ErrInvalidSetting", err)
+			}
+			if len(fold.emus) != 0 {
+				t.Fatalf("console was sent %v", fold.emus)
+			}
+		})
+	}
+}
+
+// An emulator with no hinge says so in-band; that is the caller asking for
+// something the device lacks, the same 400 a flat phone's posture gets.
+func TestWriteHingeAngleOnAnEmulatorWithNoHinge(t *testing.T) {
+	fold := &fakeFold{noHinge: true}
+	if err := writeHingeAngle(context.Background(), fold.emu, 90); !errors.Is(err, ErrInvalidSetting) {
+		t.Fatalf("err = %v, want ErrInvalidSetting", err)
+	}
+	fold = &fakeFold{reply: "KO: something else\n"}
+	if err := writeHingeAngle(context.Background(), fold.emu, 90); err == nil || errors.Is(err, ErrInvalidSetting) {
+		t.Fatalf("err = %v, want a device error", err)
 	}
 }

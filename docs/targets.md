@@ -307,9 +307,15 @@ answers 501, as synthetic does.
   landscapes redraws.
 - A **derived frame does not turn**: the client hides it in the other
   orientation.
-- **Simulators** use Xcode's DeviceKit chrome, read in place. They do not
-  rotate yet. A Duo answers with the lit panel's frame, so it changes when the
-  fold changes.
+- **Simulators** use Xcode's DeviceKit chrome, read in place. A Duo answers
+  with the lit panel's frame, so it changes when the fold changes.
+- A **turned simulator** keeps its picture's size: the content is drawn turned
+  inside it, and the frame's geometry and art stay upright. `contentRotation`
+  is the number of clockwise quarter turns the client applies to the picture
+  and the frame together (3 for landscapeLeft). It is omitted when upright, and
+  always on Android, whose picture already follows the turn. The stream's size
+  does not change, so no init is resent; a client refetches the frame after a
+  rotate.
 - The art is cached and ETagged. It is about 230KB for a Pixel.
 - The frame is **off by default in the client**. It costs about a tenth of each
   axis of the screen.

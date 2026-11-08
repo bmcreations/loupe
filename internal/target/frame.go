@@ -49,6 +49,17 @@ type DeviceFrame struct {
 	// it in the browser costs a transform; turning it here would mean
 	// re-encoding a webp.
 	Rotation int `json:"rotation,omitempty"`
+	// ContentRotation is how many quarter turns clockwise the client turns
+	// the stream picture, and this whole frame with it, to show the device the
+	// way it is being held. Omitted when it is 0.
+	//
+	// Rotation above is for a device whose picture follows a turn: an Android
+	// display's encoder output changes shape and the geometry here is already
+	// laid out for it, so ContentRotation stays 0 there. A simulator's picture
+	// keeps its natural size when it turns; the content is drawn turned inside
+	// it, and the geometry and art stay upright. Turning the picture and frame
+	// together is the only step a client needs on either kind.
+	ContentRotation int `json:"contentRotation,omitempty"`
 }
 
 // FrameCutout is the device's own cutout path plus the transform that places
