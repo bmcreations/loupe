@@ -1965,6 +1965,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
 }
 .pickerRowAgent--driving { color: var(--tint); }
 .pickerRowAgent--claimed { color: var(--label-secondary); }
+.pickerRowAgent--waiting { color: var(--status-warning, var(--status-danger)); }
 .pickerRowAgent--handsoff { color: var(--status-warning, var(--status-danger)); }
 .pickerAgentLink {
   display: block;

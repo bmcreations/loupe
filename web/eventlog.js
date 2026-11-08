@@ -122,6 +122,8 @@ function whatFor(ev) {
       return `Typed "${ev.text}"`;
     case 'rotate':
       return `Rotate ${ev.rotation * 90}°`;
+    case 'refused':
+      return `Refused ${ev.action || 'action'} · ${ev.err}`;
     default:
       return `Event: ${ev.kind}`;
   }

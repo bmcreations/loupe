@@ -170,6 +170,10 @@ func (a *Arbiter) Release(viewer uint64, now time.Time) []ControlChange {
 	return changes
 }
 
+// LastHuman is when a viewer last touched, pressed or took the target, or
+// zero if none has.
+func (a *Arbiter) LastHuman() time.Time { return a.lastHuman }
+
 func (a *Arbiter) take(viewer uint64, now time.Time) []ControlChange {
 	a.lastHuman = now
 	if a.holder == viewer {

@@ -652,6 +652,10 @@ type TargetInfo struct {
 	// DrivenBy names the agent whose input last went through on this target,
 	// for 10s after it did, whether or not a session is open.
 	DrivenBy string `json:"drivenBy,omitempty"`
+	// Waiting is an agent a person's hold is keeping off this target.
+	Waiting *WaitingInfo `json:"waiting,omitempty"`
+	// Refused is the last agent refused on this target, for a minute.
+	Refused *RefusedInfo `json:"refused,omitempty"`
 }
 
 // Targets lists everything registered, marking which already have a session.
