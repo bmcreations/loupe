@@ -564,7 +564,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.recordPath("websocket", targetID, r.RemoteAddr)
-	s.serveViewerWith(targetID, sess, wsConn{c: conn}, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode")), Local: isLoopbackAddr(r.RemoteAddr)})
+	s.serveViewerWith(targetID, sess, wsConn{c: conn}, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode")), Local: isLoopbackAddr(r.RemoteAddr), Acks: r.URL.Query().Get("acks") == "1"})
 }
 
 // dispatch routes one decoded client message. Input errors are reported but
