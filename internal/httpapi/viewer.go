@@ -239,6 +239,56 @@ func flowStats(f *session.FlowEst) session.FlowStats {
 
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
 
+const (
+	// ackFreshFor is how recently an acking viewer must have acked for its acks
+	// to be believed. A hidden tab stops acking while the connection stays up,
+	// and its flow numbers then describe nothing.
+	ackFreshFor = 4 * time.Second
+	// ackStaleSlack is how far past the path rtt the oldest unacked frame may
+	// be before the link is judged to be queueing.
+	ackStaleSlack = 120 * time.Millisecond
+	// ackStaleBackstop sheds a frame that sat this long in the viewer's queue
+	// whatever the acks say, so a stuck write cannot grow the backlog.
+	ackStaleBackstop = time.Second
+)
+
+// staleRule names the rule that decides whether a delta frame is too old to
+// send to a viewer with these flow numbers: "ack" for a viewer that acked
+// within ackFreshFor, "queued" (the QueuedAt age against StalenessFor) for one
+// that never acks or has gone quiet.
+func staleRule(flow session.FlowStats) string {
+	if flow.Acking && flow.LastAckAgo <= ackFreshFor {
+		return "ack"
+	}
+	return "queued"
+}
+
+// frameStale decides whether a delta frame that has waited queuedFor in the
+// viewer's queue should be shed, and which rule decided.
+//
+// The QueuedAt rule measures this server's queue, but on a phone the write
+// itself blocks for ~120 ms behind each keyframe, so frames queued behind it
+// aged past StalenessFor (~187 ms) and were shed, which asked for another
+// keyframe: a loop that held 20-100% of frames awaiting a key while the acks
+// showed the oldest unacked frame older than rtt+120 ms only 2-3 times in 40 s.
+// For a viewer that acks, the age of its oldest unacked frame is the direct
+// measure of link queueing, so that decides, with ackStaleBackstop on the
+// queue age as a bound. rtt is the path rtt the pacer was just fed; with no
+// reading the pacer's baseline stands in.
+func frameStale(flow session.FlowStats, queuedFor, rtt, base time.Duration) (stale bool, rule string) {
+	rule = staleRule(flow)
+	if rule == "queued" {
+		return queuedFor > session.StalenessFor(base), rule
+	}
+	if queuedFor > ackStaleBackstop {
+		return true, rule
+	}
+	if rtt <= 0 {
+		rtt = base
+	}
+	return flow.OldestMs > float64((rtt+ackStaleSlack).Microseconds())/1000, rule
+}
+
 // keyframeRequestInterval bounds how often a viewer may ask the device for a
 // fresh keyframe. Each request costs a full intra-coded frame, and under
 // sustained shedding the request path runs once per frame, so unbounded it
@@ -342,6 +392,8 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 		rec["backlog"] = flow.Backlog
 		rec["oldestMs"] = round1(flow.OldestMs)
 		rec["ackBps"] = int64(flow.DeliveredBps)
+		// Which rule is judging this viewer's frames stale right now.
+		rec["staleRule"] = staleRule(flow)
 	}
 	if cs := sess.ClientStats(); cs != nil {
 		rec["client"] = cs
@@ -457,8 +509,8 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		// whose predecessors were dropped decodes into visible garbage.
 		needKey := false
 		pacer := session.NewPacer()
-		// flow measures this viewer's queueing from its frame acks. Measurement
-		// only: nothing below reads it to decide what to send.
+		// flow measures this viewer's queueing from its frame acks. It decides
+		// staleness for a viewer that acks (frameStale).
 		flow, local := sess.ViewerFlow(viewerID)
 
 		// rttSource records which signal the last pacer sample came from, so a
@@ -537,7 +589,8 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					continue
 				}
 
-				if rtt, fresh := pathRTT(); fresh {
+				rtt, fresh := pathRTT()
+				if fresh {
 					pacer.Observe(rtt)
 				} else {
 					pacer.ObserveRepeat(rtt)
@@ -564,7 +617,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 						sess.NoteShed(session.ShedPacer)
 						continue
 					}
-					if time.Since(msg.QueuedAt) > session.StalenessFor(pacer.Base()) {
+					if stale, _ := frameStale(flowStats(flow), time.Since(msg.QueuedAt), rtt, pacer.Base()); stale {
 						needKey = true
 						askForKey()
 						sess.NoteShed(session.ShedStale)

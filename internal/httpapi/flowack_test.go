@@ -243,3 +243,164 @@ func TestTraceRecordOmitsFlowNumbersForViewerThatNeverAcks(t *testing.T) {
 		t.Errorf("local = %v (present %v), want false", v, ok)
 	}
 }
+
+// staleConn is an ackConn on a 100 ms path whose first keyframe write blocks
+// until released, so deltas queued meanwhile age in the viewer's queue by a
+// known amount, as they do behind a large keyframe write on a phone.
+type staleConn struct {
+	*ackConn
+	gate chan struct{}
+}
+
+func (c *staleConn) PathRTT() time.Duration { return 100 * time.Millisecond }
+func (c *staleConn) SendFrame(f session.OutMsg, d time.Time) error {
+	if f.Key {
+		<-c.gate
+	}
+	return c.ackConn.SendFrame(f, d)
+}
+
+// runStaleCase attaches a viewer, lets prep shape its FlowEst, then queues one
+// delta behind a blocked keyframe for queuedFor and releases the write. It
+// returns the number of delta frames the connection was sent, the session and
+// the viewer's id.
+func runStaleCase(t *testing.T, queuedFor time.Duration, prep func(flow *session.FlowEst, now time.Time)) (deltasSent int, sess *session.Session) {
+	t.Helper()
+	ft := &flowTarget{frames: make(chan target.Frame, 8)}
+	m := NewManager(target.Options{})
+	m.Register(ft)
+	s := &Server{mgr: m}
+	sess, err := m.Acquire(t.Context(), "flow")
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	conn := &staleConn{ackConn: newAckConn(), gate: make(chan struct{})}
+	done := make(chan struct{})
+	go func() { s.serveViewer("flow", sess, conn); close(done) }()
+	t.Cleanup(func() {
+		_ = conn.Close()
+		sess.Close()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("serveViewer still running 3s after the session closed")
+		}
+	})
+	var flow *session.FlowEst
+	waitUntil(t, "viewer attach", func() bool { flow, _ = sess.ViewerFlow(1); return flow != nil })
+
+	// The config frame resets the in-flight list, so the flow is shaped after
+	// it, and after the wait so the ages prep sets are the ones the write loop
+	// sees.
+	ft.frames <- target.Frame{Config: true, Data: []byte{0, 0, 0, 1, 0x67}}
+	waitUntil(t, "config sent", func() bool { return len(conn.sentFrames()) == 1 })
+	ft.frames <- target.Frame{Key: true, PTS: 1 * time.Millisecond, Data: []byte{0, 0, 0, 1, 0x65, 1}}
+	ft.frames <- target.Frame{PTS: 2 * time.Millisecond, Data: []byte{0, 0, 0, 1, 0x41, 2}}
+	time.Sleep(queuedFor)
+	prep(flow, time.Now())
+	close(conn.gate)
+	waitUntil(t, "delta handled", func() bool {
+		return len(conn.sentFrames()) >= 3 || sess.ShedBreakdown().Stale > 0
+	})
+	for _, f := range conn.sentFrames() {
+		if !f.Key && !f.Config {
+			deltasSent++
+		}
+	}
+	return deltasSent, sess
+}
+
+// ackingViewer makes flow acking with its last ack lastAckAgo ago and its
+// oldest unacked frame oldestMs old. The unacked entry is recorded before the
+// keyframe is written, so it stays the oldest.
+func ackingViewer(flow *session.FlowEst, now time.Time, lastAckAgo, oldest time.Duration) {
+	at := now.Add(-lastAckAgo)
+	flow.Sent(800, 100, at.Add(-60*time.Millisecond))
+	flow.Ack(800, at)
+	flow.Sent(900, 100, now.Add(-oldest))
+}
+
+func TestStaleUsesAckAgeWhenAcking(t *testing.T) {
+	// 300 ms in the queue would be shed by the QueuedAt rule (~200 ms here);
+	// the oldest unacked frame is only 150 ms old, under rtt+120 = 220.
+	sent, sess := runStaleCase(t, 300*time.Millisecond, func(f *session.FlowEst, now time.Time) {
+		ackingViewer(f, now, 50*time.Millisecond, 150*time.Millisecond)
+	})
+	if sent != 1 || sess.ShedBreakdown().Stale != 0 {
+		t.Fatalf("deltas sent %d, shed stale %d, want 1 and 0", sent, sess.ShedBreakdown().Stale)
+	}
+}
+
+func TestStaleAckAgeExceeded(t *testing.T) {
+	sent, sess := runStaleCase(t, 50*time.Millisecond, func(f *session.FlowEst, now time.Time) {
+		ackingViewer(f, now, 50*time.Millisecond, 400*time.Millisecond)
+	})
+	if sent != 0 || sess.ShedBreakdown().Stale != 1 {
+		t.Fatalf("deltas sent %d, shed stale %d, want 0 and 1", sent, sess.ShedBreakdown().Stale)
+	}
+}
+
+func TestStaleFallsBackWhenAcksStop(t *testing.T) {
+	// Acked 5 s ago (hidden tab): the old rule applies and 300 ms in the
+	// queue is stale even though the oldest unacked frame is young.
+	sent, sess := runStaleCase(t, 300*time.Millisecond, func(f *session.FlowEst, now time.Time) {
+		ackingViewer(f, now, 5*time.Second, 10*time.Millisecond)
+	})
+	if sent != 0 || sess.ShedBreakdown().Stale != 1 {
+		t.Fatalf("deltas sent %d, shed stale %d, want 0 and 1", sent, sess.ShedBreakdown().Stale)
+	}
+}
+
+func TestStaleBackstop(t *testing.T) {
+	sent, sess := runStaleCase(t, 1100*time.Millisecond, func(f *session.FlowEst, now time.Time) {
+		ackingViewer(f, now, 50*time.Millisecond, 10*time.Millisecond)
+	})
+	if sent != 0 || sess.ShedBreakdown().Stale != 1 {
+		t.Fatalf("deltas sent %d, shed stale %d, want 0 and 1", sent, sess.ShedBreakdown().Stale)
+	}
+}
+
+// TestFrameStaleRules pins the decision itself, including the needKey half
+// that the loop applies to any true result.
+func TestFrameStaleRules(t *testing.T) {
+	rtt, base := 100*time.Millisecond, 100*time.Millisecond
+	acking := func(oldest float64, ago time.Duration) session.FlowStats {
+		return session.FlowStats{Acking: true, OldestMs: oldest, LastAckAgo: ago}
+	}
+	for _, c := range []struct {
+		name   string
+		flow   session.FlowStats
+		queued time.Duration
+		rtt    time.Duration
+		stale  bool
+		rule   string
+	}{
+		{"ack young oldest", acking(219, 0), 300 * time.Millisecond, rtt, false, "ack"},
+		{"ack old oldest", acking(221, 0), 0, rtt, true, "ack"},
+		{"ack no rtt uses base", acking(221, 0), 0, 0, true, "ack"},
+		{"backstop", acking(0, 0), 1001 * time.Millisecond, rtt, true, "ack"},
+		{"quiet viewer queued rule", acking(0, 4001*time.Millisecond), 300 * time.Millisecond, rtt, true, "queued"},
+		{"quiet viewer fresh frame", acking(900, 4001*time.Millisecond), 10 * time.Millisecond, rtt, false, "queued"},
+		{"never acks", session.FlowStats{OldestMs: 900}, 10 * time.Millisecond, rtt, false, "queued"},
+	} {
+		stale, rule := frameStale(c.flow, c.queued, c.rtt, base)
+		if stale != c.stale || rule != c.rule {
+			t.Errorf("%s: stale %v rule %q, want %v %q", c.name, stale, rule, c.stale, c.rule)
+		}
+	}
+}
+
+func TestTraceRecordNamesStaleRule(t *testing.T) {
+	rec, _ := traceTick(t, session.FlowStats{Acking: true}, false)
+	if rec["staleRule"] != "ack" {
+		t.Errorf("staleRule = %v, want ack", rec["staleRule"])
+	}
+	rec, _ = traceTick(t, session.FlowStats{Acking: true, LastAckAgo: 5 * time.Second}, false)
+	if rec["staleRule"] != "queued" {
+		t.Errorf("staleRule = %v, want queued after 5 s of silence", rec["staleRule"])
+	}
+	rec, _ = traceTick(t, session.FlowStats{}, false)
+	if _, ok := rec["staleRule"]; ok {
+		t.Error("staleRule present for a viewer that never acks")
+	}
+}
