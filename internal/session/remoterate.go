@@ -186,17 +186,13 @@ func (r *remoteRate) Tick(now time.Time, vs []rateViewer, producedTotal uint64) 
 		return now.Sub(t)
 	}
 
-	// pushed says the stream was using at least half the cap. The remote
-	// encoder runs at constant quality under the cap, so it often spends far
-	// less; a queue reading then comes from the path, not from our rate, and
-	// cutting a cap the encoder is not using only thins the next burst. In
-	// the 13:10 cellular run the cap sat at the floor while the phone
-	// received 0.4-0.6 Mbps of a 0.5 Mbps cap and 14 kbps when idle.
-	pushed := (r.haveProd && r.prodBps >= cap*0.5) || w.DeliveredBps >= cap*0.5
-
+	// Congestion always cuts, as voxl's RateCtl does; the delivered rate
+	// sets the ceiling only when the link was being pushed. Holding instead
+	// when the encoder was not filling the cap (8f3b7b27) left the 14:11 app
+	// run at 6.8 Mbps after slow start, on a link carrying about 2 Mbps,
+	// with 680 ms queued. The 2 Mbps floor keeps the cut from pinning a
+	// thin picture.
 	switch {
-	case congested && !pushed:
-		return r.cap, rateHold
 	case congested && since(r.lastDec) >= remoteRateCutEvery:
 		t := cap * 0.85
 		// Delivery says something about capacity only when the link was
@@ -214,10 +210,11 @@ func (r *remoteRate) Tick(now time.Time, vs []rateViewer, producedTotal uint64) 
 		return r.cap, rateCongested
 	case congested:
 		return r.cap, rateHold
-	case !clear || !r.haveProd || r.prodBps < cap*0.5:
-		// Raise only while the content uses the cap: an idle screen says
-		// nothing about the path, and an inflated cap overshoots the next
-		// burst.
+	case !clear || !r.haveProd || r.prodBps < cap*0.5 || w.DeliveredBps < cap*0.5:
+		// Raise only while the content uses the cap and the link carries at
+		// least half of it, as voxl does: an idle screen says nothing about
+		// the path, and raising on what the encoder made rather than what
+		// arrived took the 14:11 app run to 8 Mbps on a ~2 Mbps link.
 		if r.haveProd && r.prodBps < cap*0.5 {
 			return r.cap, rateIdle
 		}

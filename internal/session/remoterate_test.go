@@ -1,6 +1,7 @@
 package session
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -26,6 +27,16 @@ func (x *rateRun) run(d time.Duration, v rateViewer, prodBps float64) (caps []in
 		reasons = append(reasons, why)
 	}
 	return
+}
+
+func maxInt(xs []int) int {
+	m := xs[0]
+	for _, x := range xs {
+		if x > m {
+			m = x
+		}
+	}
+	return m
 }
 
 func minInt(xs []int) int {
@@ -89,40 +100,45 @@ func TestRemoteRateCutsTowardDelivery(t *testing.T) {
 	}
 }
 
-// Congestion while the stream uses a small part of the cap (one big frame on
-// a quiet screen, or a quality encoder spending little) holds the cap: the
-// queue then comes from the path, and a cut only thins the next burst.
-func TestRemoteRateHoldsAnUnusedCap(t *testing.T) {
+// Congestion while the stream uses a small part of the cap still cuts 15%,
+// as voxl does, but the low delivered rate does not set the ceiling: one big
+// frame on a quiet screen must not pin the cap at a few kbps.
+func TestRemoteRateCutsAnUnusedCapWithoutCeiling(t *testing.T) {
 	x := newRateRun()
 	x.r.cap, x.r.slowStart = 4_000_000, false
-	caps, why := x.run(time.Second, rateViewer{QueueMs: 200, OldestMs: 400, BaseMs: 50, DeliveredBps: 100_000}, 100_000)
-	for i := range caps {
-		if caps[i] != 4_000_000 || why[i] == rateCongested {
-			t.Fatalf("tick %d: cap %d %s, want 4000000 held", i, caps[i], why[i])
-		}
+	caps, why := x.run(300*time.Millisecond, rateViewer{QueueMs: 200, OldestMs: 400, BaseMs: 50, DeliveredBps: 100_000}, 100_000)
+	if caps[0] != 3_400_000 || why[0] != rateCongested {
+		t.Errorf("first cut = %d %s, want 3400000 congested", caps[0], why[0])
+	}
+	if !math.IsInf(x.r.ceiling, 1) {
+		t.Errorf("ceiling = %v, want unset", x.r.ceiling)
 	}
 }
 
-// The 13:10 cellular run with the constant-quality encoder: the phone
-// received 0.4-0.6 Mbps and 14 kbps when idle, with queue readings that
-// tripped congestion. Starting from 2.5 Mbps, none of them may cut the cap.
-func TestRemoteRateCellularQualityRunHolds(t *testing.T) {
+// The 14:11 app run: slow start took the cap to 8 Mbps and one cut left it at
+// 6.8 Mbps while the phone received about 2 Mbps and 680 ms queued. Each
+// congested reading must cut, reaching under 3 Mbps within 3 s, and slow
+// start must not raise a cap the link does not carry half of.
+func TestRemoteRateCellularAppOvershootComesDown(t *testing.T) {
 	x := newRateRun()
-	x.r.cap, x.r.slowStart = 2_500_000, false
-	run := []struct {
-		v    rateViewer
-		prod float64
-	}{
-		{rateViewer{QueueMs: 118.9, OldestMs: 0, BaseMs: 70, DeliveredBps: 1_093_000}, 1_000_000},
-		{rateViewer{QueueMs: 58, OldestMs: 255.3, BaseMs: 70, DeliveredBps: 590_000}, 600_000},
-		{rateViewer{QueueMs: 137.2, OldestMs: 32.1, BaseMs: 70, DeliveredBps: 429_000}, 450_000},
-		{rateViewer{QueueMs: 114.4, OldestMs: 0, BaseMs: 70, DeliveredBps: 20_000}, 20_000},
+	x.r.cap, x.r.slowStart = 6_800_000, false
+	run := []rateViewer{
+		{QueueMs: 110, OldestMs: 405, BaseMs: 61, DeliveredBps: 1_518_000},
+		{QueueMs: 680, OldestMs: 879, BaseMs: 61, DeliveredBps: 718_000},
+		{QueueMs: 680, OldestMs: 342, BaseMs: 61, DeliveredBps: 718_000},
 	}
-	for _, e := range run {
-		x.run(time.Second, e.v, e.prod)
+	for _, v := range run {
+		x.run(time.Second, v, 2_000_000)
 	}
-	if got := x.r.Cap(); got != 2_500_000 {
-		t.Errorf("cap = %d, want 2500000 held", got)
+	if got := x.r.Cap(); got >= 3_000_000 {
+		t.Errorf("cap = %d after 3 s congested, want under 3000000", got)
+	}
+
+	y := newRateRun()
+	y.r.cap = 4_000_000
+	caps, _ := y.run(time.Second, rateViewer{QueueMs: 20, OldestMs: 60, BaseMs: 56, DeliveredBps: 1_500_000}, 4_000_000)
+	if m := maxInt(caps); m > 4_000_000 {
+		t.Errorf("slow start raised the cap to %d with 1.5 of 4 Mbps delivered", m)
 	}
 }
 
