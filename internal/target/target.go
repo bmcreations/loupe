@@ -101,6 +101,26 @@ type PassthroughStream interface {
 	PassthroughCodec() string
 }
 
+// RemoteStream is a Stream that also runs a second, gated H.264 encode for
+// viewers on slow links. It is held until a viewer's link has room for the
+// next frame, so every frame it encodes is delivered and none is dropped.
+// Only simcap does this today (see docs/architecture.md).
+type RemoteStream interface {
+	// Remote yields the remote track's access units, or nil when this stream
+	// has none. Every keyframe is preceded by a Config frame. The channel
+	// closes when the stream ends.
+	Remote() <-chan Frame
+	// RemoteGate opens (true) or holds (false) the remote encoder. Held, it
+	// encodes nothing; opened, it encodes the next capture at once.
+	RemoteGate(open bool) error
+	// RemoteKeyframe asks the remote encoder for a keyframe.
+	RemoteKeyframe() error
+	// RemoteCap sets the remote encoder's data-rate cap in bits per second.
+	RemoteCap(bps int) error
+	// RemoteMaxSize sets the remote encoder's longest edge in pixels.
+	RemoteMaxSize(px int) error
+}
+
 // Frame is one encoded access unit in Annex B byte-stream format, ready to hand
 // to a decoder without further framing.
 type Frame struct {
