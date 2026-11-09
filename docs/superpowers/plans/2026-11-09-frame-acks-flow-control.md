@@ -95,6 +95,8 @@ Handset on the Mac viewing a device on the same Mac must always be quick. A remo
 
 ## Slice 2: pause the encoder instead of dropping
 
+Superseded by `2026-11-09-remote-encoder.md` (Tasks 4, 5, 7, 8). Task 6 stands.
+
 ### Task 4: simcap pause/resume op
 
 **Files (simcap repo, from 8314fe91):**
