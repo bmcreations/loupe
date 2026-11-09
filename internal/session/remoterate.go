@@ -15,7 +15,7 @@ import (
 //
 // Differences from voxl: the start is remoteCapStart, not 8 Mbps; the
 // congestion thresholds are wider for cellular jitter (see below); the bounds
-// are 1.5 and 8 Mbps; "the content uses the cap" is the remote encoder's own
+// are 0.5 and 8 Mbps; "the content uses the cap" is the remote encoder's own
 // output rate rather than the best delivered rate, because the gate holds the
 // encoder while the link is full and a held encoder would otherwise read as an
 // idle screen forever.
@@ -39,7 +39,13 @@ type remoteRate struct {
 }
 
 const (
-	remoteCapMin = 1_500_000
+	// remoteCapMin is the floor. At 12:25 on cellular the phone received
+	// 0.5-1.7 Mbps of a 1.5 Mbps floor: the cap could not go under the link,
+	// frames queued 150-430 ms and the gate held half of every second.
+	// Holding the gate does not shrink the stream, since the encoder spends
+	// the same budget on fewer, larger frames; only the cap does. voxl on the
+	// same link delivered 0.3-0.8 Mbps.
+	remoteCapMin = 500_000
 	remoteCapMax = 8_000_000
 	// remoteCapStart is where a new remote viewer starts. The 12:09 cellular
 	// run carried 1.3-1.7 Mbps; starting at 4 Mbps queued 270 ms of frames on

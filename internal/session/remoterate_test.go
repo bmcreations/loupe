@@ -127,6 +127,28 @@ func TestRemoteRateCellularJitterIsNotCongestion(t *testing.T) {
 	}
 }
 
+// The 12:25 cellular run: the phone receiving about 1 Mbps with frames
+// queued 150-430 ms. The cap must go under what the link carries.
+func TestRemoteRateFallsBelowAThinLink(t *testing.T) {
+	x := newRateRun()
+	x.r.cap, x.r.slowStart = 1_500_000, false
+	thin := []rateViewer{
+		{QueueMs: 181.9, OldestMs: 259.3, BaseMs: 71.8, DeliveredBps: 897_000},
+		{QueueMs: 165.7, OldestMs: 104.4, BaseMs: 71.8, DeliveredBps: 1_304_000},
+		{QueueMs: 217, OldestMs: 314.4, BaseMs: 71.8, DeliveredBps: 1_257_000},
+		{QueueMs: 349.3, OldestMs: 0, BaseMs: 71.8, DeliveredBps: 1_084_000},
+	}
+	for _, v := range thin {
+		x.run(time.Second, v, float64(x.r.Cap()))
+	}
+	if got := x.r.Cap(); got >= 1_000_000 {
+		t.Errorf("cap = %d after 4 s queued on a ~1 Mbps link, want < 1 Mbps", got)
+	}
+	if got := x.r.Cap(); got < remoteCapMin {
+		t.Errorf("cap %d below the floor", got)
+	}
+}
+
 // A still screen produces next to nothing, so the cap stays where it is.
 func TestRemoteRateIdleScreenDoesNotRaise(t *testing.T) {
 	x := newRateRun()
