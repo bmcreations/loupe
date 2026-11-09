@@ -518,6 +518,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					}
 				}
 
+				sess.NoteOffered(viewerID, len(msg.Data))
 				err := conn.SendFrame(msg, msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, pacer.Base())))
 				delivered, fatal := frameDelivered(err)
 				if fatal {

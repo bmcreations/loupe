@@ -155,6 +155,18 @@ const (
 	// anything moving on screen still produces at the encoder's rate, so this
 	// hides no real starvation. The idle test's 10fps clears it.
 	minWindowFrameRate = 6
+
+	// carriedOfferedFraction is the share of the bytes handed to the slowest
+	// viewer's transport that must arrive for the link to count as having
+	// carried what it was offered. Above it, the starved, undercarried and shed
+	// gates decline: the frames that did not arrive were never sent, held back
+	// awaiting a keyframe, and a smaller encoder does not shorten that wait. On
+	// 8 November a simulator on cellular was cut from 4 Mbps to 404 kbps in
+	// three undercarried steps while the link delivered every byte offered;
+	// goodput read half the target only because waits held back a quarter to a
+	// half of the frames. A starved link loses offered bytes to resets in
+	// flight, which this counts as offered and not carried.
+	carriedOfferedFraction = 0.90
 )
 
 // bitrateWindows is the part of the policy that depends on what a change
@@ -190,6 +202,9 @@ type BitrateSample struct {
 	// Bytes is what actually reached the transport, which is the only
 	// measurement of what the link will carry.
 	Bytes uint64
+	// Offered is what was handed to the same viewer's transport, delivered or
+	// not. Zero means unknown, and the gates then judge on Bytes alone.
+	Offered uint64
 }
 
 // BitrateGate names the branch a decision came out of.
@@ -259,7 +274,9 @@ type BitrateReport struct {
 	// Frames, Shed and Bytes are the window's accumulated totals, not this
 	// one interval's.
 	Frames, Shed, Bytes uint64
-	ShedFrac            float64
+	// Offered is the window's bytes handed to the transport (BitrateSample).
+	Offered  uint64
+	ShedFrac float64
 	// AwaitKey and AwaitFrac are the window's keyframe waits. They are
 	// reported whether or not the starvation gate fired, because a run that
 	// evaluated them and declined has to be distinguishable from one that
@@ -359,6 +376,7 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	a.acc.Shed += s.Shed
 	a.acc.AwaitKey += s.AwaitKey
 	a.acc.Bytes += s.Bytes
+	a.acc.Offered += s.Offered
 
 	if !a.lastChange.IsZero() && now.Sub(a.lastChange) < a.windows.settle {
 		// Keep the window anchored to the end of the settle period rather than
@@ -385,6 +403,15 @@ func (a *BitrateAdapter) Observe(now time.Time, s BitrateSample) (int, BitrateRe
 	}
 	shedFrac := float64(a.acc.Shed) / float64(a.acc.Frames)
 	awaitFrac := float64(a.acc.AwaitKey) / float64(a.acc.Frames)
+
+	if a.carriedOffered() && (shedFrac >= downShedFraction || awaitFrac >= undercarriedAwaitFraction) {
+		// Every cutting gate below aims at goodput, and goodput here is what
+		// the encoder produced minus what the viewer chose not to send. The
+		// link is not what is short, so no bitrate fixes it.
+		rep := a.report(now, GateLinkCarried)
+		a.reset(now)
+		return 0, rep
+	}
 
 	if awaitFrac >= starvedAwaitFraction && a.awaitTimeFrac() >= starvedAwaitFraction {
 		// Aim at the measured goodput, with a halving as the ceiling on the
@@ -483,6 +510,7 @@ func (a *BitrateAdapter) report(now time.Time, gate BitrateGate) BitrateReport {
 		Shed:     a.acc.Shed,
 		AwaitKey: a.acc.AwaitKey,
 		Bytes:    a.acc.Bytes,
+		Offered:  a.acc.Offered,
 		Changes:  a.changes,
 	}
 	if !a.windowStart.IsZero() {
@@ -562,6 +590,13 @@ func (a *BitrateAdapter) awaitTimeFrac() float64 {
 		return 0
 	}
 	return a.awaiting.Seconds() / a.active.Seconds()
+}
+
+// carriedOffered reports whether the slowest viewer received nearly every byte
+// handed to its transport this window. It is false when Offered is unknown.
+func (a *BitrateAdapter) carriedOffered() bool {
+	return a.acc.Offered > 0 &&
+		float64(a.acc.Bytes) >= float64(a.acc.Offered)*carriedOfferedFraction
 }
 
 // goodput is the rate the link carried over the time the encoder was producing,

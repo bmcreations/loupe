@@ -1582,6 +1582,7 @@ func (m *Manager) recordBitrate(targetID string, rep session.BitrateReport) {
 		"frames":     rep.Frames,
 		"shed":       rep.Shed,
 		"bytes":      rep.Bytes,
+		"offered":    rep.Offered,
 		"shedFrac":   round3(rep.ShedFrac),
 		"awaitKey":   rep.AwaitKey,
 		"awaitFrac":  round3(rep.AwaitFrac),
