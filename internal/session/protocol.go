@@ -186,6 +186,10 @@ type QUICOpen struct {
 	// Decode is ?decode= on /ws and /wt: the codecs the client decodes
 	// besides H.264. See ViewerOptions.
 	Decode []string `json:"decode,omitempty"`
+	// Acks is ?acks=1 on /ws and /wt: the client sends MsgFrameAck after it
+	// presents each frame, which puts it on the remote track when it is not on
+	// loopback. See ViewerOptions.
+	Acks bool `json:"acks,omitempty"`
 }
 
 // QUIC application close codes. 1 and 3 mean what they mean on /wt.

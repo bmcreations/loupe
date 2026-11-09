@@ -50,6 +50,10 @@ type InitPayload struct {
 	// and left out, when the target cannot say: Android targets report it
 	// (target.StatusBarReader), simulators and devices do not yet.
 	StatusBar int `json:"statusBar,omitempty"`
+	// Track is "remote" when this viewer is on the remote track, whose frames
+	// a client should draw as they decode rather than buffer for pacing. Left
+	// out for the main track.
+	Track string `json:"track,omitempty"`
 }
 
 // MaxStaleness bounds how long a frame may sit between being queued for a
@@ -103,11 +107,11 @@ type OutMsg struct {
 	Control bool
 	// QueuedAt is when fan-out handed this to the viewer.
 	QueuedAt time.Time
-	// passthrough marks a frame of the stream's passthrough track, which goes
-	// only to viewers that asked for it (passthrough.go). seq is its place
-	// in that track.
-	passthrough bool
-	seq         uint64
+	// track says which of the stream's tracks the frame belongs to; broadcast
+	// sends it only to viewers on that track. seq is a passthrough frame's
+	// place in its track (passthrough.go).
+	track trackID
+	seq   uint64
 	// PTSMicros is the frame's presentation timestamp. Data carries the
 	// WebSocket envelope, so a transport with its own framing reads the
 	// timestamp here and takes the payload from Data[FrameHeaderLen:] rather
@@ -115,12 +119,37 @@ type OutMsg struct {
 	PTSMicros uint64
 }
 
+// trackID names one of a session's encodes. A viewer is on exactly one, fixed
+// when it joins, and sees only that track's frames.
+type trackID uint8
+
+const (
+	// trackMain is the stream's H.264 encode, the zero value.
+	trackMain trackID = iota
+	// trackPassthrough is the device's own HEVC (passthrough.go).
+	trackPassthrough
+	// trackRemote is the gated second H.264 encode for remote viewers
+	// (remote.go).
+	trackRemote
+)
+
+func (t trackID) String() string {
+	switch t {
+	case trackPassthrough:
+		return "passthrough"
+	case trackRemote:
+		return "remote"
+	}
+	return "main"
+}
+
 // viewer is one connected client.
 type viewer struct {
 	id  uint64
 	out chan OutMsg
-	// passthrough is whether this viewer gets the passthrough track instead
-	// of the H.264 one. Fixed at AddViewerWith.
+	// track is which encode this viewer gets. Fixed at AddViewerWith.
+	track trackID
+	// passthrough is whether track is trackPassthrough.
 	passthrough bool
 	// local is whether the viewer connected from loopback (ViewerOptions.Local).
 	local bool
@@ -276,7 +305,11 @@ type Session struct {
 	lastCfg  *OutMsg // most recent parameter sets, replayed to joiners
 	// pass is the passthrough track's state, nil when the stream has none.
 	// Guarded by mu like lastCfg.
-	pass     *passTrack
+	pass *passTrack
+	// remote is the remote track's state, nil when the stream has none
+	// (remote.go). Guarded by mu.
+	remote   *remoteTrack
+	onRemote func(RemoteSecond)
 	overlays []byte // latest MsgOverlay body, sent to joiners; nil for none
 	init     InitPayload
 
@@ -341,6 +374,9 @@ type Session struct {
 	framesOut   atomic.Uint64
 	framesDrop  atomic.Uint64
 	framesShed  atomic.Uint64
+	// adaptShed is the shed counts by reason that came from local viewers,
+	// which is all the bitrate controller reads (relaunch.go).
+	adaptShed [ShedAbandon + 1]atomic.Uint64
 	// framesWait counts frames suppressed while a viewer awaits a keyframe.
 	framesWait atomic.Uint64
 	// shedPacer, shedStale, shedAwaitKey and shedAbandon break framesShed
@@ -419,6 +455,7 @@ func Open(ctx context.Context, id string, t target.Target, opts target.Options) 
 	}
 
 	s.startPassthrough(stream)
+	s.startRemote(stream)
 	go s.pump()
 	s.watchClipboard(stream)
 	s.watchRelayed(stream)
@@ -540,7 +577,34 @@ const (
 // fan-out drop counter so those two causes stay distinguishable as well: a
 // fan-out drop means a slow reader, a shed means a slow link.
 func (s *Session) NoteShed(reason ShedReason) {
+	s.noteShed(reason, true)
+}
+
+// NoteShedFor is NoteShed for a frame the writer shed for viewer id. The
+// session totals count it. The counters the bitrate controller reads count it
+// only for a local viewer: a remote viewer's link says nothing about what the
+// main encoder should be set to.
+func (s *Session) NoteShedFor(id uint64, reason ShedReason) {
+	s.mu.RLock()
+	v := s.viewers[id]
+	s.mu.RUnlock()
+	s.noteShed(reason, v != nil && v.local)
+}
+
+func (s *Session) noteShed(reason ShedReason, adapter bool) {
 	s.framesShed.Add(1)
+	if adapter {
+		switch reason {
+		case ShedPacer:
+			s.adaptShed[ShedPacer].Add(1)
+		case ShedStale:
+			s.adaptShed[ShedStale].Add(1)
+		case ShedAwaitKey:
+			s.adaptShed[ShedAwaitKey].Add(1)
+		case ShedAbandon:
+			s.adaptShed[ShedAbandon].Add(1)
+		}
+	}
 	switch reason {
 	case ShedPacer:
 		s.shedPacer.Add(1)
@@ -604,6 +668,16 @@ func (s *Session) ShedBreakdown() ShedCounts {
 		Stale:    s.shedStale.Load(),
 		AwaitKey: s.shedAwaitKey.Load(),
 		Abandon:  s.shedAbandon.Load(),
+	}
+}
+
+// adapterShedBreakdown is ShedBreakdown for local viewers only.
+func (s *Session) adapterShedBreakdown() ShedCounts {
+	return ShedCounts{
+		Pacer:    s.adaptShed[ShedPacer].Load(),
+		Stale:    s.adaptShed[ShedStale].Load(),
+		AwaitKey: s.adaptShed[ShedAwaitKey].Load(),
+		Abandon:  s.adaptShed[ShedAbandon].Load(),
 	}
 }
 
@@ -712,6 +786,18 @@ func (s *Session) ViewerPassthrough(id uint64) bool {
 	return ok && v.passthrough
 }
 
+// ViewerTrack names the track viewer id is on: "main", "passthrough" or
+// "remote". Empty for a viewer that has gone.
+func (s *Session) ViewerTrack(id uint64) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.viewers[id]
+	if !ok {
+		return ""
+	}
+	return v.track.String()
+}
+
 // ViewerFlow returns the viewer's frame-ack estimator and whether the viewer
 // is local (connected from loopback). It is nil for a viewer that has gone.
 // The pointer is valid for the viewer's lifetime, so the write loop fetches it
@@ -763,6 +849,13 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 		depth = viewerQueueLen(0)
 	}
 	passthrough := s.pass != nil && o.decodes(s.pass.fourcc)
+	track := trackMain
+	switch {
+	case passthrough:
+		track = trackPassthrough
+	case s.remote != nil && !o.Local && o.Acks:
+		track = trackRemote
+	}
 	if passthrough {
 		// Room for the replay on top of the usual depth: it is sent while mu
 		// is held, so it must never block.
@@ -772,9 +865,10 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 		id:          s.nextID,
 		out:         make(chan OutMsg, depth),
 		needsKey:    true,
-		joined:      time.Now(),
+		track:       track,
 		passthrough: passthrough,
 		local:       o.Local,
+		joined:      time.Now(),
 	}
 	s.viewers[v.id] = v
 
@@ -794,6 +888,8 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 	replayed := false
 	if v.passthrough {
 		replayed = s.pass.replayLocked(v)
+	} else if v.track == trackRemote {
+		s.remote.replayCfgLocked(v)
 	} else if s.lastCfg != nil {
 		// Queued now, not when the stream first sent it: the write deadline
 		// runs from QueuedAt, and a replay minutes old goes out expired and is
@@ -818,7 +914,13 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 	// and the viewer shows nothing at all. Ask, rate limited like every other
 	// caller. A passthrough joiner that was replayed a whole GOP already has a
 	// picture, and asking would cost a keyframe for nothing.
-	if !replayed {
+	if track == trackRemote {
+		// Its own encoder, which keys on this ask alone: the main one's
+		// keyframes never reach it. Not rate limited, so a second joiner
+		// within the window is not left waiting on a keyframe that was
+		// already sent.
+		go func() { _ = s.RequestRemoteKeyframe() }()
+	} else if !replayed {
 		s.askKeyframe()
 	}
 
@@ -881,6 +983,12 @@ func (s *Session) buildInitFor(v *viewer) OutMsg {
 	init.Viewer = v.id
 	if v.passthrough && s.pass != nil {
 		init.Codec = s.pass.codec
+	}
+	if v.track == trackRemote && s.remote != nil {
+		init.Track = "remote"
+		if s.remote.codec != "" {
+			init.Codec = s.remote.codec
+		}
 	}
 	body, err := json.Marshal(init)
 	if err != nil {
@@ -1557,6 +1665,10 @@ func (s *Session) pump() {
 		if stream == nil {
 			return
 		}
+		if prev != nil && stream != prev {
+			// A relaunched stream has its own remote encoder, held again.
+			s.startRemote(stream)
+		}
 		prev = stream
 		first := true
 
@@ -1780,8 +1892,13 @@ func (s *Session) ViewerReplay(id uint64) {
 	}
 	if cap(v.out)-len(v.out) < need {
 		// Sends below are made under mu and must not block.
+		remote := v.track == trackRemote
 		s.mu.Unlock()
-		s.askKeyframe()
+		if remote {
+			go func() { _ = s.RequestRemoteKeyframe() }()
+		} else {
+			s.askKeyframe()
+		}
 		return
 	}
 	initMsg := s.buildInitFor(v)
@@ -1790,6 +1907,9 @@ func (s *Session) ViewerReplay(id uint64) {
 	replayed := false
 	if v.passthrough {
 		replayed = s.pass.replayLocked(v)
+	} else if v.track == trackRemote {
+		s.remote.replayCfgLocked(v)
+		v.needsKey = true
 	} else {
 		if s.lastCfg != nil {
 			cfg := *s.lastCfg
@@ -1798,9 +1918,12 @@ func (s *Session) ViewerReplay(id uint64) {
 		}
 		v.needsKey = true
 	}
+	remote := v.track == trackRemote
 	s.mu.Unlock()
 
-	if !replayed {
+	if remote {
+		go func() { _ = s.RequestRemoteKeyframe() }()
+	} else if !replayed {
 		s.askKeyframe()
 	}
 }
@@ -1812,14 +1935,14 @@ func (s *Session) ViewerReplay(id uint64) {
 func hasRoom(v *viewer) bool { return len(v.out)*2 <= cap(v.out) }
 
 func (s *Session) broadcast(msg OutMsg) {
-	starved := false
+	starved, remoteStarved := false, false
 
 	s.mu.RLock()
 	for _, v := range s.viewers {
-		if v.passthrough != msg.passthrough {
+		if v.track != msg.track {
 			continue
 		}
-		if msg.passthrough && msg.seq <= v.replayedThrough {
+		if msg.track == trackPassthrough && msg.seq <= v.replayedThrough {
 			continue
 		}
 		// A viewer that fell behind is resynchronizing. Parameter sets and
@@ -1835,7 +1958,11 @@ func (s *Session) broadcast(msg OutMsg) {
 			// arrives while the channel is still full it is dropped like
 			// anything else, and nothing would ever ask a second time.
 			if hasRoom(v) {
-				starved = true
+				if v.track == trackRemote {
+					remoteStarved = true
+				} else {
+					starved = true
+				}
 			}
 			continue
 		}
@@ -1860,7 +1987,11 @@ func (s *Session) broadcast(msg OutMsg) {
 			// drop 746 and framesOut 737 having suppressed nothing at all.
 			if !v.needsKey {
 				v.needsKey = true
-				starved = true
+				if v.track == trackRemote {
+					remoteStarved = true
+				} else {
+					starved = true
+				}
 			}
 		}
 	}
@@ -1877,6 +2008,9 @@ func (s *Session) broadcast(msg OutMsg) {
 	// holding at most one request outstanding.
 	if starved {
 		s.askKeyframeSoon()
+	}
+	if remoteStarved {
+		s.askRemoteKeyframeSoon()
 	}
 }
 

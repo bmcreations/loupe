@@ -20,9 +20,14 @@ type ViewerOptions struct {
 	// not list anything, because Safari cannot decode that HEVC.
 	Decodes []string
 	// Local is whether the viewer's connection comes from loopback: a viewer
-	// on the same machine as the server. It is recorded in the trace and
-	// nothing else yet.
+	// on the same machine as the server. It never goes on the remote track,
+	// and it is the only viewer the main bitrate controller listens to.
 	Local bool
+	// Acks is whether the viewer sends a frame ack (MsgFrameAck) after
+	// presenting each frame. A viewer that is not Local and acks goes on the
+	// remote track when the stream has one. One that does not ack stays on
+	// the main track, because the remote gate needs its acks.
+	Acks bool
 }
 
 // ParseDecode reads ?decode=, a comma-separated fourcc list ("h265").
@@ -169,12 +174,12 @@ func (s *Session) pumpPassthrough(frames <-chan target.Frame) {
 		sentAt := uint64(time.Now().UnixMicro())
 		scratch = EncodeFrame(scratch, uint64(frame.PTS.Microseconds()), frame.Key, frame.Config, sentAt, frame.Data)
 		msg := OutMsg{
-			Data:        make([]byte, len(scratch)),
-			Key:         frame.Key,
-			Config:      frame.Config,
-			QueuedAt:    time.Now(),
-			PTSMicros:   uint64(frame.PTS.Microseconds()),
-			passthrough: true,
+			Data:      make([]byte, len(scratch)),
+			Key:       frame.Key,
+			Config:    frame.Config,
+			QueuedAt:  time.Now(),
+			PTSMicros: uint64(frame.PTS.Microseconds()),
+			track:     trackPassthrough,
 		}
 		copy(msg.Data, scratch)
 		if !frame.Config {
