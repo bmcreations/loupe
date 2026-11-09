@@ -236,14 +236,16 @@ func TestGateSendsOnlyOnChange(t *testing.T) {
 	step()
 	waitOps(t, fr, "key", "open", "hold")
 
-	// Its ack clears the backlog: open again.
+	// Its ack clears the backlog: open again. The first ack also makes the
+	// viewer one the rate controller reads, so the encoder moves from its
+	// built-in cap to the controller's start.
 	v.flow.Ack(1, now)
 	step()
-	waitOps(t, fr, "key", "open", "hold", "open")
+	waitOps(t, fr, "key", "open", "hold", "open", "cap")
 
 	s.RemoveViewer(id)
 	step()
-	waitOps(t, fr, "key", "open", "hold", "open", "hold")
+	waitOps(t, fr, "key", "open", "hold", "open", "cap", "hold")
 }
 
 // A relaunched stream's encoder starts held, so the gate sends its state again.

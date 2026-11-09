@@ -293,6 +293,11 @@ func (s *Session) remoteRateTick(now time.Time, r *remoteTrack, rs target.Remote
 		r.rate.Reset()
 	}
 	bps, reason := r.rate.Tick(now, vs, r.bytes.Load())
+	if len(vs) == 0 {
+		// No acking viewer to adapt to: leave the encoder where it is, and
+		// trace what it is actually using.
+		bps = r.sentCap
+	}
 	r.capBps.Store(int64(bps))
 	r.reasonMu.Lock()
 	changed := reason != rateHold && reason != rateIdle

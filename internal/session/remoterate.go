@@ -13,11 +13,12 @@ import (
 // src/video.rs RateCtl). Back off toward the measured delivery rate when acks
 // show queueing; probe upward slowly when the path is clear.
 //
-// Differences from voxl: the start is today's DefaultRemoteCapBps, not
-// 8 Mbps; the bounds are 1.5 and 8 Mbps; "the content uses the cap" is the
-// remote encoder's own output rate rather than the best delivered rate,
-// because the gate holds the encoder while the link is full and a held encoder
-// would otherwise read as an idle screen forever.
+// Differences from voxl: the start is remoteCapStart, not 8 Mbps; the
+// congestion thresholds are wider for cellular jitter (see below); the bounds
+// are 1.5 and 8 Mbps; "the content uses the cap" is the remote encoder's own
+// output rate rather than the best delivered rate, because the gate holds the
+// encoder while the link is full and a held encoder would otherwise read as an
+// idle screen forever.
 type remoteRate struct {
 	cap int
 
@@ -40,6 +41,11 @@ type remoteRate struct {
 const (
 	remoteCapMin = 1_500_000
 	remoteCapMax = 8_000_000
+	// remoteCapStart is where a new remote viewer starts. The 12:09 cellular
+	// run carried 1.3-1.7 Mbps; starting at 4 Mbps queued 270 ms of frames on
+	// every join before the first cut. Slow start reaches the ceiling on a
+	// clean link in about a second.
+	remoteCapStart = 2_500_000
 
 	remoteRateEval      = 100 * time.Millisecond
 	remoteRateCutEvery  = 300 * time.Millisecond
@@ -50,12 +56,17 @@ const (
 	remoteRateWindow    = 500 * time.Millisecond
 
 	// A queue above remoteQueueCongested is congestion; above
-	// remoteQueueClear the path is not clear enough to raise the cap.
-	remoteQueueCongested = 30.0
-	remoteQueueClear     = 15.0
+	// remoteQueueClear the path is not clear enough to raise the cap. The
+	// base is a windowed minimum, so on cellular the queue reads 15-110 ms
+	// from jitter alone (12:09 run, 38-63 fps decoded). voxl's 30 ms pinned
+	// the cap to the floor for the whole run; real congestion there read
+	// 500-2000 ms.
+	remoteQueueCongested = 100.0
+	remoteQueueClear     = 50.0
 	// remoteOldestSlack is how far past the base rtt the oldest unacked frame
-	// may be before it counts as congestion.
-	remoteOldestSlack = 80.0
+	// may be before it counts as congestion. Jitter put it 30-200 ms over a
+	// 60-70 ms base in the 12:09 run; congestion put it 300-600 ms over.
+	remoteOldestSlack = 150.0
 	// remoteDefaultRttMs stands in for an unmeasured base.
 	remoteDefaultRttMs = 40.0
 )
@@ -115,7 +126,7 @@ func newRemoteRate() *remoteRate {
 
 // Reset returns to the start state, for a session with no remote viewers.
 func (r *remoteRate) Reset() {
-	*r = remoteRate{cap: DefaultRemoteCapBps, slowStart: true, ceiling: math.Inf(1)}
+	*r = remoteRate{cap: remoteCapStart, slowStart: true, ceiling: math.Inf(1)}
 }
 
 // Cap is the current cap in bits per second.

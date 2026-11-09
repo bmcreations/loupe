@@ -45,7 +45,7 @@ func TestRemoteRateFollowsCellularCollapse(t *testing.T) {
 	x := newRateRun()
 	good := rateViewer{QueueMs: 5, OldestMs: 100, BaseMs: 120, DeliveredBps: 3_500_000}
 	x.run(2*time.Second, good, 3_800_000)
-	if got := x.r.Cap(); got < DefaultRemoteCapBps {
+	if got := x.r.Cap(); got < remoteCapStart {
 		t.Fatalf("clean link lowered the cap to %d", got)
 	}
 	// Slow start has pushed the cap up; pin it to the traced 4 Mbps.
@@ -93,10 +93,37 @@ func TestRemoteRateCutsTowardDelivery(t *testing.T) {
 // by 15% but does not chase the delivery rate down.
 func TestRemoteRateIgnoresDeliveryOfIdleLink(t *testing.T) {
 	x := newRateRun()
-	x.r.slowStart = false
-	caps, _ := x.run(100*time.Millisecond, rateViewer{QueueMs: 80, OldestMs: 200, BaseMs: 50, DeliveredBps: 100_000}, 100_000)
+	x.r.cap, x.r.slowStart = 4_000_000, false
+	caps, _ := x.run(100*time.Millisecond, rateViewer{QueueMs: 200, OldestMs: 400, BaseMs: 50, DeliveredBps: 100_000}, 100_000)
 	if caps[0] != 3_400_000 {
 		t.Errorf("cap = %d, want 3400000", caps[0])
+	}
+}
+
+// The 12:09 cellular run, handset-ios on the remote track decoding 38-63 fps:
+// per-second queue and oldest readings from jitter alone. None of them is
+// congestion, so the cap must not fall.
+func TestRemoteRateCellularJitterIsNotCongestion(t *testing.T) {
+	x := newRateRun()
+	x.r.cap, x.r.slowStart = 2_500_000, false
+	jitter := []rateViewer{
+		{QueueMs: 15.2, OldestMs: 90.1, BaseMs: 70.7, DeliveredBps: 1_695_000},
+		{QueueMs: 17, OldestMs: 92.5, BaseMs: 70.7, DeliveredBps: 1_314_000},
+		{QueueMs: 31, OldestMs: 75.8, BaseMs: 70.7, DeliveredBps: 1_524_000},
+		{QueueMs: 65.9, OldestMs: 0, BaseMs: 70.7, DeliveredBps: 894_000},
+		{QueueMs: 72, OldestMs: 106.7, BaseMs: 70.7, DeliveredBps: 1_419_000},
+		{QueueMs: 58.4, OldestMs: 60.2, BaseMs: 60.1, DeliveredBps: 1_598_000},
+	}
+	for _, v := range jitter {
+		caps, why := x.run(time.Second, v, 1_500_000)
+		for i, w := range why {
+			if w == rateCongested {
+				t.Fatalf("%+v read as congestion, cap %d", v, caps[i])
+			}
+		}
+	}
+	if got := x.r.Cap(); got < 2_500_000 {
+		t.Errorf("cap fell to %d on jitter", got)
 	}
 }
 
@@ -105,7 +132,7 @@ func TestRemoteRateIdleScreenDoesNotRaise(t *testing.T) {
 	x := newRateRun()
 	clean := rateViewer{QueueMs: 2, OldestMs: 30, BaseMs: 40, DeliveredBps: 50_000}
 	caps, why := x.run(20*time.Second, clean, 50_000)
-	if m := minInt(caps); m != DefaultRemoteCapBps || caps[len(caps)-1] != DefaultRemoteCapBps {
+	if m := minInt(caps); m != remoteCapStart || caps[len(caps)-1] != remoteCapStart {
 		t.Errorf("idle screen moved the cap: %d..%d", m, caps[len(caps)-1])
 	}
 	if why[len(why)-1] != rateIdle {
@@ -148,7 +175,7 @@ func TestRemoteRateCleanLinkRampsUp(t *testing.T) {
 // With no viewer reading acks the controller changes nothing.
 func TestRemoteRateNoViewersIdle(t *testing.T) {
 	r := newRemoteRate()
-	if c, why := r.Tick(time.Unix(1, 0), nil, 0); c != DefaultRemoteCapBps || why != rateIdle {
+	if c, why := r.Tick(time.Unix(1, 0), nil, 0); c != remoteCapStart || why != rateIdle {
 		t.Errorf("got %d %s", c, why)
 	}
 }
@@ -175,16 +202,30 @@ func TestSessionSendsCapOnChangeOnly(t *testing.T) {
 	now := time.Now()
 	step := func() { now = now.Add(100 * time.Millisecond); s.remoteGateTick(now, 100*time.Millisecond) }
 
-	// Steady and quiet: no cap op.
-	for i := 0; i < 5; i++ {
+	caps := func() (n int) {
+		for _, op := range fr.opsNow() {
+			if op == "cap" {
+				n++
+			}
+		}
+		return
+	}
+	// The encoder starts at DefaultRemoteCapBps; the first tick moves it to
+	// the controller's start, once.
+	v.flow.Sent(1, 1000, now)
+	v.flow.Ack(1, now.Add(10*time.Millisecond))
+	step()
+	if n := caps(); n != 1 {
+		t.Fatalf("start cap ops = %d, want 1: %v", n, fr.opsNow())
+	}
+	// Steady and quiet: no further cap op.
+	for i := 1; i < 5; i++ {
 		v.flow.Sent(uint64(i+1), 1000, now)
 		v.flow.Ack(uint64(i+1), now.Add(10*time.Millisecond))
 		step()
 	}
-	for _, op := range fr.opsNow() {
-		if op == "cap" {
-			t.Fatalf("cap sent on a quiet link: %v", fr.opsNow())
-		}
+	if n := caps(); n != 1 {
+		t.Fatalf("cap sent on a quiet link: %v", fr.opsNow())
 	}
 	// A 500 ms ack with a 10 ms base: congested, the cap is cut once.
 	v.flow.Sent(100, 1000, now)
@@ -192,16 +233,10 @@ func TestSessionSendsCapOnChangeOnly(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		step()
 	}
-	n := 0
-	for _, op := range fr.opsNow() {
-		if op == "cap" {
-			n++
-		}
+	if n := caps(); n != 2 {
+		t.Fatalf("cap ops = %d, want 2 (start, cut): %v", n, fr.opsNow())
 	}
-	if n != 1 {
-		t.Fatalf("cap ops = %d, want 1: %v", n, fr.opsNow())
-	}
-	if got := s.remote.capBps.Load(); got >= DefaultRemoteCapBps {
+	if got := s.remote.capBps.Load(); got >= remoteCapStart {
 		t.Errorf("capBps = %d", got)
 	}
 }
