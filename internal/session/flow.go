@@ -12,8 +12,10 @@ import (
 //
 // The estimator and its constants are ported from voxl (github.com/tembo/voxl,
 // MIT, commit 3eda628: src/hub.rs Client::on_ack):
-//   - the base is the smallest send-to-ack time seen, replaced when a lower
-//     sample arrives or when it is 10 s old;
+//   - the base is the smallest send-to-ack time of the last 10 s, kept as one
+//     minimum per second so it ages out a second at a time (voxl replaces it
+//     with the current sample when it is 10 s old, which during a congested
+//     stretch made the base jump from 56 to 243 ms and hid the queueing);
 //   - QueueMs is an EWMA of (sample - base): 0.7 old + 0.3 new;
 //   - the delivered rate is measured over windows of at least 0.5 s and
 //     smoothed 0.6 old + 0.4 new, the first window setting it outright.
@@ -29,14 +31,19 @@ type FlowEst struct {
 	acking     bool
 	lastAck    time.Time
 	baseMs     float64
-	baseAt     time.Time
-	haveBase   bool
+	baseBkts   []flowBucket
 	queueMs    float64
 	rateBps    float64
 	haveRate   bool
 	winStart   time.Time
 	winBytes   int
 	winStarted bool
+}
+
+// flowBucket is the smallest send-to-ack time acked during one wall second.
+type flowBucket struct {
+	sec int64
+	min float64
 }
 
 type flowEntry struct {
@@ -113,11 +120,7 @@ func (f *FlowEst) Ack(pts uint64, at time.Time) {
 	f.lastAck = at
 
 	sample := float64(at.Sub(acked.at)) / float64(time.Millisecond)
-	if !f.haveBase || sample < f.baseMs || at.Sub(f.baseAt) > flowBaseMaxAge {
-		f.baseMs = sample
-		f.baseAt = at
-		f.haveBase = true
-	}
+	f.noteBase(sample, at)
 	f.queueMs = flowQueueKeep*f.queueMs + (1-flowQueueKeep)*(sample-f.baseMs)
 
 	// The window opens on an ack and counts the bytes acked after it, so idle
@@ -141,6 +144,43 @@ func (f *FlowEst) Ack(pts uint64, at time.Time) {
 	}
 }
 
+// noteBase folds sample into the per-second minima and recomputes baseMs as
+// the minimum over the last flowBaseMaxAge. Called with f.mu held.
+func (f *FlowEst) noteBase(sample float64, at time.Time) {
+	sec := at.Unix()
+	if n := len(f.baseBkts); n > 0 && f.baseBkts[n-1].sec == sec {
+		if sample < f.baseBkts[n-1].min {
+			f.baseBkts[n-1].min = sample
+		}
+	} else {
+		f.baseBkts = append(f.baseBkts, flowBucket{sec: sec, min: sample})
+	}
+	f.baseMs = f.windowMin(at)
+}
+
+// windowMin is the smallest bucket minimum within flowBaseMaxAge of now, and
+// drops older buckets. Called with f.mu held.
+func (f *FlowEst) windowMin(now time.Time) float64 {
+	oldest := now.Unix() - int64(flowBaseMaxAge/time.Second) + 1
+	keep := f.baseBkts[:0]
+	for _, b := range f.baseBkts {
+		if b.sec >= oldest {
+			keep = append(keep, b)
+		}
+	}
+	f.baseBkts = keep
+	if len(keep) == 0 {
+		return f.baseMs
+	}
+	m := keep[0].min
+	for _, b := range keep[1:] {
+		if b.min < m {
+			m = b.min
+		}
+	}
+	return m
+}
+
 // Reset forgets what is in flight. The encoder restarts its pts when it is
 // rebuilt (resize, rotate, relaunch), so an ack for the old stream must not
 // match a new entry; the writer calls this whenever it sends a config frame.
@@ -162,7 +202,7 @@ func (f *FlowEst) Snapshot(now time.Time) FlowStats {
 		Acking:       f.acking,
 		Backlog:      len(f.inflight),
 		QueueMs:      f.queueMs,
-		BaseMs:       f.baseMs,
+		BaseMs:       f.windowMin(now),
 		DeliveredBps: f.rateBps,
 	}
 	if len(f.inflight) > 0 {
