@@ -30,14 +30,17 @@ type FlowEst struct {
 
 	acking     bool
 	lastAck    time.Time
-	baseMs     float64
-	baseBkts   []flowBucket
-	queueMs    float64
-	rateBps    float64
-	haveRate   bool
-	winStart   time.Time
-	winBytes   int
-	winStarted bool
+	lastAckPTS uint64
+	// ignoredAcks counts acks for a pts not in flight (see FlowStats).
+	ignoredAcks uint64
+	baseMs      float64
+	baseBkts    []flowBucket
+	queueMs     float64
+	rateBps     float64
+	haveRate    bool
+	winStart    time.Time
+	winBytes    int
+	winStarted  bool
 }
 
 // flowBucket is the smallest send-to-ack time acked during one wall second.
@@ -79,6 +82,13 @@ type FlowStats struct {
 	BaseMs float64
 	// DeliveredBps is the smoothed acked rate, bits per second.
 	DeliveredBps float64
+	// OldestPTS and NewestPTS bound the unacked frames, zero when none are.
+	OldestPTS, NewestPTS uint64
+	// LastAckPTS is the pts the latest ack named, matched or not.
+	LastAckPTS uint64
+	// IgnoredAcks counts acks for a pts not in flight. A client acking a
+	// different number than the frame header carries shows up here.
+	IgnoredAcks uint64
 	// LastAckAgo is the time since the last ack, zero before the first.
 	LastAckAgo time.Duration
 }
@@ -100,6 +110,7 @@ func (f *FlowEst) Sent(pts uint64, bytes int, at time.Time) {
 func (f *FlowEst) Ack(pts uint64, at time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastAckPTS = pts
 	idx := -1
 	for i, e := range f.inflight {
 		if e.pts == pts {
@@ -108,6 +119,7 @@ func (f *FlowEst) Ack(pts uint64, at time.Time) {
 		}
 	}
 	if idx < 0 {
+		f.ignoredAcks++
 		return
 	}
 	acked := f.inflight[idx]
@@ -204,9 +216,13 @@ func (f *FlowEst) Snapshot(now time.Time) FlowStats {
 		QueueMs:      f.queueMs,
 		BaseMs:       f.windowMin(now),
 		DeliveredBps: f.rateBps,
+		LastAckPTS:   f.lastAckPTS,
+		IgnoredAcks:  f.ignoredAcks,
 	}
 	if len(f.inflight) > 0 {
 		s.OldestMs = float64(now.Sub(f.inflight[0].at)) / float64(time.Millisecond)
+		s.OldestPTS = f.inflight[0].pts
+		s.NewestPTS = f.inflight[len(f.inflight)-1].pts
 	}
 	if f.acking {
 		s.LastAckAgo = now.Sub(f.lastAck)

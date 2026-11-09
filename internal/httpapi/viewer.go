@@ -402,6 +402,11 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 		rec["backlog"] = flow.Backlog
 		rec["oldestMs"] = round1(flow.OldestMs)
 		rec["ackBps"] = int64(flow.DeliveredBps)
+		// Which frames are stuck, and whether acks name frames in flight:
+		// a pts that never matches lands in ignoredAcks.
+		rec["inflightPts"] = []uint64{flow.OldestPTS, flow.NewestPTS}
+		rec["lastAckPts"] = flow.LastAckPTS
+		rec["ignoredAcks"] = flow.IgnoredAcks
 		// Which rule is judging this viewer's frames stale right now.
 		rec["staleRule"] = staleRule(flow)
 	}

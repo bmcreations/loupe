@@ -120,7 +120,8 @@ test('counts what it did for the client report', () => {
   r.accept(fr(6, 'key'));
   r.accept(fr(8));
   r.skipGap();
-  assert.deepEqual(r.stats(), { reordered: 3, resets: 1, resyncs: 1, gapSkips: 1, late: 0, maxHeld: 1 });
+  assert.deepEqual(r.stats(), { reordered: 3, resets: 1, resyncs: 1, gapSkips: 1, late: 0, maxHeld: 1,
+    streamsIn: 0, streamsDone: 0, drainMaxMs: 0 });
   assert.equal(r.stats().maxHeld, 0);
 });
 

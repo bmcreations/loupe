@@ -380,7 +380,13 @@ export async function readFrames(streams, onFrame, isClosed = () => false, gapWa
     for (;;) {
       const { value: stream, done } = await streams.read();
       if (done) return;
+      // Streams accepted against streams read to their end tells a frame
+      // stuck in the network from one stuck after it arrived.
+      reorder.streamsIn++;
+      const acceptedAt = performance.now();
       drainFrame(stream).then((f) => {
+        reorder.streamsDone++;
+        reorder.noteDrain(performance.now() - acceptedAt);
         if (!f) return;
         const ready = reorder.accept(f);
         if (ready.length) stopTimer();
@@ -440,7 +446,14 @@ export class FrameReorder {
     this.reordered = 0;
     // Most frames held behind a gap since stats() was last read.
     this.maxHeld = 0;
+    // Frame streams accepted and read to their end (readFrames), and the
+    // longest accept-to-end time since stats() was last read.
+    this.streamsIn = 0;
+    this.streamsDone = 0;
+    this.drainMaxMs = 0;
   }
+
+  noteDrain(ms) { if (ms > this.drainMaxMs) this.drainMaxMs = ms; }
 
   get hasGap() { return this.pending.size > 0; }
 
@@ -481,8 +494,11 @@ export class FrameReorder {
     const out = {
       reordered: this.reordered, resets: this.resetCount, resyncs: this.resyncs,
       gapSkips: this.gapSkips, late: this.late, maxHeld: this.maxHeld,
+      streamsIn: this.streamsIn, streamsDone: this.streamsDone,
+      drainMaxMs: Math.round(this.drainMaxMs),
     };
     this.maxHeld = this.pending.size;
+    this.drainMaxMs = 0;
     return out;
   }
 
