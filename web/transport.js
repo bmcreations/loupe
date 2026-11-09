@@ -284,7 +284,8 @@ async function connectWebTransport({ target, start, onControl, onFrame, onOpen, 
     setTimeout(() => markClosed(), 500);
   };
   readControl(control.readable, onControl).catch(readerFailed);
-  readFrames(uniReader, (f) => { received += f.bytes; onFrame(f); }, () => closed).catch(readerFailed);
+  const reorder = new FrameReorder();
+  readFrames(uniReader, (f) => { received += f.bytes; onFrame(f); }, () => closed, GAP_WAIT_MS, reorder).catch(readerFailed);
 
   onOpen && onOpen();
 
@@ -299,6 +300,9 @@ async function connectWebTransport({ target, start, onControl, onFrame, onOpen, 
       writer.write(framed).catch(() => {});
     },
     get open() { return !closed; },
+    // For the client report: how often frames came out of order and what
+    // the reorder did about it.
+    frameOrder() { return reorder.stats(); },
     close() { try { wt.close(); } catch (_) {} },
   };
 }
@@ -334,8 +338,7 @@ async function readControl(readable, onControl) {
 // them would reintroduce exactly the head-of-line blocking this transport
 // exists to avoid. Draining them in parallel means they finish in any order,
 // so each frame goes through a FrameReorder before the caller sees it.
-export async function readFrames(streams, onFrame, isClosed = () => false, gapWaitMs = GAP_WAIT_MS) {
-  const reorder = new FrameReorder();
+export async function readFrames(streams, onFrame, isClosed = () => false, gapWaitMs = GAP_WAIT_MS, reorder = new FrameReorder()) {
   let gapTimer = null;
   const stopTimer = () => {
     if (gapTimer !== null) clearTimeout(gapTimer);
@@ -415,6 +418,14 @@ export class FrameReorder {
     this.late = 0;
     // Gaps skipped at a keyframe after a reset.
     this.resyncs = 0;
+    // Gaps given up on without a keyframe: the decoder ran past a missing
+    // reference, so these can streak.
+    this.gapSkips = 0;
+    // Resets seen, and frames that arrived ahead of their turn.
+    this.resetCount = 0;
+    this.reordered = 0;
+    // Most frames held behind a gap since stats() was last read.
+    this.maxHeld = 0;
   }
 
   get hasGap() { return this.pending.size > 0; }
@@ -432,20 +443,33 @@ export class FrameReorder {
       this.resets = 0;
       this.resyncs++;
     }
+    if (id > this.next) this.reordered++;
     this.pending.set(id, f);
     const out = this.drain();
+    if (this.pending.size > this.maxHeld) this.maxHeld = this.pending.size;
     if (this.pending.size > this.maxPending) out.push(...this.skipGap());
     return out;
   }
 
   /** A stream the server reset: one frame number that will not arrive. */
-  reset() { this.resets++; }
+  reset() { this.resets++; this.resetCount++; }
 
   /** Gives up on the frames before the oldest one held. */
   skipGap() {
     if (!this.pending.size) return [];
+    this.gapSkips++;
     this.next = Math.min(...this.pending.keys());
     return this.drain();
+  }
+
+  /** Counters for the client report. maxHeld restarts at each read. */
+  stats() {
+    const out = {
+      reordered: this.reordered, resets: this.resetCount, resyncs: this.resyncs,
+      gapSkips: this.gapSkips, late: this.late, maxHeld: this.maxHeld,
+    };
+    this.maxHeld = this.pending.size;
+    return out;
   }
 
   drain() {

@@ -110,6 +110,20 @@ test('without a reset, a keyframe waits behind the gap', () => {
   assert.deepEqual(ids(r.accept(fr(2))), [2, 3]);
 });
 
+test('counts what it did for the client report', () => {
+  const r = new FrameReorder();
+  r.accept(fr(1, 'key'));
+  r.accept(fr(3));
+  r.accept(fr(2));
+  r.reset();
+  r.accept(fr(5));
+  r.accept(fr(6, 'key'));
+  r.accept(fr(8));
+  r.skipGap();
+  assert.deepEqual(r.stats(), { reordered: 3, resets: 1, resyncs: 1, gapSkips: 1, late: 0, maxHeld: 1 });
+  assert.equal(r.stats().maxHeld, 0);
+});
+
 test('gives up on a gap once too much is held behind it', () => {
   const r = new FrameReorder({ maxPending: 3 });
   r.accept(fr(1, 'key'));
