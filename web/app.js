@@ -1355,6 +1355,8 @@ function paintConnection() {
     dropped: st.dropped,
     decodeErrors: st.decodeErrors,
     shed: st.shedRate,
+    queueMs: st.queueMs,
+    backlog: st.backlog,
     queue: st.queue === null ? 0 : st.queue,
   });
   for (const key of ['link', 'video', 'problems']) {

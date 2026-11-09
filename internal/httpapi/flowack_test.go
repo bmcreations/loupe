@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"sync"
 	"testing"
@@ -186,5 +187,59 @@ func TestDispatchFrameAckIgnoresShortBody(t *testing.T) {
 	}
 	if err := s.dispatch(nil, sess, 9999, frameAckPayload(1)); err != nil {
 		t.Fatalf("ack for a gone viewer returned %v, want nil", err)
+	}
+}
+
+func traceTick(t *testing.T, flow session.FlowStats, local bool) (map[string]any, map[string]any) {
+	t.Helper()
+	attach := time.Now()
+	tr := newHealthTracker(attach, func() time.Time { return attach.Add(time.Second) })
+	sess := fakeStatsSource{media: 60, frameCount: 60}
+	body, rec, err := runStatsTick("t", sess, tr, session.NewPacer(), fakeConn{name: "ws"}, "client", flow, local)
+	if err != nil {
+		t.Fatalf("runStatsTick: %v", err)
+	}
+	var msg map[string]any
+	if err := json.Unmarshal(body, &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	return rec, msg
+}
+
+var flowTraceKeys = []string{"acking", "queueMs", "baseMs", "backlog", "oldestMs", "ackBps"}
+
+func TestTraceRecordCarriesFlowNumbersForAckingViewer(t *testing.T) {
+	flow := session.FlowStats{Acking: true, Backlog: 4, OldestMs: 91.26, QueueMs: 37.04, BaseMs: 52.5, DeliveredBps: 1_234_567.8}
+	rec, msg := traceTick(t, flow, true)
+	for _, k := range flowTraceKeys {
+		if _, ok := rec[k]; !ok {
+			t.Errorf("trace record has no %q", k)
+		}
+	}
+	if rec["acking"] != true || rec["backlog"] != 4 || rec["queueMs"] != 37.0 || rec["baseMs"] != 52.5 || rec["oldestMs"] != 91.3 || rec["ackBps"] != int64(1_234_567) {
+		t.Errorf("unexpected flow fields: %v", rec)
+	}
+	if rec["local"] != true {
+		t.Errorf("local = %v, want true", rec["local"])
+	}
+	if msg["queueMs"] != 37.0 || msg["backlog"] != 4.0 {
+		t.Errorf("MsgStats queueMs %v backlog %v, want 37 and 4", msg["queueMs"], msg["backlog"])
+	}
+}
+
+func TestTraceRecordOmitsFlowNumbersForViewerThatNeverAcks(t *testing.T) {
+	rec, msg := traceTick(t, session.FlowStats{Backlog: 9, OldestMs: 500}, false)
+	for _, k := range flowTraceKeys {
+		if _, ok := rec[k]; ok {
+			t.Errorf("trace record has %q for a viewer that never acked", k)
+		}
+	}
+	for _, k := range []string{"queueMs", "backlog"} {
+		if _, ok := msg[k]; ok {
+			t.Errorf("MsgStats has %q for a viewer that never acked", k)
+		}
+	}
+	if v, ok := rec["local"]; !ok || v != false {
+		t.Errorf("local = %v (present %v), want false", v, ok)
 	}
 }

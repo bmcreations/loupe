@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -228,6 +229,16 @@ func statsMsgBody(tick healthTick, verdict, healthReason string, shed uint64, ba
 	return msg
 }
 
+// flowStats reads a viewer's estimator, or the zero reading when it has none.
+func flowStats(f *session.FlowEst) session.FlowStats {
+	if f == nil {
+		return session.FlowStats{}
+	}
+	return f.Snapshot(time.Now())
+}
+
+func round1(v float64) float64 { return math.Round(v*10) / 10 }
+
 // keyframeRequestInterval bounds how often a viewer may ask the device for a
 // fresh keyframe. Each request costs a full intra-coded frame, and under
 // sustained shedding the request path runs once per frame, so unbounded it
@@ -264,7 +275,7 @@ func (p passthroughStats) MediaCount() uint64 { return p.PassthroughMediaCount()
 // record dropping "health" (M22) -- each have a call site a test can drive
 // directly instead. serveViewer's stats case is now just this call plus the
 // two writes (trace, wire).
-func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker, pacer *session.Pacer, conn Conn, rttSource string) (body []byte, rec map[string]any, err error) {
+func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker, pacer *session.Pacer, conn Conn, rttSource string, flow session.FlowStats, local bool) (body []byte, rec map[string]any, err error) {
 	baseMs := float64(pacer.Base().Microseconds()) / 1000
 
 	tick := healthTrack.Sample(sess, baseMs)
@@ -277,7 +288,14 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 	shed := sess.ShedCount()
 	produced := sess.FrameCount()
 
-	body, err = json.Marshal(statsMsgBody(tick, verdict, healthReason, shed, baseMs, pacer.Keep(), conn.Name()))
+	msg := statsMsgBody(tick, verdict, healthReason, shed, baseMs, pacer.Keep(), conn.Name())
+	if flow.Acking {
+		// For the client's connection readout. A viewer that never acks gets
+		// the body it always did.
+		msg["queueMs"] = round1(flow.QueueMs)
+		msg["backlog"] = flow.Backlog
+	}
+	body, err = json.Marshal(msg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -310,6 +328,20 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 		"viewers":      sess.ViewerCount(),
 		"health":       verdict,
 		"healthReason": healthReason,
+		// Recorded only: whether the viewer connected from loopback.
+		"local": local,
+	}
+	// The frame-ack numbers exist only for a viewer that acks. Against
+	// awaitFrac-style shedding they say whether the link was queueing:
+	// queueMs is send-to-ack time above baseMs, backlog the frames in flight,
+	// oldestMs the age of the oldest, ackBps the acked rate.
+	if flow.Acking {
+		rec["acking"] = true
+		rec["queueMs"] = round1(flow.QueueMs)
+		rec["baseMs"] = round1(flow.BaseMs)
+		rec["backlog"] = flow.Backlog
+		rec["oldestMs"] = round1(flow.OldestMs)
+		rec["ackBps"] = int64(flow.DeliveredBps)
 	}
 	if cs := sess.ClientStats(); cs != nil {
 		rec["client"] = cs
@@ -427,7 +459,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		pacer := session.NewPacer()
 		// flow measures this viewer's queueing from its frame acks. Measurement
 		// only: nothing below reads it to decide what to send.
-		flow, _ := sess.ViewerFlow(viewerID)
+		flow, local := sess.ViewerFlow(viewerID)
 
 		// rttSource records which signal the last pacer sample came from, so a
 		// trace row says whether the controller was steering on transport
@@ -577,7 +609,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				}
 
 			case <-stats.C:
-				body, rec, err := runStatsTick(targetID, counters, healthTrack, pacer, conn, rttSource)
+				body, rec, err := runStatsTick(targetID, counters, healthTrack, pacer, conn, rttSource, flowStats(flow), local)
 				if err != nil {
 					continue
 				}

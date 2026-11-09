@@ -18,6 +18,21 @@ const healthy = {
   dropped: 0, decodeErrors: 0, shed: 0, queue: 0,
 };
 
+test('the server queue row appears only once the server has measured it', () => {
+  assert.equal(row(connectionRows(healthy).link, 'queueing'), undefined);
+  assert.equal(row(connectionRows({ ...healthy, queueMs: NaN, backlog: NaN }).link, 'queueing'), undefined);
+  const q = row(connectionRows({ ...healthy, queueMs: 12.4, backlog: 2 }).link, 'queueing');
+  assert.equal(q.value, '12 ms · 2 queued');
+  assert.equal(q.grade, '');
+});
+
+test('queueing delay is graded at 30 and 80 ms', () => {
+  const grade = (queueMs) => row(connectionRows({ ...healthy, queueMs, backlog: 0 }).link, 'queueing').grade;
+  assert.equal(grade(29), '');
+  assert.equal(grade(30), 'warn');
+  assert.equal(grade(80), 'bad');
+});
+
 test('a healthy session colours nothing and lists no problems', () => {
   const { link, video, problems } = connectionRows(healthy);
   for (const r of [...link, ...video]) assert.equal(r.grade, '', `${r.id} graded ${r.grade}`);

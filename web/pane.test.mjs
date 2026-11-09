@@ -237,6 +237,18 @@ await test('a frame still queued when the pane switches target is never acked', 
   assert.deepEqual(call.conn.acks, []);
 });
 
+await test("stats() carries the server's queue numbers only once they arrive", async () => {
+  const h = harness();
+  const pane = h.make('p1', 'emulator-5554');
+  const call = await live(h, pane);
+  assert.ok(Number.isNaN(pane.stats().queueMs));
+  call.opts.onControl(control(0x03, { shedRate: 0, health: 'good' }));
+  assert.ok(Number.isNaN(pane.stats().queueMs), 'a viewer that has not acked gets neither');
+  call.opts.onControl(control(0x03, { shedRate: 0, health: 'good', queueMs: 41.5, backlog: 3 }));
+  assert.equal(pane.stats().queueMs, 41.5);
+  assert.equal(pane.stats().backlog, 3);
+});
+
 await test('connect opens one transport for its target', async () => {
   const h = harness();
   const pane = h.make('p1', 'emulator-5554');

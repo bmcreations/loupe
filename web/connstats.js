@@ -26,6 +26,9 @@
 //   decodeErrors since the session opened
 //   shed         frames the server shed in the last second
 //   queue        decoder queue depth, listed from 2
+//   queueMs      the server's queueing delay for this viewer, from its frame
+//                acks; absent until the viewer has acked
+//   backlog      frames the server sent that are not yet acked
 
 const DASH = '--';
 
@@ -77,6 +80,17 @@ export function connectionRows(s = {}) {
     { id: 'jitter', label: 'Jitter', value: ms(s.jitter, 1), grade: graded(s.jitter, 4, 10) },
     { id: 'rate', label: 'Rate', value: rate(s.kbps), grade: '' },
   ];
+  // Only once the server has measured it. 30 ms over the base is where voxl
+  // calls a link congested, so it reads amber there; 80 is the stutter the
+  // phone traces showed.
+  if (Number.isFinite(s.queueMs)) {
+    const queued = Number.isFinite(s.backlog) ? ` · ${s.backlog} queued` : '';
+    link.push({
+      id: 'queueing', label: 'Server queue',
+      value: `${s.queueMs.toFixed(0)} ms${queued}`,
+      grade: graded(s.queueMs, 30, 80),
+    });
+  }
 
   const video = [
     { id: 'device', label: 'Device', value: s.targetId || DASH, grade: '' },
