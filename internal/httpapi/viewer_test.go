@@ -629,3 +629,16 @@ func TestViewerStopRecordsTheInnermostType(t *testing.T) {
 		t.Errorf("errType %v innerType %v", rec["errType"], rec["innerType"])
 	}
 }
+
+// A remote-track delta gets the keyframe deadline: on the 11:20 cellular run
+// the 285 ms delta deadline abandoned about one frame a second, and each
+// abandon held 10-60 frames for a keyframe. A main-track delta keeps its own.
+func TestTrackDeadlineForRemoteDelta(t *testing.T) {
+	base := 60 * time.Millisecond
+	if got, want := trackDeadlineFor(true, false, false, base), keyframeDeadlineFor(base); got != want {
+		t.Fatalf("remote delta deadline = %v, want keyframe deadline %v", got, want)
+	}
+	if got, want := trackDeadlineFor(false, false, false, base), frameDeadlineFor(base); got != want {
+		t.Fatalf("main delta deadline = %v, want %v", got, want)
+	}
+}

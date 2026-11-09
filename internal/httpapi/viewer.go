@@ -106,7 +106,17 @@ func keyframeDeadlineFor(base time.Duration) time.Duration {
 // deadlineFor returns the write deadline for one frame. Keyframes and parameter
 // sets get their own, because they are the frames nothing else can replace.
 func deadlineFor(key, config bool, base time.Duration) time.Duration {
-	if key || config {
+	return trackDeadlineFor(false, key, config, base)
+}
+
+// trackDeadlineFor is deadlineFor for a viewer on a given track. A remote-track
+// viewer gets the keyframe deadline for every frame: the remote gate already
+// holds the encoder while its frames are in flight too long, so a delta that
+// waits behind a keyframe is not stale, and abandoning it would cost a whole
+// keyframe wait (the 11:20 trace: 1-2 abandons/s at the 285 ms delta deadline,
+// each followed by 10-60 held frames). Only a real stall reaches this one.
+func trackDeadlineFor(remote, key, config bool, base time.Duration) time.Duration {
+	if remote || key || config {
 		return keyframeDeadlineFor(base)
 	}
 	return frameDeadlineFor(base)
@@ -640,7 +650,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				}
 
 				sess.NoteOffered(viewerID, len(msg.Data))
-				err := conn.SendFrame(msg, msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, pacer.Base())))
+				err := conn.SendFrame(msg, msg.QueuedAt.Add(trackDeadlineFor(remote, msg.Key, msg.Config, pacer.Base())))
 				delivered, fatal := frameDelivered(err)
 				if fatal {
 					stopErr = err
