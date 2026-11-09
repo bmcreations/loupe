@@ -50,6 +50,11 @@ PLANS = {
     # A clean fast link, to check a build does not regress where it should
     # be easy.
     "clean": "0s rate=8m delay=20ms jitter=5ms queue=500ms",
+    # Baselines with no shaper. direct: the remote track over the tailnet
+    # address, so anything left is loupe, simcap or the probe. local: loopback,
+    # the main track the Mac's own Handset gets.
+    "direct": None,
+    "local": None,
 }
 
 TOKEN = "stream-bench-token"
@@ -117,6 +122,49 @@ def trace_summary(path, target, t0):
     }
 
 
+def load():
+    """1-minute load average and the busiest process, so a run taken while
+    something else hogged the Mac can be set aside."""
+    la = subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True).stdout.split()
+    top = subprocess.run(["ps", "-axo", "pcpu=,comm="], capture_output=True, text=True).stdout.splitlines()
+    top = sorted(top, key=lambda l: -float(l.split()[0]) if l.split() else 0)[:1]
+    return {"load1": float(la[1]) if len(la) > 1 else 0, "top": top[0].strip()[-60:] if top else ""}
+
+
+def frame_summary(path):
+    """Stalls the viewer saw, from the per-frame log. An arrival gap over
+    200 ms only counts when the frames either side were captured less than
+    100 ms further apart than they arrived: otherwise the screen was still and
+    simcap had nothing to send. Delay is arrival minus capture time, less the
+    run's smallest, so it is the time a frame waited beyond the quickest one;
+    "settled" leaves out the first 15 s, where joining dominates."""
+    try:
+        fr = [json.loads(l) for l in open(path)]
+    except OSError:
+        return {}
+    # loupe sends a 28-byte packet stamped pts 0 now and then; it is not a
+    # frame, and counted as one it reads as a delay as long as the run.
+    fr = [f for f in fr if not (f["pts"] == 0 and f["bytes"] < 64)]
+    if len(fr) < 2:
+        return {}
+    stalls, stall_ms = 0, 0.0
+    for a, b in zip(fr, fr[1:]):
+        ga, gp = b["arrMs"] - a["arrMs"], (b["pts"] - a["pts"]) / 1000
+        # gp < 0: two frames arrived out of order, not a stall.
+        if ga > 200 and 0 <= gp <= ga - 100:
+            stalls += 1
+            stall_ms += ga
+    base = min(f["arrMs"] - f["pts"] / 1000 for f in fr)
+
+    def pct(xs, q):
+        xs = sorted(xs)
+        return round(xs[min(len(xs) - 1, int(len(xs) * q))]) if xs else 0
+    d = [f["arrMs"] - f["pts"] / 1000 - base for f in fr]
+    ds = [f["arrMs"] - f["pts"] / 1000 - base for f in fr if f["arrMs"] >= 15000]
+    return {"stalls": stalls, "stallMs": round(stall_ms), "delayP50": pct(d, .5), "delayP95": pct(d, .95),
+            "settledP50": pct(ds, .5), "settledP95": pct(ds, .95), "settledMax": pct(ds, 1)}
+
+
 def run_one(args, name, build, plan, transport, out):
     os.makedirs(out, exist_ok=True)
     port, sport = args.port, args.port + 1
@@ -135,8 +183,9 @@ def run_one(args, name, build, plan, transport, out):
     subprocess.run(["xcrun", "simctl", "openurl", args.sim, page], check=True, capture_output=True)
     time.sleep(4)
 
+    host = "127.0.0.1" if plan == "local" else args.ip
     loupe = spawn([
-        build, "-addr", f"{args.ip}:{port}",
+        build, "-addr", f"{host}:{port}",
         "-tls-cert", args.cert, "-tls-key", args.key,
         "-token", TOKEN, "-config", os.path.join(out, "config.json"),
         "-no-devices", "-no-ios-devices", "-shared-clipboard=false",
@@ -144,12 +193,15 @@ def run_one(args, name, build, plan, transport, out):
     ], "loupe.log")
     shaper = None
     try:
-        if not wait_ready(f"https://{args.ip}:{port}/healthz"):
+        if not wait_ready(f"https://{host}:{port}/healthz"):
             raise RuntimeError("bench loupe did not come up; see loupe.log")
-        shaper = spawn([args.shaper, "-listen", f"{args.ip}:{sport}", "-to", f"{args.ip}:{port}",
-                        "-plan", PLANS[plan], "-seed", "1"], "shaper.log")
-        time.sleep(0.5)
-        url = f"https://{args.ip}:{sport}/wt?target={target}&token={TOKEN}&start=1"
+        dial = f"{host}:{port}"
+        if PLANS[plan] is not None:
+            shaper = spawn([args.shaper, "-listen", f"{args.ip}:{sport}", "-to", f"{args.ip}:{port}",
+                            "-plan", PLANS[plan], "-seed", "1"], "shaper.log")
+            time.sleep(0.5)
+            dial = f"{args.ip}:{sport}"
+        url = f"https://{dial}/wt?target={target}&token={TOKEN}&start=1"
         probe = [args.probe, "-for", f"{args.seconds}s", "-acks", "-ack-hold", str(args.ack_hold),
                  "-scroll", args.scroll, "-scroll-every", args.scroll_every, "-tapafter", "2s",
                  "-summary", os.path.join(out, "probe.json"), "-jsonl", os.path.join(out, "frames.jsonl"), url]
@@ -157,6 +209,7 @@ def run_one(args, name, build, plan, transport, out):
             probe.insert(1, "-quic")
         shot(args.sim, os.path.join(out, "before.png"))
         t0 = time.time()
+        load_start = load()
         with open(os.path.join(out, "probe.log"), "w") as f:
             subprocess.run(probe, stdout=f, stderr=subprocess.STDOUT, timeout=args.seconds + 60)
     finally:
@@ -170,29 +223,33 @@ def run_one(args, name, build, plan, transport, out):
         for f in logs:
             f.close()
     shot(args.sim, os.path.join(out, "after.png"))
-    res = {"build": name, "plan": plan, "transport": transport}
+    res = {"build": name, "plan": plan, "transport": transport, "load": [load_start, load()]}
     try:
         with open(os.path.join(out, "probe.json")) as f:
             res["probe"] = json.load(f)
     except (OSError, ValueError):
         res["probe"] = None
     res["server"] = trace_summary(trace, target, t0)
+    res["frames"] = frame_summary(os.path.join(out, "frames.jsonl"))
     with open(os.path.join(out, "result.json"), "w") as f:
         json.dump(res, f, indent=1)
     return res
 
 
 def row(r):
-    p, s = r["probe"] or {}, r["server"]
+    p, s, fs = r["probe"] or {}, r["server"], r.get("frames") or {}
     return (f"{r['build']:<10} {r['plan']:<7} {r['transport']:<5}"
             f" fps {p.get('fpsP50', 0):>3.0f}/{p.get('fpsP10', 0):>3.0f}"
-            f"  stalls {p.get('stalls200', 0):>3} ({p.get('stallMs', 0) / 1000:>4.1f}s)"
-            f"  delay {p.get('delayP50', 0):>4.0f}/{p.get('delayP95', 0):>5.0f}/{p.get('delayMax', 0):>5.0f}"
+            f"  stalls {fs.get('stalls', 0):>3} ({fs.get('stallMs', 0) / 1000:>4.1f}s)"
+            f"  delay {fs.get('delayP50', 0):>4}/{fs.get('delayP95', 0):>5}"
+            f"  settled {fs.get('settledP50', 0):>4}/{fs.get('settledP95', 0):>5}/{fs.get('settledMax', 0):>5}"
             f"  late {100 * p.get('late200Share', 0):>3.0f}%"
             f"  kbps {p.get('kbps', 0):>5.0f}"
             f"  cap {s.get('capP50kbps', 0):>5.0f} (min {s.get('capMinKbps', 0):>4.0f})"
             f"  held {s.get('heldMs', 0) / 1000:>4.1f}s unstuck {s.get('unstuck', 0)}"
-            f"  src {s.get('srcFpsP50', 0):>3}fps{'  INVALID' if s.get('srcFpsP50', 0) < 30 else ''}")
+            f"  src {s.get('srcFpsP50', 0):>3}fps"
+            f"  load {max(l.get('load1', 0) for l in r.get('load') or [{}]):>4.1f}"
+            f"{'  INVALID' if r['plan'] != 'local' and s.get('srcFpsP50', 0) < 30 else ''}")
 
 
 def main():
