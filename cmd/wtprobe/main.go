@@ -59,6 +59,12 @@ func main() {
 	scrollAt := flag.String("scroll", "", "x,y,units: send a trackpad-shaped vertical scroll after the first frame")
 	dumpTo := flag.String("dump", "", "write one line per frame to this file: arrival ms since the first frame, pts us, flags")
 	useQUIC := flag.Bool("quic", false, "use the raw-QUIC transport a native client uses (ALPN loupe/1) instead of WebTransport; the URL's host and query are read the same way")
+	flag.BoolVar(&bench.acks, "acks", false, "ack each frame (MsgFrameAck) as a remote viewer does; off loopback this puts the probe on the remote track")
+	flag.DurationVar(&bench.ackDelay, "ack-delay", 4*time.Millisecond, "with -acks: time from arrival to ack, standing in for decode and present")
+	flag.IntVar(&bench.ackHold, "ack-hold", 0, "with -acks: ack each frame only once this many later frames have arrived, as a decoder holding frames for reorder does")
+	flag.StringVar(&bench.jsonl, "jsonl", "", "write one JSON object per frame to this file")
+	flag.StringVar(&bench.summary, "summary", "", "write the scored run as JSON to this file (it is also printed as a SUMMARY line)")
+	scrollEvery := flag.Duration("scroll-every", 0, "with -scroll: repeat the scroll this often, alternating direction, until -for ends")
 	connectBudget := flag.Duration("connect", 20*time.Second, "how long CONNECT may take; the server answers before it opens the target, so a boot no longer counts here")
 	flag.Parse()
 	if flag.NArg() != 1 {
@@ -97,7 +103,17 @@ func main() {
 			fmt.Fprintln(os.Stderr, "-scroll wants x,y,units")
 			os.Exit(2)
 		}
-		input = func(w io.Writer) { sendScroll(w, int32(x), int32(y), units, *tapAfter) }
+		input = func(w io.Writer) {
+			sendScroll(w, int32(x), int32(y), units, *tapAfter)
+			if *scrollEvery <= 0 {
+				return
+			}
+			end := time.Now().Add(*dur)
+			for sign := -1.0; time.Now().Add(*scrollEvery).Before(end); sign = -sign {
+				time.Sleep(*scrollEvery)
+				sendScroll(w, int32(x), int32(y), units*sign, 0)
+			}
+		}
 	}
 
 	probe := run
@@ -141,6 +157,12 @@ func run(rawURL string, dur, connectBudget time.Duration, insecure bool, input f
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("parse url: %w", err)
+	}
+	if bench.acks {
+		q := u.Query()
+		q.Set("acks", "1")
+		u.RawQuery = q.Encode()
+		rawURL = u.String()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), dur+connectBudget)
@@ -200,33 +222,65 @@ func run(rawURL string, dur, connectBudget time.Duration, insecure bool, input f
 		return fmt.Errorf("send hello: %w", err)
 	}
 
+	ctl := &lockedWriter{w: control}
+	// Drained so the server's writes on it never fill the window.
+	go func() { _, _ = io.Copy(io.Discard, control) }()
 	deadline := time.Now().Add(dur)
 	col, err := newCollector(start, dumpTo, func() {
 		if input != nil {
-			go input(control)
+			go input(ctl)
 		}
 	})
 	if err != nil {
 		return err
 	}
 	defer col.close()
+	if bench.acks {
+		col.acker = newAcker(ctl, bench.ackHold, bench.ackDelay)
+	}
 	// The server accepts the session before it opens the target, so a target
 	// it cannot open ends the session rather than refusing CONNECT, and the
 	// reason is in the close.
+	//
+	// Streams are read concurrently, as a browser's are: reading them one
+	// at a time would make one slow stream hold every later frame, which
+	// is a stall the probe would invent.
 	var ended error
-	for {
-		sctx, scancel := context.WithDeadline(context.Background(), deadline)
-		st, err := sess.AcceptUniStream(sctx)
-		scancel()
-		if err != nil {
-			ended = err
-			break
+	frames := make(chan []byte, 64)
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			sctx, scancel := context.WithDeadline(context.Background(), deadline)
+			st, err := sess.AcceptUniStream(sctx)
+			scancel()
+			if err != nil {
+				ended = err
+				return
+			}
+			go func() {
+				b, err := io.ReadAll(st)
+				if err != nil || len(b) < wtFrameHeaderLen || time.Now().After(deadline) {
+					return
+				}
+				select {
+				case frames <- b:
+				case <-time.After(time.Until(deadline)):
+				}
+			}()
 		}
-		b, err := io.ReadAll(st)
-		if err != nil || len(b) < wtFrameHeaderLen {
-			continue
+	}()
+	// The channel is never closed: a reader can finish after the deadline.
+	stop := time.NewTimer(time.Until(deadline))
+	for loop := true; loop; {
+		select {
+		case b := <-frames:
+			col.add(b)
+		case <-acceptDone:
+			loop = false
+		case <-stop.C:
+			loop = false
 		}
-		col.add(b)
 	}
 	_ = sess.CloseWithError(0, "probe done")
 

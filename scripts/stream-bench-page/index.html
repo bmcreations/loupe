@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>stream bench</title>
+<!-- The content stream-bench scrolls: a long feed of text rows and
+     generated "photos", the same pixels every run (seeded), so encoder load
+     is comparable between builds. -->
+<style>
+  body { margin: 0; font: 16px -apple-system, sans-serif; background: #f4f4f6; }
+  .row { display: flex; gap: 12px; padding: 12px 16px; background: #fff; border-bottom: 1px solid #ddd; }
+  .av { width: 44px; height: 44px; border-radius: 22px; flex: none; }
+  .t b { display: block; } .t span { color: #666; font-size: 14px; }
+  canvas { display: block; width: 100%; height: 240px; }
+</style>
+<body>
+<script>
+let seed = 7;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const words = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango".split(" ");
+const line = n => Array.from({length: n}, () => words[Math.floor(rnd() * words.length)]).join(" ");
+for (let i = 0; i < 400; i++) {
+  if (i % 5 === 4) {
+    const c = document.createElement("canvas");
+    c.width = 400; c.height = 240;
+    const g = c.getContext("2d");
+    const h = Math.floor(rnd() * 360);
+    const grad = g.createLinearGradient(0, 0, 400, 240);
+    grad.addColorStop(0, `hsl(${h},60%,55%)`); grad.addColorStop(1, `hsl(${(h + 90) % 360},60%,35%)`);
+    g.fillStyle = grad; g.fillRect(0, 0, 400, 240);
+    for (let k = 0; k < 60; k++) {
+      g.fillStyle = `hsla(${Math.floor(rnd() * 360)},70%,${30 + rnd() * 50}%,0.6)`;
+      g.beginPath(); g.arc(rnd() * 400, rnd() * 240, 6 + rnd() * 40, 0, 7); g.fill();
+    }
+    document.body.appendChild(c);
+    continue;
+  }
+  const r = document.createElement("div");
+  r.className = "row";
+  r.innerHTML = `<div class="av" style="background:hsl(${Math.floor(rnd() * 360)},55%,60%)"></div>
+    <div class="t"><b>${line(3)}</b><span>${line(9)}</span></div>`;
+  document.body.appendChild(r);
+}
+</script>
