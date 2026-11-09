@@ -36,6 +36,9 @@ import ssl
 PLANS = {
     # The 14:10:30-14:11:06 browser link: about 2 Mbps, rtt 105-230 ms.
     "steady": "0s rate=2m delay=60ms jitter=30ms queue=1500ms",
+    # The same link with headroom over the 2 Mbps floor: separates stalls the
+    # link causes from stalls a cap at the link's own rate causes.
+    "steady3": "0s rate=3m delay=60ms jitter=30ms queue=1500ms",
     # 14:10:08-29: the link fell to about 0.5 Mbps for 20 s, then recovered.
     "dip": "0s rate=2m delay=60ms jitter=30ms queue=1500ms; "
            "20s rate=500k delay=60ms jitter=30ms queue=1500ms; "
@@ -67,6 +70,10 @@ def wait_ready(url, budget=30):
     return False
 
 
+def shot(sim, path):
+    subprocess.run(["xcrun", "simctl", "io", sim, "screenshot", path], capture_output=True)
+
+
 def pct(v, f):
     if not v:
         return None
@@ -75,7 +82,7 @@ def pct(v, f):
 
 
 def trace_summary(path, target, t0):
-    caps, held, reasons = [], 0, {}
+    caps, held, reasons, src = [], 0, {}, []
     unstuck = keys = 0
     if not os.path.exists(path):
         return {}
@@ -90,6 +97,7 @@ def trace_summary(path, target, t0):
             if not r.get("viewers"):
                 continue
             caps.append(r.get("remoteCapBps", 0))
+            src.append(r.get("remoteFrames", 0))
             held += r.get("remoteHeldMs", 0)
             unstuck = max(unstuck, r.get("remoteUnstuck", 0))
             keys = max(keys, r.get("remoteKeys", 0))
@@ -102,6 +110,10 @@ def trace_summary(path, target, t0):
         "unstuck": unstuck,
         "keys": keys,
         "reasons": reasons,
+        # What the encoder produced. A run whose scroll did not move the
+        # page shows a low source rate, and its delivery numbers mean
+        # nothing about the build.
+        "srcFpsP50": pct(src, .5) or 0,
     }
 
 
@@ -143,6 +155,7 @@ def run_one(args, name, build, plan, transport, out):
                  "-summary", os.path.join(out, "probe.json"), "-jsonl", os.path.join(out, "frames.jsonl"), url]
         if transport == "quic":
             probe.insert(1, "-quic")
+        shot(args.sim, os.path.join(out, "before.png"))
         t0 = time.time()
         with open(os.path.join(out, "probe.log"), "w") as f:
             subprocess.run(probe, stdout=f, stderr=subprocess.STDOUT, timeout=args.seconds + 60)
@@ -156,6 +169,7 @@ def run_one(args, name, build, plan, transport, out):
                     os.killpg(p.pid, signal.SIGKILL)
         for f in logs:
             f.close()
+    shot(args.sim, os.path.join(out, "after.png"))
     res = {"build": name, "plan": plan, "transport": transport}
     try:
         with open(os.path.join(out, "probe.json")) as f:
@@ -177,7 +191,8 @@ def row(r):
             f"  late {100 * p.get('late200Share', 0):>3.0f}%"
             f"  kbps {p.get('kbps', 0):>5.0f}"
             f"  cap {s.get('capP50kbps', 0):>5.0f} (min {s.get('capMinKbps', 0):>4.0f})"
-            f"  held {s.get('heldMs', 0) / 1000:>4.1f}s unstuck {s.get('unstuck', 0)}")
+            f"  held {s.get('heldMs', 0) / 1000:>4.1f}s unstuck {s.get('unstuck', 0)}"
+            f"  src {s.get('srcFpsP50', 0):>3}fps{'  INVALID' if s.get('srcFpsP50', 0) < 30 else ''}")
 
 
 def main():
@@ -230,6 +245,7 @@ def run_all(args, plans, transports, stamp):
     if not results:
         return
     print("\nfps p50/p10 | stalls >200 ms | delay over best p50/p95/max ms | late = frames >200 ms over best")
+    print("src = encoder frames/s p50; under 30 means the scroll did not drive the page, so the run is INVALID")
     print("cap = server remote cap p50 | held = encoder gate held | unstuck = stuck-viewer resyncs")
     for r in results:
         print(row(r))
