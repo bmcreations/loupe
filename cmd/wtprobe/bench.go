@@ -122,24 +122,24 @@ type frameRec struct {
 // in the run is taken as zero, so it measures queueing and jitter on top of
 // the best the path did, whatever clock pts is on.
 type Summary struct {
-	Seconds    float64 `json:"seconds"`
-	Frames     int     `json:"frames"`
-	Keyframes  int     `json:"keyframes"`
-	Kbps       float64 `json:"kbps"`
-	FPSp50     float64 `json:"fpsP50"`
-	FPSp10     float64 `json:"fpsP10"`
-	FPSmin     float64 `json:"fpsMin"`
-	Stalls     int     `json:"stalls200"`
-	StallMs    float64 `json:"stallMs"`
-	MaxGapMs   float64 `json:"maxGapMs"`
-	DelayP50   float64 `json:"delayP50"`
-	DelayP95   float64 `json:"delayP95"`
-	DelayMax   float64 `json:"delayMax"`
-	LateShare  float64 `json:"late200Share"` // frames more than 200 ms over the best
-	AcksSent   int     `json:"acksSent"`
-	AckErrs    int     `json:"ackErrs"`
-	BytesP50   float64 `json:"frameBytesP50"`
-	BytesMax   int     `json:"frameBytesMax"`
+	Seconds   float64 `json:"seconds"`
+	Frames    int     `json:"frames"`
+	Keyframes int     `json:"keyframes"`
+	Kbps      float64 `json:"kbps"`
+	FPSp50    float64 `json:"fpsP50"`
+	FPSp10    float64 `json:"fpsP10"`
+	FPSmin    float64 `json:"fpsMin"`
+	Stalls    int     `json:"stalls200"`
+	StallMs   float64 `json:"stallMs"`
+	MaxGapMs  float64 `json:"maxGapMs"`
+	DelayP50  float64 `json:"delayP50"`
+	DelayP95  float64 `json:"delayP95"`
+	DelayMax  float64 `json:"delayMax"`
+	LateShare float64 `json:"late200Share"` // frames more than 200 ms over the best
+	AcksSent  int     `json:"acksSent"`
+	AckErrs   int     `json:"ackErrs"`
+	BytesP50  float64 `json:"frameBytesP50"`
+	BytesMax  int     `json:"frameBytesMax"`
 }
 
 // stallGap is the arrival gap counted as a stall: long enough that a viewer
