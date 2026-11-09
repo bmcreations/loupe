@@ -25,10 +25,15 @@ const (
 	// for it would freeze every other remote viewer.
 	remoteSilence = 4 * time.Second
 	// remoteSlack is how far past the path's base round trip the oldest
-	// unacked frame may be before the gate holds.
-	remoteSlack = 120 // ms
-	// remoteMaxBacklog is the most frames in flight, unacked, the gate allows.
-	remoteMaxBacklog = 8
+	// unacked frame may be before the viewer counts as stuck. It is a
+	// backstop, not pacing: the cap paces the stream. At 120 ms on cellular
+	// (13:58, base 57-70 ms, rtt 113-155 ms) the gate held 200-790 ms of every
+	// second while scrolling; voxl has no delay gate at all.
+	remoteSlack = 1000 // ms
+	// remoteMaxBacklog is the most frames in flight, unacked, before the
+	// viewer counts as stuck: one second at 60 fps. At 8 it sat at the normal
+	// operating point (60 fps x 120 ms rtt is about 7 frames in flight).
+	remoteMaxBacklog = 60
 	// DefaultRemoteCapBps is the remote encoder's data-rate cap until rate
 	// control sets one.
 	DefaultRemoteCapBps = 4_000_000
@@ -54,6 +59,7 @@ type remoteTrack struct {
 
 	// Per-second trace counters.
 	frames, keys   atomic.Uint64
+	unstuck        atomic.Uint64 // stuck viewers written off and resynced
 	openNs, heldNs atomic.Int64
 	capBps         atomic.Int64
 	bytes          atomic.Uint64 // cumulative media bytes the encoder made
@@ -71,6 +77,9 @@ type RemoteSecond struct {
 	HeldMs float64
 	// Frames and Keys are the media frames and keyframes the encoder made.
 	Frames, Keys uint64
+	// Unstuck is how many times a stuck viewer's in-flight frames were
+	// written off and a keyframe asked for.
+	Unstuck uint64
 	// CapBps is the encoder's data-rate cap.
 	CapBps int64
 	// RateReason is why rate control last decided what it did this second:
@@ -245,9 +254,14 @@ func (g gateViewer) silent() bool {
 	return g.SinceJoin > remoteSilence
 }
 
+// stuck reports a viewer that has a frame in flight longer than its base
+// round trip plus remoteSlack, or more than remoteMaxBacklog of them.
+func (g gateViewer) stuck() bool {
+	return g.OldestMs > g.BaseMs+remoteSlack || g.Backlog > remoteMaxBacklog
+}
+
 // remoteGateOpen is the gate decision: held with no viewers, otherwise open
-// unless a viewer that has acked lately has a frame in flight longer than its
-// base round trip plus remoteSlack, or more than remoteMaxBacklog of them.
+// unless a viewer that has acked lately is stuck.
 func remoteGateOpen(vs []gateViewer) bool {
 	if len(vs) == 0 {
 		return false
@@ -256,7 +270,7 @@ func remoteGateOpen(vs []gateViewer) bool {
 		if g.silent() {
 			continue
 		}
-		if g.OldestMs > g.BaseMs+remoteSlack || g.Backlog > remoteMaxBacklog {
+		if g.stuck() {
 			return false
 		}
 	}
@@ -314,21 +328,30 @@ func (s *Session) remoteRateTick(now time.Time, r *remoteTrack, rs target.Remote
 }
 
 // remoteViewers reads the gate's inputs from the remote-track viewers.
-func (s *Session) remoteViewers(now time.Time) []gateViewer {
+// A stuck viewer's in-flight frames are written off, and the second result
+// asks the caller for a keyframe.
+func (s *Session) remoteViewers(now time.Time) (out []gateViewer, stuck bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var out []gateViewer
 	for _, v := range s.viewers {
 		if v.track != trackRemote {
 			continue
 		}
 		f := v.flow.Snapshot(now)
-		out = append(out, gateViewer{
+		g := gateViewer{
 			Acking: f.Acking, LastAckAgo: f.LastAckAgo, SinceJoin: now.Sub(v.joined),
 			OldestMs: f.OldestMs, BaseMs: f.BaseMs, Backlog: f.Backlog,
-		})
+		}
+		if !g.silent() && g.stuck() {
+			// A stuck viewer would hold every remote viewer: write off what it
+			// has in flight and resync it from a keyframe instead.
+			v.flow.Reset()
+			g.OldestMs, g.Backlog = 0, 0
+			stuck = true
+		}
+		out = append(out, g)
 	}
-	return out
+	return out, stuck
 }
 
 // remoteGateTick evaluates the gate once and sends 0x82 if it changed. dt is
@@ -344,7 +367,12 @@ func (s *Session) remoteGateTick(now time.Time, dt time.Duration) {
 	if rs == nil {
 		return
 	}
-	open := remoteGateOpen(s.remoteViewers(now))
+	vs, stuck := s.remoteViewers(now)
+	if stuck {
+		r.unstuck.Add(1)
+		s.askRemoteKeyframeSoon()
+	}
+	open := remoteGateOpen(vs)
 	// A new stream's encoder starts held.
 	if r.gateStream != rs {
 		r.gateStream, r.sentOpen, r.sentCap = rs, false, DefaultRemoteCapBps
@@ -403,6 +431,7 @@ func (s *Session) reportRemote() {
 		HeldMs:  float64(held) / float64(time.Millisecond),
 		Frames:  r.frames.Swap(0),
 		Keys:    r.keys.Swap(0),
+		Unstuck: r.unstuck.Swap(0),
 		CapBps:  r.capBps.Load(),
 		Viewers: n,
 	}

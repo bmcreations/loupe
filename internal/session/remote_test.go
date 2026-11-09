@@ -173,13 +173,15 @@ func TestRemoteJoinerIsReplayedCachedConfig(t *testing.T) {
 func TestGateDecisions(t *testing.T) {
 	ok := gateViewer{Acking: true, LastAckAgo: 100 * time.Millisecond, OldestMs: 100, BaseMs: 50, Backlog: 3}
 	late := ok
-	late.OldestMs = 171 // base 50 + 120 = 170
+	late.OldestMs = 1051 // base 50 + 1000 = 1050
 	edge := ok
-	edge.OldestMs = 170
+	edge.OldestMs = 1050
+	jitter := ok
+	jitter.OldestMs, jitter.BaseMs = 893, 67.8 // 13:58:39 on cellular
 	deep := ok
-	deep.Backlog = 9
+	deep.Backlog = 61
 	deepEdge := ok
-	deepEdge.Backlog = 8
+	deepEdge.Backlog = 60
 	silentLate := late
 	silentLate.LastAckAgo = 4*time.Second + time.Millisecond
 	silentNeverAcked := gateViewer{SinceJoin: 5 * time.Second, OldestMs: 9999, Backlog: 99}
@@ -191,10 +193,11 @@ func TestGateDecisions(t *testing.T) {
 	}{
 		{"no viewers holds", nil, false},
 		{"healthy opens", []gateViewer{ok}, true},
-		{"oldest past rtt+120 holds", []gateViewer{ok, late}, false},
-		{"oldest at rtt+120 opens", []gateViewer{edge}, true},
-		{"backlog 9 holds", []gateViewer{deep}, false},
-		{"backlog 8 opens", []gateViewer{deepEdge}, true},
+		{"oldest past rtt+1000 holds", []gateViewer{ok, late}, false},
+		{"oldest at rtt+1000 opens", []gateViewer{edge}, true},
+		{"cellular jitter opens", []gateViewer{jitter}, true},
+		{"backlog 61 holds", []gateViewer{deep}, false},
+		{"backlog 60 opens", []gateViewer{deepEdge}, true},
 		{"silent 4 s is left out", []gateViewer{ok, silentLate}, true},
 		{"never-acked past 4 s is left out", []gateViewer{silentNeverAcked}, true},
 		{"just joined opens", []gateViewer{fresh}, true},
@@ -208,7 +211,8 @@ func TestGateDecisions(t *testing.T) {
 }
 
 // The gate sends 0x82 only when the decision changes, holds with nobody on the
-// track, and opens again when a viewer joins.
+// track, and opens again when a viewer joins. A stuck viewer does not hold it:
+// its in-flight frames are written off and it is resynced from a keyframe.
 func TestGateSendsOnlyOnChange(t *testing.T) {
 	s, fr := remoteSession(t)
 	now := time.Now()
@@ -225,27 +229,35 @@ func TestGateSendsOnlyOnChange(t *testing.T) {
 	step()
 	waitOps(t, fr, "key", "open")
 
-	// A frame in flight for 400 ms with no ack and a 50 ms base holds the gate.
+	// A frame in flight for 400 ms is cellular jitter, not a stuck viewer:
+	// the gate stays open. Its ack makes the viewer one the rate controller
+	// reads, so the encoder moves from its built-in cap to the controller's
+	// start.
 	s.mu.RLock()
 	v := s.viewers[id]
 	s.mu.RUnlock()
 	v.flow.Sent(1, 1000, now.Add(-400*time.Millisecond))
 	step()
-	waitOps(t, fr, "key", "open", "hold")
-	step()
-	step()
-	waitOps(t, fr, "key", "open", "hold")
-
-	// Its ack clears the backlog: open again. The first ack also makes the
-	// viewer one the rate controller reads, so the encoder moves from its
-	// built-in cap to the controller's start.
 	v.flow.Ack(1, now)
 	step()
-	waitOps(t, fr, "key", "open", "hold", "open", "cap")
+	waitOps(t, fr, "key", "open", "cap")
+
+	// A frame in flight for 2 s (base 400 ms from the first ack) is stuck:
+	// written off, keyframe, no hold.
+	s.remote.lastKeyAsk.Store(0) // the join's ask is inside remoteKeyInterval
+	v.flow.Sent(2, 1000, now.Add(-2*time.Second))
+	step()
+	waitOps(t, fr, "key", "open", "cap", "key")
+	if b := v.flow.Snapshot(now).Backlog; b != 0 {
+		t.Fatalf("backlog = %d after the write-off, want 0", b)
+	}
+	if n := s.remote.unstuck.Load(); n != 1 {
+		t.Fatalf("unstuck = %d, want 1", n)
+	}
 
 	s.RemoveViewer(id)
 	step()
-	waitOps(t, fr, "key", "open", "hold", "open", "cap", "hold")
+	waitOps(t, fr, "key", "open", "cap", "key", "hold")
 }
 
 // A relaunched stream's encoder starts held, so the gate sends its state again.

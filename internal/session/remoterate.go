@@ -49,7 +49,10 @@ const (
 	// ceiling smearing the picture while voxl carried 1-2.6 Mbps on the same
 	// link (12:37); the limit also undershoots, holding 500 kbps to about
 	// 170 kbps offline.
-	remoteCapMin = 1_000_000
+	// At 1 Mbps (13:58) the browser smeared while scrolling and the cap sat
+	// there marked congested; voxl's default floor (min-kbps) is 2 Mbps and it
+	// carried 1-2.6 Mbps on the same link.
+	remoteCapMin = 2_000_000
 	remoteCapMax = 8_000_000
 	// remoteCapStart is where a new remote viewer starts. The 12:09 cellular
 	// run carried 1.3-1.7 Mbps; starting at 4 Mbps queued 270 ms of frames on

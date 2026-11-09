@@ -1183,6 +1183,7 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 			"remoteHeldMs":     math.Round(r.HeldMs),
 			"remoteFrames":     r.Frames,
 			"remoteKeys":       r.Keys,
+			"remoteUnstuck":    r.Unstuck,
 			"remoteCapBps":     r.CapBps,
 			"remoteRateReason": r.RateReason,
 			"viewers":          r.Viewers,
