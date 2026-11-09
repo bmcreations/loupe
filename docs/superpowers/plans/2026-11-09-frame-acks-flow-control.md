@@ -27,9 +27,14 @@
 - Two viewers, one on the Mac at 1 ms RTT and one on the phone: the phone's backlog decides the pause (product decision below), the Mac viewer's acks must never lift a pause the phone needs.
 - simcap paused while the screen is still: resuming must send the next captured picture, not stay black until something moves.
 
-## Open decision (ask the user before Task 5)
+## Decision: local viewers are never slowed by remote ones (user, 9 November)
 
-Pausing the shared encoder for the slowest viewer lowers the Mac viewer's frame rate while the phone is congested (the bitrate already follows the slowest viewer). Options: gate on the slowest acking viewer (voxl's choice), or gate only when no low-RTT viewer is attached.
+Handset on the Mac viewing a device on the same Mac must always be quick. A remote viewer (browser, iOS app, or Handset on another machine) behaves like any other remote surface. So:
+
+- A viewer is local when its connection comes from loopback. Only remote viewers' acks can pause the encoder (Task 5) or move the bitrate (Task 7), and only while no local viewer is attached.
+- With a local viewer attached, the encoder runs at the local rate and full frame rate. A congested remote viewer then falls back to per-viewer handling: Task 6's ack-based skip for that viewer only.
+- Today's adapter breaks this rule too: `intervalBytes` takes the slowest viewer, so a phone on cellular lowers the Mac viewer's bitrate. Task 7 must exclude local viewers' presence from that minimum, and the existing adapter gets the same change in Slice 2.
+- Follow-up, not in this plan: a second simcap encoder for remote viewers would give both sides their own rate. Revisit if the per-viewer skip stutters with a local viewer attached.
 
 ---
 
