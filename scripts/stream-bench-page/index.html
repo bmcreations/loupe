@@ -14,12 +14,15 @@
 </style>
 <body>
 <script>
+// ?busy=1: every row a photo with fine noise, so a scroll needs more bits
+// than the bench links carry and the cap, not the content, sets the rate.
+const busy = new URLSearchParams(location.search).get("busy") === "1";
 let seed = 7;
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const words = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango".split(" ");
 const line = n => Array.from({length: n}, () => words[Math.floor(rnd() * words.length)]).join(" ");
 for (let i = 0; i < 400; i++) {
-  if (i % 5 === 4) {
+  if (busy || i % 5 === 4) {
     const c = document.createElement("canvas");
     c.width = 400; c.height = 240;
     const g = c.getContext("2d");
@@ -30,6 +33,14 @@ for (let i = 0; i < 400; i++) {
     for (let k = 0; k < 60; k++) {
       g.fillStyle = `hsla(${Math.floor(rnd() * 360)},70%,${30 + rnd() * 50}%,0.6)`;
       g.beginPath(); g.arc(rnd() * 400, rnd() * 240, 6 + rnd() * 40, 0, 7); g.fill();
+    }
+    if (busy) {
+      const im = g.getImageData(0, 0, 400, 240);
+      for (let p = 0; p < im.data.length; p += 4) {
+        const n = (rnd() - 0.5) * 90;
+        im.data[p] += n; im.data[p + 1] += n; im.data[p + 2] += n;
+      }
+      g.putImageData(im, 0, 0);
     }
     document.body.appendChild(c);
     continue;

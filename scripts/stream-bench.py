@@ -178,7 +178,7 @@ def run_one(args, name, build, plan, transport, out):
         return subprocess.Popen(argv, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
 
     # Same page, same place, every run: reopen it at the top.
-    page = f"http://127.0.0.1:{PAGE_PORT}/index.html?run={time.time():.0f}"
+    page = f"http://127.0.0.1:{PAGE_PORT}/index.html?run={time.time():.0f}" + ("&busy=1" if args.busy else "")
     subprocess.run(["xcrun", "simctl", "terminate", args.sim, "com.apple.mobilesafari"], capture_output=True)
     subprocess.run(["xcrun", "simctl", "openurl", args.sim, page], check=True, capture_output=True)
     time.sleep(4)
@@ -260,6 +260,7 @@ def main():
     ap.add_argument("--plan", action="append", choices=sorted(PLANS), help="default: steady, dip, spike")
     ap.add_argument("--transport", action="append", choices=["wt", "quic"], help="default: wt and quic")
     ap.add_argument("--seconds", type=int, default=60)
+    ap.add_argument("--busy", action="store_true", help="scroll the noisy page, which needs more than the link")
     ap.add_argument("--port", type=int, default=18556, help="bench loupe port; the shaper takes the next one")
     ap.add_argument("--ack-hold", type=int, default=0)
     # Negative units scroll the page down first; the runs alternate from there.
