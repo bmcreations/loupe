@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/binary"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -44,8 +45,10 @@ type remoteTrack struct {
 	cfg    *OutMsg // most recent parameter sets, replayed to joiners
 
 	// gate state, owned by the gate loop.
-	gateStream target.RemoteStream // the stream sentOpen describes
+	gateStream target.RemoteStream // the stream sentOpen and sentCap describe
 	sentOpen   bool
+	sentCap    int // the cap the encoder holds; a new encoder starts at the default
+	rate       *remoteRate
 
 	lastKeyAsk atomic.Int64 // unix nanos of the last fan-out keyframe ask
 
@@ -53,6 +56,10 @@ type remoteTrack struct {
 	frames, keys   atomic.Uint64
 	openNs, heldNs atomic.Int64
 	capBps         atomic.Int64
+	bytes          atomic.Uint64 // cumulative media bytes the encoder made
+	reasonMu       sync.Mutex
+	reason         string // last cap decision, or the last change within the second
+	reasonChanged  bool
 	gateOpen       atomic.Bool
 }
 
@@ -66,6 +73,10 @@ type RemoteSecond struct {
 	Frames, Keys uint64
 	// CapBps is the encoder's data-rate cap.
 	CapBps int64
+	// RateReason is why rate control last decided what it did this second:
+	// slowstart, congested, recover, probe, idle or hold. A decision that
+	// changed the cap wins over the holds after it.
+	RateReason string
 	// Viewers is how many viewers were on the track.
 	Viewers int
 }
@@ -116,6 +127,8 @@ func (s *Session) attachRemote(stream target.Stream) (first bool) {
 	if first {
 		s.remote = &remoteTrack{}
 		s.remote.capBps.Store(DefaultRemoteCapBps)
+		s.remote.rate = newRemoteRate()
+		s.remote.sentCap = DefaultRemoteCapBps
 	}
 	r := s.remote
 	r.stream = rs
@@ -162,6 +175,7 @@ func (s *Session) pumpRemote(frames <-chan target.Frame) {
 		copy(msg.Data, scratch)
 		if !frame.Config {
 			s.remote.frames.Add(1)
+			s.remote.bytes.Add(uint64(len(frame.Data)))
 		}
 		if frame.Key {
 			s.remote.keys.Add(1)
@@ -249,6 +263,51 @@ func remoteGateOpen(vs []gateViewer) bool {
 	return true
 }
 
+// remoteRateViewers reads rate control's inputs: every remote viewer that is
+// acking and not silent. The second result is whether any viewer is on the
+// track at all.
+func (s *Session) remoteRateViewers(now time.Time) (vs []rateViewer, any bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, v := range s.viewers {
+		if v.track != trackRemote {
+			continue
+		}
+		any = true
+		f := v.flow.Snapshot(now)
+		g := gateViewer{Acking: f.Acking, LastAckAgo: f.LastAckAgo, SinceJoin: now.Sub(v.joined)}
+		if !f.Acking || g.silent() {
+			continue
+		}
+		vs = append(vs, rateViewer{QueueMs: f.QueueMs, OldestMs: f.OldestMs, BaseMs: f.BaseMs, DeliveredBps: f.DeliveredBps})
+	}
+	return vs, any
+}
+
+// remoteRateTick runs rate control once and sends 0x84 if the cap changed.
+// It never touches the main encoder or its adapter.
+func (s *Session) remoteRateTick(now time.Time, r *remoteTrack, rs target.RemoteStream) {
+	vs, any := s.remoteRateViewers(now)
+	if !any {
+		// Nobody on the track: the next viewer starts from the default.
+		r.rate.Reset()
+	}
+	bps, reason := r.rate.Tick(now, vs, r.bytes.Load())
+	r.capBps.Store(int64(bps))
+	r.reasonMu.Lock()
+	changed := reason != rateHold && reason != rateIdle
+	if changed || !r.reasonChanged {
+		r.reason = reason
+	}
+	r.reasonChanged = r.reasonChanged || changed
+	r.reasonMu.Unlock()
+	if bps != r.sentCap {
+		if err := rs.RemoteCap(bps); err == nil {
+			r.sentCap = bps
+		}
+	}
+}
+
 // remoteViewers reads the gate's inputs from the remote-track viewers.
 func (s *Session) remoteViewers(now time.Time) []gateViewer {
 	s.mu.RLock()
@@ -283,13 +342,14 @@ func (s *Session) remoteGateTick(now time.Time, dt time.Duration) {
 	open := remoteGateOpen(s.remoteViewers(now))
 	// A new stream's encoder starts held.
 	if r.gateStream != rs {
-		r.gateStream, r.sentOpen = rs, false
+		r.gateStream, r.sentOpen, r.sentCap = rs, false, DefaultRemoteCapBps
 	}
 	if open != r.sentOpen {
 		if err := rs.RemoteGate(open); err == nil {
 			r.sentOpen = open
 		}
 	}
+	s.remoteRateTick(now, r, rs)
 	r.gateOpen.Store(r.sentOpen)
 	if r.sentOpen {
 		r.openNs.Add(int64(dt))
@@ -341,6 +401,10 @@ func (s *Session) reportRemote() {
 		CapBps:  r.capBps.Load(),
 		Viewers: n,
 	}
+	r.reasonMu.Lock()
+	rec.RateReason = r.reason
+	r.reason, r.reasonChanged = "", false
+	r.reasonMu.Unlock()
 	if total := open + held; total > 0 {
 		rec.Gate = float64(open) / float64(total)
 	}

@@ -1177,14 +1177,15 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 	// that is about to be discarded as a lost race.
 	s.SetRemoteObserver(func(r session.RemoteSecond) {
 		m.trace.Record(map[string]any{
-			"kind":         "remote",
-			"target":       targetID,
-			"remoteGate":   round3(r.Gate),
-			"remoteHeldMs": math.Round(r.HeldMs),
-			"remoteFrames": r.Frames,
-			"remoteKeys":   r.Keys,
-			"remoteCapBps": r.CapBps,
-			"viewers":      r.Viewers,
+			"kind":             "remote",
+			"target":           targetID,
+			"remoteGate":       round3(r.Gate),
+			"remoteHeldMs":     math.Round(r.HeldMs),
+			"remoteFrames":     r.Frames,
+			"remoteKeys":       r.Keys,
+			"remoteCapBps":     r.CapBps,
+			"remoteRateReason": r.RateReason,
+			"viewers":          r.Viewers,
 		})
 	})
 	if adaptive {
