@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 // stub is enough to import it under node.
 globalThis.document = { cookie: '' };
 
-const { tokenParam, FrameReorder, readFrames } = await import('./transport.js');
+const { tokenParam, FrameReorder, readFrames, encodeFrameAck, connect } = await import('./transport.js');
 
 let failures = 0;
 function test(name, fn) {
@@ -224,6 +224,91 @@ atest('readFrames ignores a stream too short to hold a frame', async () => {
   await tick();
   assert.deepEqual(got, [1]);
 });
+
+// --- frame acks -----------------------------------------------------------
+const ACK_PTS = 0x0102030405060708n;
+const ACK_BYTES = [0x1A, 1, 2, 3, 4, 5, 6, 7, 8];
+
+atest('encodeFrameAck is the type byte and the pts as u64 big-endian', async () => {
+  assert.deepEqual([...encodeFrameAck(ACK_PTS)], ACK_BYTES);
+  assert.deepEqual([...encodeFrameAck(258)], [0x1A, 0, 0, 0, 0, 0, 0, 1, 2]);
+});
+
+atest('sendFrameAck on the WebSocket sends the encoded ack', async () => {
+  const sent = [];
+  class FakeWS {
+    static OPEN = 1;
+    constructor() { this.readyState = 1; }
+    send(b) { sent.push([...new Uint8Array(b)]); }
+    close() {}
+  }
+  globalThis.WebSocket = FakeWS;
+  globalThis.location = { protocol: 'https:', host: 'h', search: '' };
+  const conn = await connect({ target: 't', preferWebTransport: false, onControl() {}, onFrame() {} });
+  conn.sendFrameAck(ACK_PTS);
+  assert.deepEqual(sent, [ACK_BYTES]);
+});
+
+atest('sendFrameAck on WebTransport writes it, length-prefixed, to the control stream', async () => {
+  const written = [];
+  const never = new Promise(() => {});
+  const stream = () => ({ getReader: () => ({ read: () => never }) });
+  class FakeWT {
+    constructor() {
+      this.ready = Promise.resolve();
+      this.closed = never;
+      this.incomingUnidirectionalStreams = stream();
+      this.incomingBidirectionalStreams = stream();
+    }
+    createBidirectionalStream() {
+      return Promise.resolve({
+        readable: stream(),
+        writable: { getWriter: () => ({ write: (b) => { written.push([...b]); return Promise.resolve(); } }) },
+      });
+    }
+    close() {}
+  }
+  globalThis.WebTransport = FakeWT;
+  globalThis.location = { protocol: 'https:', host: 'h', search: '' };
+  const conn = await connect({ target: 't', preferWebTransport: true, onControl() {}, onFrame() {}, onOpen() {} });
+  assert.equal(conn.name, 'webtransport');
+  conn.sendFrameAck(ACK_PTS);
+  assert.deepEqual(written.at(-1), [0, 0, 0, 9, ...ACK_BYTES]);
+  delete globalThis.WebTransport;
+});
+
+atest('the pts a frame arrives with is the pts the ack carries, on /ws and /wt', async () => {
+  // /ws: type, flags, pts u64 at 2, sentAt u64 at 10, payload from 18.
+  const ws = new Uint8Array(18 + 1);
+  ws[0] = 0x02;
+  new DataView(ws.buffer).setBigUint64(2, 123456789n);
+  let got;
+  class FakeWS {
+    static OPEN = 1;
+    constructor() { this.readyState = 1; setTimeout(() => this.onmessage({ data: ws.buffer }), 0); }
+    send() {}
+    close() {}
+  }
+  globalThis.WebSocket = FakeWS;
+  globalThis.location = { protocol: 'https:', host: 'h', search: '' };
+  await connect({ target: 't', preferWebTransport: false, onControl() {}, onFrame: (f) => { got = f; } });
+  await tick();
+  assert.deepEqual([...encodeFrameAck(got.ptsMicros)].slice(1), [0, 0, 0, 0, 0x07, 0x5B, 0xCD, 0x15]);
+  // /wt: id u32, pts u64 at 4, flags at 12 (header() above).
+  const wtFrame = await readOne(header(1, 1));
+  assert.equal(wtFrame.ptsMicros, 1000);
+  assert.deepEqual([...encodeFrameAck(wtFrame.ptsMicros)].slice(1), [0, 0, 0, 0, 0, 0, 0x03, 0xE8]);
+});
+
+async function readOne(bytes) {
+  const s = fakeStream();
+  let f;
+  readFrames(fakeStreams([s]), (x) => { f = x; }, () => false, 10_000, new FrameReorder({ maxPending: 10 }));
+  await tick();
+  s.finish(bytes);
+  await tick();
+  return f;
+}
 
 for (const [name, fn] of asyncTests) {
   try { await fn(); console.log(`  PASS ${name}`); }

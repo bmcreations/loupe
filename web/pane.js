@@ -666,7 +666,7 @@ export function createPane(deps) {
 
   function enqueueFrame(frame) {
     // timestamp is the microsecond PTS supplied in the EncodedVideoChunk.
-    jitterBuf.enqueue({ frame, ptsMs: frame.timestamp / 1000 }, now());
+    jitterBuf.enqueue({ frame, ptsMs: frame.timestamp / 1000, ptsMicros: frame.timestamp }, now());
     startPresenting();
   }
 
@@ -700,6 +700,10 @@ export function createPane(deps) {
       } finally {
         item.frame.close();
       }
+      // After the draw, so the server's queueing estimate includes this
+      // client's own decode and jitter-buffer wait. Once per presented frame:
+      // a frame dropped before it got here is never acked.
+      if (ws && ws.open) ws.sendFrameAck(item.ptsMicros);
     }
 
     if (jitterBuf.held || (ws && ws.open)) {

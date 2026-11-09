@@ -46,6 +46,7 @@ func wireBytes() []struct {
 		{"msgText", MsgText},
 		{"msgTakeOver", MsgTakeOver},
 		{"msgReplay", MsgReplay},
+		{"msgFrameAck", MsgFrameAck},
 		{"flagKey", flagKey},
 		{"flagConfig", flagConfig},
 	}

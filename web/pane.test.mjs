@@ -64,11 +64,14 @@ function harness({ transportName = 'websocket' } = {}) {
   const decoders = [];
   const reports = [];
   let hidden = false;
+  let clock = 0;
 
   const connectTransport = (opts) => {
     const conn = {
       name: transportName, open: true, sent: [], closed: false,
       send(b) { this.sent.push(b); },
+      acks: [],
+      sendFrameAck(pts) { this.acks.push(pts); },
       close() { this.closed = true; this.open = false; },
     };
     calls.push({ opts, conn });
@@ -98,8 +101,10 @@ function harness({ transportName = 'websocket' } = {}) {
   function els() {
     const m = {};
     for (const k of ['fps', 'dec', 'rtt', 'jit', 'q', 'drop', 'buf', 'trans', 'shed', 'rate']) m[k] = new FakeElement('span');
+    const canvas = new FakeElement('canvas');
+    canvas.getContext = () => ({ drawImage() {} });
     return {
-      canvas: new FakeElement('canvas'), root: new FakeElement('div'),
+      canvas, root: new FakeElement('div'),
       overlay: new FakeElement('div'), m,
     };
   }
@@ -135,7 +140,7 @@ function harness({ transportName = 'websocket' } = {}) {
       },
       raf: (fn) => { rafs.push(fn); return rafs.length; },
       cancelRaf: () => {},
-      now: () => 0,
+      now: () => clock,
       setTimeout: (fn, ms) => { const t = { id: nextTimer++, fn, ms }; timers.push(t); return t.id; },
       clearTimeout: (handle) => {
         const i = timers.findIndex((t) => t.id === handle);
@@ -162,8 +167,9 @@ function harness({ transportName = 'websocket' } = {}) {
   }
 
   return {
-    calls, timers, decoders, reports, moduleCalls, make, runTimers,
+    calls, timers, decoders, reports, moduleCalls, make, runTimers, rafs,
     setHidden(v) { hidden = v; },
+    setNow(ms) { clock = ms; },
   };
 }
 
@@ -174,6 +180,62 @@ async function live(h, pane, at = h.calls.length) {
   h.calls[at].opts.onControl(control(MSG_INIT, INIT));
   return h.calls[at];
 }
+
+// decodeAndPresent hands the decoder's output callback a frame stamped pts, as
+// WebCodecs does, then runs the render loop.
+function decoded(h, pts) {
+  const frame = { timestamp: pts, closed: false, close() { this.closed = true; } };
+  h.decoders.at(-1).d.init.output(frame);
+  return frame;
+}
+function present(h) {
+  const fns = h.rafs.splice(0);
+  for (const fn of fns) fn(0);
+}
+
+await test('present acks each frame once, after it is drawn', async () => {
+  const h = harness();
+  const pane = h.make('p1', 'emulator-5554');
+  const call = await live(h, pane);
+  let t = 0;
+  for (const pts of [1000, 17667, 34333]) {
+    call.opts.onFrame(frame(pts === 1000, pts));
+    decoded(h, pts);
+    assert.equal(call.conn.acks.includes(pts), false, 'not acked on receive or decode');
+    t += 100;
+    h.setNow(t);
+    present(h);
+    present(h);
+  }
+  assert.deepEqual(call.conn.acks, [1000, 17667, 34333]);
+  for (let i = 0; i < 5; i++) present(h);
+  assert.equal(call.conn.acks.length, 3, 'a presented frame is not acked again');
+});
+
+await test('a frame the jitter buffer skips is never acked', async () => {
+  const h = harness();
+  const pane = h.make('p1', 'emulator-5554');
+  const call = await live(h, pane);
+  // Three frames due at once: only the newest is drawn, the others are
+  // discarded undrawn, and the server's ack of the newest pops them.
+  const frames = [1000, 2000, 3000].map((pts) => { call.opts.onFrame(frame(pts === 1000, pts)); return decoded(h, pts); });
+  h.setNow(100);
+  for (let i = 0; i < 20; i++) present(h);
+  assert.deepEqual(call.conn.acks, [3000]);
+  assert.ok(frames.every((f) => f.closed));
+});
+
+await test('a frame still queued when the pane switches target is never acked', async () => {
+  const h = harness();
+  const pane = h.make('p1', 'emulator-5554');
+  const call = await live(h, pane);
+  call.opts.onFrame(frame(true, 1000));
+  decoded(h, 1000);
+  pane.switchTarget('sim:A');
+  h.setNow(100);
+  for (let i = 0; i < 20; i++) present(h);
+  assert.deepEqual(call.conn.acks, []);
+});
 
 await test('connect opens one transport for its target', async () => {
   const h = harness();

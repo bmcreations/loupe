@@ -21,8 +21,20 @@
 const MSG_FRAME = 0x02;
 const WS_FRAME_HEADER_LEN = 18;
 const WT_FRAME_HEADER_LEN = 13;
+const MSG_FRAME_ACK = 0x1A;
 const FLAG_KEY = 1 << 0;
 const FLAG_CONFIG = 1 << 1;
+
+// encodeFrameAck is the message that says a frame was presented: the type
+// byte and the frame's pts as a u64 big-endian. The pts is the one the frame
+// arrived with (the same on /ws and /wt), so the server can find the frame it
+// sent.
+export function encodeFrameAck(ptsMicros) {
+  const buf = new Uint8Array(9);
+  buf[0] = MSG_FRAME_ACK;
+  new DataView(buf.buffer).setBigUint64(1, typeof ptsMicros === 'bigint' ? ptsMicros : BigInt(Math.round(ptsMicros)));
+  return buf;
+}
 
 /**
  * @param {object}   opts
@@ -157,6 +169,7 @@ function connectWebSocket({ target, start, onControl, onFrame, onOpen, onClose }
     send(bytes) {
       if (ws.readyState === WebSocket.OPEN) ws.send(bytes);
     },
+    sendFrameAck(ptsMicros) { this.send(encodeFrameAck(ptsMicros)); },
     get open() { return ws.readyState === WebSocket.OPEN; },
     close() { try { ws.close(); } catch (_) {} },
   };
@@ -299,6 +312,7 @@ async function connectWebTransport({ target, start, onControl, onFrame, onOpen, 
       framed.set(body, 4);
       writer.write(framed).catch(() => {});
     },
+    sendFrameAck(ptsMicros) { this.send(encodeFrameAck(ptsMicros)); },
     get open() { return !closed; },
     // For the client report: how often frames came out of order and what
     // the reorder did about it.
