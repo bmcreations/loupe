@@ -19,6 +19,10 @@ type ViewerOptions struct {
 	// encoded it, with no decode and H.264 re-encode in simcap. Browsers do
 	// not list anything, because Safari cannot decode that HEVC.
 	Decodes []string
+	// Local is whether the viewer's connection comes from loopback: a viewer
+	// on the same machine as the server. It is recorded in the trace and
+	// nothing else yet.
+	Local bool
 }
 
 // ParseDecode reads ?decode=, a comma-separated fourcc list ("h265").

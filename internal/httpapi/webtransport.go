@@ -663,7 +663,7 @@ func (s *Server) handleWebTransport(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.lastSent.Store(time.Now().UnixNano())
 	conn.lastRecv.Store(time.Now().UnixNano())
-	s.serveViewerWith(targetID, sess, conn, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode"))})
+	s.serveViewerWith(targetID, sess, conn, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode")), Local: isLoopbackAddr(r.RemoteAddr)})
 }
 
 // diagnoseStreams opens one stream of each direction and records how long each

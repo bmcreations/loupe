@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -322,6 +323,17 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 	return body, rec, nil
 }
 
+// isLoopbackAddr reports whether a "host:port" remote address is the
+// loopback interface, i.e. a viewer on the same machine as the server.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // serveViewer runs one viewer to completion over any transport.
 //
 // Everything about deciding *what* to send lives here: the pacer, the keyframe
@@ -413,6 +425,9 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		// whose predecessors were dropped decodes into visible garbage.
 		needKey := false
 		pacer := session.NewPacer()
+		// flow measures this viewer's queueing from its frame acks. Measurement
+		// only: nothing below reads it to decide what to send.
+		flow, _ := sess.ViewerFlow(viewerID)
 
 		// rttSource records which signal the last pacer sample came from, so a
 		// trace row says whether the controller was steering on transport
@@ -496,6 +511,13 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					pacer.ObserveRepeat(rtt)
 				}
 
+				// A config frame starts a new stream: the encoder was rebuilt and
+				// its pts restart, so acks still in flight for the old one must
+				// not match new entries.
+				if msg.Config && flow != nil {
+					flow.Reset()
+				}
+
 				// Parameter sets and keyframes are never shed: dropping them
 				// leaves the decoder with nothing to resynchronize against.
 				if !msg.Key && !msg.Config {
@@ -544,6 +566,12 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				// WebTransport replaces it with 13, so this overstates the
 				// wire by a few bytes in a frame of thousands.
 				sess.NoteSent(viewerID, len(msg.Data))
+				// Only delivered media frames, under the pts the client will
+				// ack: OutMsg.PTSMicros is what both the /ws envelope and the
+				// /wt header carry. The client never acks a config frame.
+				if flow != nil && !msg.Config {
+					flow.Sent(msg.PTSMicros, len(msg.Data), time.Now())
+				}
 				if msg.Key {
 					needKey = false
 				}

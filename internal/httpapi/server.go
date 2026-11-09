@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -563,7 +564,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.recordPath("websocket", targetID, r.RemoteAddr)
-	s.serveViewerWith(targetID, sess, wsConn{c: conn}, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode"))})
+	s.serveViewerWith(targetID, sess, wsConn{c: conn}, session.ViewerOptions{Decodes: session.ParseDecode(r.URL.Query().Get("decode")), Local: isLoopbackAddr(r.RemoteAddr)})
 }
 
 // dispatch routes one decoded client message. Input errors are reported but
@@ -611,6 +612,17 @@ func (s *Server) dispatch(conn Conn, sess *session.Session, viewerID uint64, pay
 			return err
 		}
 		sess.RecordClientStats(raw)
+		return nil
+	case session.MsgFrameAck:
+		// The client presented the frame with this pts. A viewer that is gone,
+		// or a body of the wrong length, is dropped quietly: acks arrive once
+		// per frame.
+		if len(body) < 8 {
+			return nil
+		}
+		if flow, _ := sess.ViewerFlow(viewerID); flow != nil {
+			flow.Ack(binary.BigEndian.Uint64(body), time.Now())
+		}
 		return nil
 	case session.MsgHello:
 		// Its only job was to exist. See MsgHello.

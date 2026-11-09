@@ -122,6 +122,11 @@ type viewer struct {
 	// passthrough is whether this viewer gets the passthrough track instead
 	// of the H.264 one. Fixed at AddViewerWith.
 	passthrough bool
+	// local is whether the viewer connected from loopback (ViewerOptions.Local).
+	local bool
+	// flow turns this viewer's frame acks into queueing delay and delivery
+	// rate. It has its own lock: the write loop and the read loop both use it.
+	flow FlowEst
 	// replayedThrough is the last passthrough frame this viewer got in its
 	// join replay, which broadcast must not send it again.
 	replayedThrough uint64
@@ -707,6 +712,20 @@ func (s *Session) ViewerPassthrough(id uint64) bool {
 	return ok && v.passthrough
 }
 
+// ViewerFlow returns the viewer's frame-ack estimator and whether the viewer
+// is local (connected from loopback). It is nil for a viewer that has gone.
+// The pointer is valid for the viewer's lifetime, so the write loop fetches it
+// once.
+func (s *Session) ViewerFlow(id uint64) (flow *FlowEst, local bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.viewers[id]
+	if !ok {
+		return nil, false
+	}
+	return &v.flow, v.local
+}
+
 // Stats reports counters useful for a health endpoint.
 func (s *Session) Stats() map[string]any {
 	s.mu.RLock()
@@ -755,6 +774,7 @@ func (s *Session) AddViewerWith(o ViewerOptions) (uint64, <-chan OutMsg) {
 		needsKey:    true,
 		joined:      time.Now(),
 		passthrough: passthrough,
+		local:       o.Local,
 	}
 	s.viewers[v.id] = v
 
