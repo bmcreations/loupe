@@ -45,7 +45,11 @@ const (
 	// Holding the gate does not shrink the stream, since the encoder spends
 	// the same budget on fewer, larger frames; only the cap does. voxl on the
 	// same link delivered 0.3-0.8 Mbps.
-	remoteCapMin = 500_000
+	// The 13:10 run, with the encoder at constant quality, showed a 500 kbps
+	// ceiling smearing the picture while voxl carried 1-2.6 Mbps on the same
+	// link (12:37); the limit also undershoots, holding 500 kbps to about
+	// 170 kbps offline.
+	remoteCapMin = 1_000_000
 	remoteCapMax = 8_000_000
 	// remoteCapStart is where a new remote viewer starts. The 12:09 cellular
 	// run carried 1.3-1.7 Mbps; starting at 4 Mbps queued 270 ms of frames on
@@ -179,7 +183,17 @@ func (r *remoteRate) Tick(now time.Time, vs []rateViewer, producedTotal uint64) 
 		return now.Sub(t)
 	}
 
+	// pushed says the stream was using at least half the cap. The remote
+	// encoder runs at constant quality under the cap, so it often spends far
+	// less; a queue reading then comes from the path, not from our rate, and
+	// cutting a cap the encoder is not using only thins the next burst. In
+	// the 13:10 cellular run the cap sat at the floor while the phone
+	// received 0.4-0.6 Mbps of a 0.5 Mbps cap and 14 kbps when idle.
+	pushed := (r.haveProd && r.prodBps >= cap*0.5) || w.DeliveredBps >= cap*0.5
+
 	switch {
+	case congested && !pushed:
+		return r.cap, rateHold
 	case congested && since(r.lastDec) >= remoteRateCutEvery:
 		t := cap * 0.85
 		// Delivery says something about capacity only when the link was

@@ -89,14 +89,40 @@ func TestRemoteRateCutsTowardDelivery(t *testing.T) {
 	}
 }
 
-// Congestion with a tiny delivery rate (one big frame on a quiet screen) cuts
-// by 15% but does not chase the delivery rate down.
-func TestRemoteRateIgnoresDeliveryOfIdleLink(t *testing.T) {
+// Congestion while the stream uses a small part of the cap (one big frame on
+// a quiet screen, or a quality encoder spending little) holds the cap: the
+// queue then comes from the path, and a cut only thins the next burst.
+func TestRemoteRateHoldsAnUnusedCap(t *testing.T) {
 	x := newRateRun()
 	x.r.cap, x.r.slowStart = 4_000_000, false
-	caps, _ := x.run(100*time.Millisecond, rateViewer{QueueMs: 200, OldestMs: 400, BaseMs: 50, DeliveredBps: 100_000}, 100_000)
-	if caps[0] != 3_400_000 {
-		t.Errorf("cap = %d, want 3400000", caps[0])
+	caps, why := x.run(time.Second, rateViewer{QueueMs: 200, OldestMs: 400, BaseMs: 50, DeliveredBps: 100_000}, 100_000)
+	for i := range caps {
+		if caps[i] != 4_000_000 || why[i] == rateCongested {
+			t.Fatalf("tick %d: cap %d %s, want 4000000 held", i, caps[i], why[i])
+		}
+	}
+}
+
+// The 13:10 cellular run with the constant-quality encoder: the phone
+// received 0.4-0.6 Mbps and 14 kbps when idle, with queue readings that
+// tripped congestion. Starting from 2.5 Mbps, none of them may cut the cap.
+func TestRemoteRateCellularQualityRunHolds(t *testing.T) {
+	x := newRateRun()
+	x.r.cap, x.r.slowStart = 2_500_000, false
+	run := []struct {
+		v    rateViewer
+		prod float64
+	}{
+		{rateViewer{QueueMs: 118.9, OldestMs: 0, BaseMs: 70, DeliveredBps: 1_093_000}, 1_000_000},
+		{rateViewer{QueueMs: 58, OldestMs: 255.3, BaseMs: 70, DeliveredBps: 590_000}, 600_000},
+		{rateViewer{QueueMs: 137.2, OldestMs: 32.1, BaseMs: 70, DeliveredBps: 429_000}, 450_000},
+		{rateViewer{QueueMs: 114.4, OldestMs: 0, BaseMs: 70, DeliveredBps: 20_000}, 20_000},
+	}
+	for _, e := range run {
+		x.run(time.Second, e.v, e.prod)
+	}
+	if got := x.r.Cap(); got != 2_500_000 {
+		t.Errorf("cap = %d, want 2500000 held", got)
 	}
 }
 
@@ -128,7 +154,7 @@ func TestRemoteRateCellularJitterIsNotCongestion(t *testing.T) {
 }
 
 // The 12:25 cellular run: the phone receiving about 1 Mbps with frames
-// queued 150-430 ms. The cap must go under what the link carries.
+// queued 150-430 ms while pushing the cap. The cap must fall to the floor.
 func TestRemoteRateFallsBelowAThinLink(t *testing.T) {
 	x := newRateRun()
 	x.r.cap, x.r.slowStart = 1_500_000, false
@@ -141,8 +167,8 @@ func TestRemoteRateFallsBelowAThinLink(t *testing.T) {
 	for _, v := range thin {
 		x.run(time.Second, v, float64(x.r.Cap()))
 	}
-	if got := x.r.Cap(); got >= 1_000_000 {
-		t.Errorf("cap = %d after 4 s queued on a ~1 Mbps link, want < 1 Mbps", got)
+	if got := x.r.Cap(); got != remoteCapMin {
+		t.Errorf("cap = %d after 4 s queued on a ~1 Mbps link, want the floor %d", got, remoteCapMin)
 	}
 	if got := x.r.Cap(); got < remoteCapMin {
 		t.Errorf("cap %d below the floor", got)
@@ -249,7 +275,9 @@ func TestSessionSendsCapOnChangeOnly(t *testing.T) {
 	if n := caps(); n != 1 {
 		t.Fatalf("cap sent on a quiet link: %v", fr.opsNow())
 	}
-	// A 500 ms ack with a 10 ms base: congested, the cap is cut once.
+	// A 500 ms ack with a 10 ms base on a stream filling the cap: congested,
+	// the cap is cut once.
+	s.remote.bytes.Add(1_000_000)
 	v.flow.Sent(100, 1000, now)
 	v.flow.Ack(100, now.Add(500*time.Millisecond))
 	for i := 0; i < 3; i++ {
