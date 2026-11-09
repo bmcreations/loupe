@@ -249,6 +249,20 @@ atest('sendFrameAck on the WebSocket sends the encoded ack', async () => {
   assert.deepEqual(sent, [ACK_BYTES]);
 });
 
+atest('the WebSocket URL says the client acks, which is what puts it on the remote track', async () => {
+  let url = '';
+  class FakeWS {
+    static OPEN = 1;
+    constructor(u) { url = u; this.readyState = 1; }
+    send() {}
+    close() {}
+  }
+  globalThis.WebSocket = FakeWS;
+  globalThis.location = { protocol: 'https:', host: 'h', search: '' };
+  await connect({ target: 't', preferWebTransport: false, onControl() {}, onFrame() {} });
+  assert.match(url, /[?&]acks=1(&|$)/);
+});
+
 atest('sendFrameAck on WebTransport writes it, length-prefixed, to the control stream', async () => {
   const written = [];
   const never = new Promise(() => {});

@@ -145,7 +145,7 @@ export const PROTOCOL = '1';
 
 function connectWebSocket({ target, start, onControl, onFrame, onOpen, onClose }) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${proto}//${location.host}/ws?target=${encodeURIComponent(target)}&proto=${PROTOCOL}${start ? '&start=1' : ''}`);
+  const ws = new WebSocket(`${proto}//${location.host}/ws?target=${encodeURIComponent(target)}&proto=${PROTOCOL}&acks=1${start ? '&start=1' : ''}`);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => onOpen && onOpen();
@@ -183,7 +183,7 @@ async function connectWebTransport({ target, start, onControl, onFrame, onOpen, 
   // has to travel on the URL. The cookie is readable by script for exactly
   // this reason; the WebSocket path needs none of it, because its handshake is
   // ordinary HTTP and the browser attaches the cookie itself.
-  const url = `https://${location.host}/wt?target=${encodeURIComponent(target)}&proto=${PROTOCOL}${start ? '&start=1' : ''}${tokenParam()}`;
+  const url = `https://${location.host}/wt?target=${encodeURIComponent(target)}&proto=${PROTOCOL}&acks=1${start ? '&start=1' : ''}${tokenParam()}`;
 
   // WebTransport validates the server certificate through the normal chain,
   // which is what happens in real use. For a development server with a

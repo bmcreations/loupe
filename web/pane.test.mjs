@@ -212,6 +212,22 @@ await test('present acks each frame once, after it is drawn', async () => {
   assert.equal(call.conn.acks.length, 3, 'a presented frame is not acked again');
 });
 
+await test('on the remote track every decoded frame is drawn and acked at once', async () => {
+  const h = harness();
+  const pane = h.make('p1', 'emulator-5554');
+  const call = await live(h, pane);
+  call.opts.onControl(control(MSG_INIT, { ...INIT, track: 'remote' }));
+  // A clump of three that the main track would thin to the newest.
+  const frames = [1000, 2000, 3000].map((pts) => { call.opts.onFrame(frame(pts === 1000, pts)); return decoded(h, pts); });
+  assert.deepEqual(call.conn.acks, [1000, 2000, 3000], 'acked on decode, with no render tick');
+  assert.ok(frames.every((f) => f.closed));
+  // A later init without the field puts it back on the buffered path.
+  call.opts.onControl(control(MSG_INIT, INIT));
+  call.opts.onFrame(frame(false, 4000));
+  decoded(h, 4000);
+  assert.deepEqual(call.conn.acks, [1000, 2000, 3000], 'main track waits for the render loop');
+});
+
 await test('a frame the jitter buffer skips is never acked', async () => {
   const h = harness();
   const pane = h.make('p1', 'emulator-5554');
