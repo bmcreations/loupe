@@ -251,3 +251,22 @@ func TestTheTargetListHasAFixedOrder(t *testing.T) {
 		}
 	}
 }
+
+// A released Firebase device stays in adb's list until its tunnel closes, so
+// the next track-devices update named it again and the row came back as
+// "missing" (10 Nov, localhost:50060).
+func TestAnUnregisteredDeviceAdbStillListsDoesNotComeBack(t *testing.T) {
+	m := NewManager(target.Options{})
+	remote := target.DeviceInfo{Serial: "localhost:50060", State: "device"}
+	m.SyncDevices([]target.DeviceInfo{remote}, buildADB)
+	m.Unregister(remote.Serial)
+
+	m.SyncDevices([]target.DeviceInfo{remote}, buildADB)
+	m.SyncDevices(nil, buildADB)
+
+	for _, ti := range m.Targets(context.Background()) {
+		if ti.ID == remote.Serial {
+			t.Fatalf("released device is listed again: %+v", ti)
+		}
+	}
+}

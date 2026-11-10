@@ -1,0 +1,6 @@
+Fetching project list...
+Warning: More than 10 projects found. Device streaming status will not be checked.
+Projects available for streaming:
+  demo-project
+  demo-staging-41
+  sample-app-9c2f1

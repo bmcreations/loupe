@@ -118,6 +118,9 @@ type Manager struct {
 	// gone is when Unregister forgot each target. A listing or scan that began
 	// before then still names the device, and must not register it again.
 	gone map[string]time.Time
+	// goneWhy is the reason a target left for, when it was not a delete: a
+	// remote device that was released or expired. Pruned with gone.
+	goneWhy map[string]string
 }
 
 // endedAt is one target's reopen guard. armed is EndSession's token, which
@@ -183,6 +186,7 @@ func NewManager(opts target.Options) *Manager {
 		shutAt:   make(map[string]endedAt),
 		lifeBusy: make(map[string]bool),
 		gone:     make(map[string]time.Time),
+		goneWhy:  make(map[string]string),
 		overlays: newOverlayStore(),
 	}
 }
@@ -310,6 +314,13 @@ func (m *Manager) SyncDevices(devices []target.DeviceInfo, build func(target.Dev
 				delete(m.presence, d.Serial)
 			}
 			continue
+		}
+		// A remote device this server just released stays in adb's list
+		// until its tunnel closes; do not bring its row back.
+		if _, ok := m.targets[d.Serial]; !ok {
+			if at, gone := m.gone[d.Serial]; gone && time.Since(at) < goneFor {
+				continue
+			}
 		}
 		seen[d.Serial] = true
 		switch cur, ok := m.targets[d.Serial]; {
@@ -634,6 +645,9 @@ type TargetInfo struct {
 	// other field is the owner's, apart from Active and LastError, which
 	// are about sessions on this server.
 	Server string `json:"server,omitempty"`
+	// Remote is set on a Firebase remote device loupe reserved, and on the
+	// row that stands for one still being reserved (remote.go).
+	Remote *RemoteInfo `json:"remote,omitempty"`
 	target.Description
 
 	// Available is false for a device adb cannot stream right now, and State
@@ -1434,11 +1448,19 @@ func (m *Manager) ClearShutDown(id string) {
 // Unregister ends a target's session as deleted and forgets the target. It
 // marks the id gone, so a simctl listing or an AVD scan that began before now
 // cannot register it again.
-func (m *Manager) Unregister(id string) {
+func (m *Manager) Unregister(id string) { m.UnregisterAs(id, "deleted") }
+
+// UnregisterAs is Unregister with the reason viewers hear, for a target that
+// left some other way: a remote device that was "released" or "expired". A
+// client that opens the id within goneFor hears the same reason.
+func (m *Manager) UnregisterAs(id, reason string) {
 	m.mu.Lock()
 	id = m.canonical(id)
 	m.mu.Unlock()
 
+	if reason != "deleted" {
+		m.EndSession(id, reason)
+	}
 	m.EndSession(id, "deleted")
 
 	m.mu.Lock()
@@ -1450,9 +1472,15 @@ func (m *Manager) Unregister(id string) {
 	for g, at := range m.gone {
 		if now.Sub(at) > goneFor {
 			delete(m.gone, g)
+			delete(m.goneWhy, g)
 		}
 	}
 	m.gone[id] = now
+	if reason == "deleted" {
+		delete(m.goneWhy, id)
+	} else {
+		m.goneWhy[id] = reason
+	}
 	m.mu.Unlock()
 }
 
@@ -1462,6 +1490,9 @@ func (m *Manager) Unregister(id string) {
 // m.mu must be held.
 func (m *Manager) unknownLocked(id string) error {
 	if at, ok := m.gone[id]; ok && time.Since(at) < goneFor {
+		if why, ok := m.goneWhy[id]; ok {
+			return &refusedError{id, why}
+		}
 		return &refusedError{id, "deleted"}
 	}
 	return fmt.Errorf("unknown target %q", id)

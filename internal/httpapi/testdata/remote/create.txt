@@ -1,0 +1,7 @@
+New reservation created with id 21kulawh96ut3. Reservation ends at 10:56 AM
+Waiting for reservation to activate...
+Reservation is ACTIVE
+Starting connection in background...
+Logs will be written to /Users/dev/.android/cli/remote-devices/daemon-connect-projects_demo-project_deviceSessions_session-21kulawh96ut3.log
+Device connected on port 53523
+Connection process started in background.

@@ -85,6 +85,11 @@ type Server struct {
 	// avds creates AVDs through the android CLI. Nil when the CLI is not
 	// installed, and /api/avds then answers 404.
 	avds *AVDCreator
+	// remote reserves Firebase remote devices through the same CLI
+	// (remote.go). Set even without the CLI, which is looked up per call:
+	// /api/remote/account then reports cliInstalled false and the routes
+	// that need the CLI answer 503.
+	remote *RemoteDevices
 	// devs creates AVDs through avdmanager and simulators through simctl
 	// from what is installed. Nil when neither can, and /api/devices then
 	// answers 404.
@@ -305,6 +310,11 @@ var routes = []route{
 	{"/api/flags/shot", []string{http.MethodGet}, (*Server).handleFlagShot, ""},
 	{"/api/avds", []string{http.MethodPost}, (*Server).handleCreateAVD, ""},
 	{"/api/avds/profiles", []string{http.MethodGet}, (*Server).handleAVDProfiles, ""},
+	{"/api/remote", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRemote, ""},
+	{"/api/remote/extend", []string{http.MethodPost}, (*Server).handleRemoteExtend, ""},
+	{"/api/remote/account", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRemoteAccount, ""},
+	{"/api/remote/cli", []string{http.MethodPost}, (*Server).handleRemoteCLI, ""},
+	{"/api/remote/models", []string{http.MethodGet}, (*Server).handleRemoteModels, ""},
 	{"/api/devices/options", []string{http.MethodGet}, (*Server).handleDeviceOptions, ""},
 	{"/api/devices/shutdown", []string{http.MethodPost}, (*Server).handleDeviceShutdown, ""},
 	{"/api/devices/boot", []string{http.MethodGet, http.MethodPost}, (*Server).handleDeviceBoot, ""},
@@ -453,7 +463,7 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("local") == "1" {
 		rows = s.mgr.LocalTargets
 	}
-	targets := s.slot.withCreation(rows(r.Context()))
+	targets := s.remote.decorate(s.slot.withCreation(rows(r.Context())))
 	s.claims.decorate(targets)
 	ids := make([]string, 0, len(targets))
 	for _, t := range targets {

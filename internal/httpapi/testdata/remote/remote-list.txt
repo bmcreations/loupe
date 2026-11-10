@@ -1,0 +1,2 @@
+Reservation    State   Expires   Manufacturer  Model    Codename  API Level
+21kulawh96ut3  ACTIVE  10:56 AM  Google        Pixel 9  tokay     36
