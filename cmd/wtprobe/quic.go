@@ -28,7 +28,7 @@ func runQUIC(rawURL string, dur, connectBudget time.Duration, insecure bool, inp
 		return fmt.Errorf("parse url: %w", err)
 	}
 	q := u.Query()
-	open := session.QUICOpen{Target: q.Get("target"), Token: q.Get("token"), Start: q.Get("start") == "1"}
+	open := session.QUICOpen{Target: q.Get("target"), Token: q.Get("token"), Start: q.Get("start") == "1", Acks: bench.acks}
 
 	ctx, cancel := context.WithTimeout(context.Background(), dur+connectBudget)
 	defer cancel()
@@ -55,15 +55,19 @@ func runQUIC(rawURL string, dur, connectBudget time.Duration, insecure bool, inp
 	// needs what it sends back, but it must be drained or its window fills.
 	go func() { _, _ = io.Copy(io.Discard, control) }()
 
+	ctl := &lockedWriter{w: control}
 	col, err := newCollector(start, dumpTo, func() {
 		if input != nil {
-			go input(control)
+			go input(ctl)
 		}
 	})
 	if err != nil {
 		return err
 	}
 	defer col.close()
+	if bench.acks {
+		col.acker = newAcker(ctl, bench.ackHold, bench.ackDelay)
+	}
 
 	deadline := time.Now().Add(dur)
 	frames := make(chan []byte, quicSlots)

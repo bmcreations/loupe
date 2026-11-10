@@ -23,6 +23,8 @@ type collector struct {
 	firstArrival time.Time
 	ptsGaps      []float64
 	arrGaps      []float64
+	recs         []frameRec
+	acker        *acker
 }
 
 func newCollector(start time.Time, dumpTo string, onFirst func()) (*collector, error) {
@@ -83,6 +85,16 @@ func (c *collector) add(b []byte) {
 	if c.dump != nil {
 		fmt.Fprintf(c.dump, "%.3f %d %d\n", float64(now.Sub(c.firstArrival).Microseconds())/1000, pts, b[12])
 	}
+	c.recs = append(c.recs, frameRec{
+		ArrivalMs: float64(now.Sub(c.firstArrival).Microseconds()) / 1000,
+		ArrivalUs: now.UnixMicro(),
+		PTS:       pts,
+		Bytes:     len(payload),
+		Key:       b[12]&1 != 0,
+	})
+	if c.acker != nil {
+		c.acker.saw(pts, now)
+	}
 	c.frames++
 	c.total += len(payload)
 }
@@ -92,6 +104,7 @@ func (c *collector) report(dur time.Duration) {
 		c.frames, c.keyframes, float64(c.total)/(1<<20), dur)
 	describe("pts gap ", c.ptsGaps)
 	describe("arrival gap", c.arrGaps)
+	writeBench(c.recs, c.acker)
 }
 
 // sendTap sends one touch, down then up 60ms later, after tapAfter.
