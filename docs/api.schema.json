@@ -24,6 +24,12 @@
     "DELETE /api/presets": {
       "$ref": "#/$defs/httpapi.PresetsResponse"
     },
+    "DELETE /api/remote": {
+      "$ref": "#/$defs/httpapi.RemoteListResponse"
+    },
+    "DELETE /api/remote/account": {
+      "$ref": "#/$defs/httpapi.RemoteAccountResponse"
+    },
     "DELETE /api/servers 404": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
@@ -122,6 +128,18 @@
         "$ref": "#/$defs/record.Meta"
       },
       "type": "array"
+    },
+    "GET /api/remote": {
+      "$ref": "#/$defs/httpapi.RemoteListResponse"
+    },
+    "GET /api/remote/account": {
+      "$ref": "#/$defs/httpapi.RemoteAccountResponse"
+    },
+    "GET /api/remote/models": {
+      "$ref": "#/$defs/httpapi.RemoteModelsResponse"
+    },
+    "GET /api/remote/models 502": {
+      "$ref": "#/$defs/httpapi.RemoteModelsError"
     },
     "GET /api/servers": {
       "items": {
@@ -290,6 +308,21 @@
     },
     "POST /api/record 409": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "POST /api/remote 202": {
+      "$ref": "#/$defs/httpapi.ReserveRemoteResponse"
+    },
+    "POST /api/remote request": {
+      "$ref": "#/$defs/httpapi.ReserveRemoteRequest"
+    },
+    "POST /api/remote/account 202": {
+      "$ref": "#/$defs/httpapi.RemoteAccountResponse"
+    },
+    "POST /api/remote/extend": {
+      "$ref": "#/$defs/httpapi.RemoteListResponse"
+    },
+    "POST /api/remote/extend request": {
+      "$ref": "#/$defs/httpapi.ExtendRemoteRequest"
     },
     "POST /api/sequence 200": {
       "$ref": "#/$defs/httpapi.SequenceResponse"
@@ -945,6 +978,21 @@
       },
       "required": [
         "error"
+      ],
+      "type": "object"
+    },
+    "httpapi.ExtendRemoteRequest": {
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "minutes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "minutes"
       ],
       "type": "object"
     },
@@ -3743,6 +3791,228 @@
       ],
       "type": "object"
     },
+    "httpapi.RemoteAccountResponse": {
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "projects": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "signedIn": {
+          "type": "boolean"
+        },
+        "signingIn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "signedIn",
+        "projects"
+      ],
+      "type": "object"
+    },
+    "httpapi.RemoteInfo": {
+      "properties": {
+        "expiresAt": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "reservation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "project"
+      ],
+      "type": "object"
+    },
+    "httpapi.RemoteListResponse": {
+      "properties": {
+        "reservations": {
+          "items": {
+            "$ref": "#/$defs/httpapi.RemoteReservation"
+          },
+          "type": "array"
+        },
+        "usageMinutes": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "reservations",
+        "usageMinutes"
+      ],
+      "type": "object"
+    },
+    "httpapi.RemoteModel": {
+      "properties": {
+        "apis": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "codename": {
+          "type": "string"
+        },
+        "manufacturer": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "manufacturer",
+        "model",
+        "codename",
+        "apis"
+      ],
+      "type": "object"
+    },
+    "httpapi.RemoteModelsError": {
+      "properties": {
+        "apiDisabled": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
+    "httpapi.RemoteModelsResponse": {
+      "properties": {
+        "models": {
+          "items": {
+            "$ref": "#/$defs/httpapi.RemoteModel"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "models"
+      ],
+      "type": "object"
+    },
+    "httpapi.RemoteReservation": {
+      "properties": {
+        "activeAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "api": {
+          "type": "integer"
+        },
+        "apiDisabled": {
+          "type": "boolean"
+        },
+        "codename": {
+          "type": "string"
+        },
+        "endedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "reservation": {
+          "type": "string"
+        },
+        "startedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "project",
+        "codename",
+        "api",
+        "state",
+        "startedAt",
+        "activeAt",
+        "expiresAt",
+        "endedAt"
+      ],
+      "type": "object"
+    },
+    "httpapi.ReserveRemoteRequest": {
+      "properties": {
+        "api": {
+          "type": "integer"
+        },
+        "codename": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "codename",
+        "api"
+      ],
+      "type": "object"
+    },
+    "httpapi.ReserveRemoteResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "id"
+      ],
+      "type": "object"
+    },
     "httpapi.RevokeResponse": {
       "properties": {
         "revoked": {
@@ -4147,6 +4417,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/httpapi.RefusedInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "remote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.RemoteInfo"
             },
             {
               "type": "null"

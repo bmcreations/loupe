@@ -672,6 +672,20 @@ func main() {
 			api.SetAVDCreator(httpapi.NewAVDCreator(cli, target.SDKRoot(*androidSDK), target.AVDHome(), registerAVDs, tracer.Record))
 		}
 	}
+	// Firebase remote devices, reserved through the same CLI. Independent of
+	// where AVDs live. Whatever a previous run left reserved is released now.
+	var remoteDevs *httpapi.RemoteDevices
+	if cli := target.AndroidCLI(*androidCLI); cli != "" {
+		remoteDevs = httpapi.NewRemoteDevices(cli, func(id, reason string) {
+			mgr.EndSession(id, reason)
+			mgr.Unregister(id)
+		}, tracer.Record)
+		if err := remoteDevs.Load(filepath.Join(filepath.Dir(cfgPath), "remote-devices.json")); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: remote device reservations unreadable, starting with none: %v\n", err)
+		}
+		api.SetRemoteDevices(remoteDevs)
+		go remoteDevs.Watch(ctx)
+	}
 	// New device… from installed images. It does not depend on device
 	// discovery for iOS (simcapBin), and avdmanager follows ANDROID_AVD_HOME,
 	// so unlike the android CLI it needs no AVD-home check.
@@ -829,6 +843,11 @@ func main() {
 	}
 	if wtSrv != nil {
 		_ = wtSrv.Close()
+	}
+	// Before sessions close, so a reserved device stops billing even if the
+	// rest of shutdown is cut short.
+	if remoteDevs != nil {
+		remoteDevs.ReleaseAll()
 	}
 	cancel()
 	mgr.Shutdown()

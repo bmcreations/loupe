@@ -1,0 +1,172 @@
+   MODEL                             CODENAME/API
+
+├─ FUJITSU [1]
+│  └─ F-01L                          F01L/27
+│
+├─ Google [37]
+│  ├─ Eos                            eos/33
+│  ├─ Pixel 10                       frankel/36
+│  ├─ Pixel 10 Pro                   blazer/36
+│  ├─ Pixel 10 Pro Fold              rango/36
+│  ├─ Pixel 10 Pro XL                mustang/36
+│  ├─ Pixel 11                       cubs/37
+│  ├─ Pixel 11 Pro                   grizzly/37
+│  ├─ Pixel 11 Pro Fold              yogi/37
+│  ├─ Pixel 5                        redfin/30
+│  ├─ Pixel 6                        oriole/31
+│  ├─ Pixel 6a                       bluejay/32
+│  ├─ Pixel 7                        panther/33
+│  ├─ Pixel 7a                       lynx/33
+│  ├─ Pixel 8                        shiba/36                         shiba/34
+│  ├─ Pixel 8 Pro                    husky/35                         husky/34
+│  ├─ Pixel 8a                       akita/35                         akita/34
+│  ├─ Pixel 9                        tokay/36                         tokay/35          tokay/34
+│  ├─ Pixel 9 Pro                    caiman/35                        caiman/34
+│  ├─ Pixel 9 Pro Fold               comet/36                         comet/35          comet/34
+│  ├─ Pixel 9 Pro XL                 komodo/35                        komodo/34
+│  ├─ Pixel 9a                       tegu/35
+│  ├─ Pixel Fold                     felix/36                         felix/34          felix/33
+│  ├─ Pixel Fold (Camera-enabled)    felix_camera/33
+│  ├─ Pixel Tablet                   tangorpro/36                     tangorpro/33
+│  └─ Pixel Watch                    r11/30
+│
+├─ HONOR [1]
+│  └─ Honor Magic V5                 honor_lab_hnmbhx/36
+│
+├─ INFINIX [1]
+│  └─ Infinix NOTE 50 Pro+           transsion_lab_infinix-x6856/35
+│
+├─ INFINIX MOBILITY LIMITED [1]
+│  └─ Infinix SMART 8                Infinix-X6525/33
+│
+├─ Lenovo [1]
+│  └─ Lenovo Tab M11                 TB330FU/35
+│
+├─ Motorola [21]
+│  ├─ moto e20                       aruba/30
+│  ├─ moto g - 2025                  kansas/35
+│  ├─ moto g 5G (2022)               austin/33
+│  ├─ moto g play (2021)             guamna/30
+│  ├─ moto g play - 2023             maui/33
+│  ├─ moto g play - 2024             fogona/34
+│  ├─ moto g stylus (2023)           gnevan/33
+│  ├─ moto g(9) play                 guamp/30
+│  ├─ moto g04                       lion/34
+│  ├─ moto g05                       lamul/35
+│  ├─ moto g14                       cancun/34
+│  ├─ moto g24                       fogorow/34
+│  ├─ moto g34 5G                    fogos/34
+│  ├─ moto g53 5G                    penang/34
+│  ├─ moto g85 5G                    malmo/36
+│  ├─ moto g96 5G                    cuscoi/35
+│  ├─ motorola edge 30               dubai/34
+│  ├─ motorola edge 40               lyriq/34
+│  ├─ motorola edge 40 neo           manaus/34
+│  ├─ Motorola G20                   java/30
+│  └─ motorola razr plus 2024        arcfox/34
+│
+├─ Nothing [1]
+│  └─ Nothing Phone (4a)             Frogger/36
+│
+├─ OnePlus [2]
+│  ├─ OnePlus 10T 5G                 OP5552L1/34
+│  └─ OnePlus Nord CE 2 Lite 5G      OP535DL1/34
+│
+├─ OPPO [2]
+│  ├─ A38                            OP5759L1/34
+│  └─ A79 5G                         OP573DL1/34
+│
+├─ realme [2]
+│  ├─ realme C53                     RE58C2/35
+│  └─ RMX3231                        RMX3231/30
+│
+├─ Samsung [124]
+│  ├─ Galaxy A03s                    a03su/33                         a03sutfn/33
+│  ├─ Galaxy A04s                    a04s/34
+│  ├─ Galaxy A05s                    a05s/35                          a05sub/35
+│  ├─ Galaxy A06                     a06/35
+│  ├─ Galaxy A13                     a13/34
+│  ├─ Galaxy A13 5G                  a13x/33
+│  ├─ Galaxy A14 5G                  a14xmsq/35                       a14xmtfn/35
+│  ├─ Galaxy A15                     a15/34
+│  ├─ Galaxy A15 5G                  a15x/36                          a15xtfn/36        a15x/34
+│  ├─ Galaxy A16                     a16/35
+│  ├─ Galaxy A16 5G                  a16x/36                          a16xeea/35        a16x/34
+│  ├─ Galaxy A21                     a21/31
+│  ├─ Galaxy A23 5G                  a23xq/34
+│  ├─ Galaxy A26 5G                  a26x/36
+│  ├─ Galaxy A31                     a31/31
+│  ├─ Galaxy A32                     a32/33
+│  ├─ Galaxy A34 5G                  a34x/36
+│  ├─ Galaxy A35 5G                  a35x/36                          a35x/35           a35x/34
+│  ├─ Galaxy A36 5G                  a36xq/36                         a36xq/35
+│  ├─ Galaxy A52 5G                  a52xq/34
+│  ├─ Galaxy A53 5G                  SC-53C/36
+│  ├─ Galaxy A54 5G                  a54xue/36
+│  ├─ Galaxy A55 5G                  a55xzh/36
+│  ├─ Galaxy A56 5G                  a56x/35
+│  ├─ Galaxy Note20 5G               c1q/33                           c1qksw/33
+│  ├─ Galaxy Note20 Ultra 5G         c2q/33                           c2qksw/33         c2s/33
+│  ├─ Galaxy S20 FE 5G               r8q/33                           r8qcsx/33         r8qksx/33
+│  ├─ Galaxy S20 Ultra 5G            z3q/33
+│  ├─ Galaxy S20+ 5G                 y2q/33
+│  ├─ Galaxy S21 5G                  o1q/35                           o1s/35            o1q/34
+│  ├─ Galaxy S21 FE 5G               r9q/36                           r9q-SM-G990U/36   r9q2csx/36
+│  ├─ Galaxy S21 Ultra 5G            p3q/35                           p3s/35
+│  ├─ Galaxy S21+ 5G                 t2q/35                           t2q/34
+│  ├─ Galaxy S22                     r0q/36                           r0qcsx/36         r0qksx/36    SC-51C/36   SCG13/36
+│  ├─ Galaxy S22 Ultra               b0q/36                           b0qksx/36         b0qxxx/36    b0q/33
+│  ├─ Galaxy S22+                    g0q/36                           g0qksx/36         g0q/34
+│  ├─ Galaxy S23                     dm1q-SM-S911U/36                 dm1qcsx/36        dm1q/35
+│  ├─ Galaxy S23 FE                  r11qcs/36                        r11s/36           r11q/34
+│  ├─ Galaxy S23 Ultra               dm3qksx/36                       dm3q/34
+│  ├─ Galaxy S23+                    dm2qksx/36                       dm2q/34
+│  ├─ Galaxy S24                     e1q/36                           e1s/36            SC-51E/36    e1q/34
+│  ├─ Galaxy S24 Ultra               e3q/36                           e3qcsx/36         e3qksx/36    e3q/34
+│  ├─ Galaxy S24+                    e2q/36                           e2s/36            e2sksx/36
+│  ├─ Galaxy S25                     pa1qksx/36                       pa1qsqw/36
+│  ├─ Galaxy S25 Edge                psqsqw/36                        psq/35
+│  ├─ Galaxy S25 Ultra               pa3q/36                          pa3q/35
+│  ├─ Galaxy S25+                    pa2q/36                          pa2qxxx/36
+│  ├─ Galaxy S26                     m1q/36
+│  ├─ Galaxy S26+                    m2q/36
+│  ├─ Galaxy Tab A7                  gta4lwifi/31
+│  ├─ Galaxy Tab A9+                 gta9pwifi/34
+│  ├─ Galaxy Tab S10+                gts10pwifi/36
+│  ├─ Galaxy Tab S7                  gts7lwifi/33
+│  ├─ Galaxy Tab S7 FE 5G            gts7xllite/34
+│  ├─ Galaxy Tab S7+                 gts7xlwifi/33
+│  ├─ Galaxy Tab S8                  gts8wifi/34
+│  ├─ Galaxy Tab S8 Ultra            gts8uwifi/33
+│  ├─ Galaxy Tab S9                  gts9wifi/34
+│  ├─ Galaxy Tab S9 FE 5G            gts9fe/34
+│  ├─ Galaxy XCover7                 xcover7/34
+│  ├─ Galaxy Z Flip4                 b4qsqw/36
+│  ├─ Galaxy Z Flip5                 b5qsqw/36                        b5qxeea/36
+│  ├─ Galaxy Z Flip6                 b6qksx/36                        b6qsqw/36         b6q/34
+│  ├─ Galaxy Z Flip8                 b8q/37
+│  ├─ Galaxy Z Fold3 5G              q2qsqw/35
+│  ├─ Galaxy Z Fold4                 q4qksx/36
+│  ├─ Galaxy Z Fold5                 q5qksx/36                        q5q/34
+│  ├─ Galaxy Z Fold6                 q6qksx/36                        q6qsqw/36         q6q/34
+│  ├─ Galaxy Z Fold8                 h8q/37
+│  └─ Galaxy Z TriFold               q7mq/36
+│
+├─ SHARP [1]
+│  └─ AQUOS sense2 SH-01L            SH-01L/28
+│
+├─ Sony [1]
+│  └─ Xperia 10 VI                   A402SO/34
+│
+├─ TECNO [5]
+│  ├─ TECNO POP 7                    TECNO-BF6/31
+│  ├─ TECNO POVA 7                   transsion_lab_tecno-lj7/35
+│  ├─ TECNO POVA 7 Ultra             transsion_lab_tecno-lj9/35
+│  ├─ TECNO SPARK 10C                TECNO-KI5k/31
+│  └─ Tecno Spark Go 2               transsion_lab_tecno-km4/35
+│
+├─ TECNO MOBILE LIMITED [1]
+│  └─ SPARK Go 2024                  TECNO-BG6/33
+│
+└─ Xiaomi [1]
+   └─ Xiaomi 14                      houji/35

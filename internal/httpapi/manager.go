@@ -634,6 +634,9 @@ type TargetInfo struct {
 	// other field is the owner's, apart from Active and LastError, which
 	// are about sessions on this server.
 	Server string `json:"server,omitempty"`
+	// Remote is set on a Firebase remote device loupe reserved, and on the
+	// row that stands for one still being reserved (remote.go).
+	Remote *RemoteInfo `json:"remote,omitempty"`
 	target.Description
 
 	// Available is false for a device adb cannot stream right now, and State

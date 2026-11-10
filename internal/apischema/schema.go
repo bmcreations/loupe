@@ -135,6 +135,24 @@ var endpoints = []endpoint{
 	{"GET /api/avds/profiles", dirResponse, httpapi.AVDProfilesResponse{}},
 	{"POST /api/avds request", dirRequest, httpapi.CreateAVDRequest{}},
 	{"POST /api/avds 202", dirResponse, httpapi.CreateAVDResponse{}},
+	// Firebase remote devices, reserved through the android CLI. 404 on all
+	// of these when the CLI is not installed.
+	{"GET /api/remote", dirResponse, httpapi.RemoteListResponse{}},
+	{"POST /api/remote request", dirRequest, httpapi.ReserveRemoteRequest{}},
+	// 409 while another reservation is being made.
+	{"POST /api/remote 202", dirResponse, httpapi.ReserveRemoteResponse{}},
+	// ?key=. 502 when Google did not confirm; the row is forgotten either way.
+	{"DELETE /api/remote", dirResponse, httpapi.RemoteListResponse{}},
+	{"POST /api/remote/extend request", dirRequest, httpapi.ExtendRemoteRequest{}},
+	{"POST /api/remote/extend", dirResponse, httpapi.RemoteListResponse{}},
+	{"GET /api/remote/account", dirResponse, httpapi.RemoteAccountResponse{}},
+	// POST starts `android auth login` in the browser; poll GET until signedIn.
+	{"POST /api/remote/account 202", dirResponse, httpapi.RemoteAccountResponse{}},
+	// DELETE signs out.
+	{"DELETE /api/remote/account", dirResponse, httpapi.RemoteAccountResponse{}},
+	// ?project=.
+	{"GET /api/remote/models", dirResponse, httpapi.RemoteModelsResponse{}},
+	{"GET /api/remote/models 502", dirResponse, httpapi.RemoteModelsError{}},
 	{"GET /api/devices/options", dirResponse, httpapi.DeviceOptionsResponse{}},
 	{"POST /api/devices request", dirRequest, httpapi.CreateDeviceRequest{}},
 	{"POST /api/devices 202", dirResponse, httpapi.CreateDeviceResponse{}},
