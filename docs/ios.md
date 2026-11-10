@@ -64,6 +64,17 @@ element answers at its centre or the centre is off the screen, and
 `?interactive=1` drops those. The check follows the accessibility tree, not
 the pixels, so blank space drawn over a row does not mark it.
 
+**Bars that list no children are filled in by hit tests.** A navigation
+bar or tab bar can reach the tree as a `Group` with no children while its
+buttons answer a hit test: Flipcash's Chats bar dumped as `Group` id `Chat`,
+and its "+" and every tab were missing. loupe hit-tests along each childless,
+visible `Group`, `Toolbar` or `TabGroup` and adds what answers inside it as
+its children, in reading order, so a `match` on `BackButton` or
+`new-chat-button` finds them. A group that answers at its centre as itself
+is taken for a leaf and costs one probe. It runs at most 96 hit tests a dump,
+and added about 90ms on Chats. Settings' root and General dumped the same
+nodes as before.
+
 A dump takes 50-70ms on the Home Screen and under a second on a busy screen,
 and 1-4.6s the first time after the input process starts. The input process
 stops after two minutes idle and restarts on the next command.
