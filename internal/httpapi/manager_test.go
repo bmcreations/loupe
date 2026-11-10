@@ -599,6 +599,27 @@ func TestUnregisterRemovesTheTargetAndEndsItsSession(t *testing.T) {
 	}
 }
 
+func TestAnOpenAfterAReleaseHearsReleasedNotDeleted(t *testing.T) {
+	m := NewManager(target.Options{})
+	m.Register(&describingTarget{id: "localhost:53523"})
+	m.UnregisterAs("localhost:53523", "released")
+	_, err := m.Acquire(context.Background(), "localhost:53523")
+	var refused *refusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Acquire = %v, want a refusal", err)
+	}
+	if refused.reason != "released" {
+		t.Errorf("reason = %q, want released", refused.reason)
+	}
+
+	m.Register(&describingTarget{id: "sim:U2"})
+	m.Unregister("sim:U2")
+	_, err = m.Acquire(context.Background(), "sim:U2")
+	if !errors.As(err, &refused) || refused.reason != "deleted" {
+		t.Errorf("Acquire after Unregister = %v, want deleted", err)
+	}
+}
+
 // gatedTarget's Open signals that it started, then waits for release.
 type gatedTarget struct {
 	describingTarget

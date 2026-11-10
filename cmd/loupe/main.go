@@ -676,8 +676,7 @@ func main() {
 	// where AVDs live. Whatever a previous run left reserved is released now.
 	// The CLI is looked up per call: one installed later needs no restart.
 	remoteDevs := httpapi.NewRemoteDevices(func() string { return target.AndroidCLI(*androidCLI) }, func(id, reason string) {
-		mgr.EndSession(id, reason)
-		mgr.Unregister(id)
+		mgr.UnregisterAs(id, reason)
 	}, tracer.Record)
 	if err := remoteDevs.Load(filepath.Join(filepath.Dir(cfgPath), "remote-devices.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: remote device reservations unreadable, starting with none: %v\n", err)
