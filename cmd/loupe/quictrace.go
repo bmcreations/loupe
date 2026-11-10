@@ -24,10 +24,11 @@ import (
 // event arrives through one RecordEvent. Only the four low-frequency ones are
 // forwarded; the per-packet events fire thousands of times a second and would
 // bury the trace.
+//
+// It runs without -trace too: the WebTransport side reads the peer's stream
+// credit from it (PeerCreditFor), and without that a Safari viewer freezes
+// when its credit runs out. With a nil tr only the trace records are dropped.
 func quicTracer(tr *trace.Writer) func(context.Context, bool, quic.ConnectionID) qlogwriter.Trace {
-	if tr == nil {
-		return nil
-	}
 	return func(_ context.Context, _ bool, connID quic.ConnectionID) qlogwriter.Trace {
 		return &quicTrace{tr: tr, conn: connID.String()}
 	}
