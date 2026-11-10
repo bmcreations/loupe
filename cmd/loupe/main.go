@@ -491,12 +491,17 @@ func main() {
 		build := func(d target.DeviceInfo) target.Target {
 			return target.NewADBTarget(adb, d, jar, version)
 		}
-		names := target.NewAVDResolver(adb)
+		avds, models := target.NewAVDResolver(adb), target.NewModelResolver(adb)
+		// names fills in what adb's listing leaves out: an emulator's AVD,
+		// and the model of a device listed without one.
+		names := func(ctx context.Context, ds []target.DeviceInfo) []target.DeviceInfo {
+			return models.Resolve(ctx, avds.Resolve(ctx, ds))
+		}
 		devices, err := adb.Devices(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: adb device discovery failed: %v\n", err)
 		}
-		devices = names.Resolve(ctx, devices)
+		devices = names(ctx, devices)
 		for _, d := range devices {
 			switch {
 			case d.AVD != "":
@@ -1052,7 +1057,7 @@ func watchIOSDevices(ctx context.Context, mgr *httpapi.Manager) {
 // connection, which is what target.ADBHealth is for: after a few failures in
 // a row adb targets are reported unavailable with the reason, and after a
 // few more the server is restarted.
-func watchDevices(ctx context.Context, adb target.ADB, names *target.AVDResolver, mgr *httpapi.Manager, build func(target.DeviceInfo) target.Target, tr *trace.Writer) {
+func watchDevices(ctx context.Context, adb target.ADB, names func(context.Context, []target.DeviceInfo) []target.DeviceInfo, mgr *httpapi.Manager, build func(target.DeviceInfo) target.Target, tr *trace.Writer) {
 	health := target.NewADBHealth()
 	backoff := time.Second
 	for {
@@ -1066,7 +1071,7 @@ func watchDevices(ctx context.Context, adb target.ADB, names *target.AVDResolver
 					tr.Record(map[string]any{"kind": "adb", "state": "reachable"})
 				}
 			}
-			mgr.SyncDevices(names.Resolve(ctx, ds), build)
+			mgr.SyncDevices(names(ctx, ds), build)
 		})
 		if ctx.Err() != nil {
 			return
