@@ -55,7 +55,10 @@ type DeviceFrame struct {
 	//
 	// Rotation above is for a device whose picture follows a turn: an Android
 	// display's encoder output changes shape and the geometry here is already
-	// laid out for it, so ContentRotation stays 0 there. A simulator's picture
+	// laid out for it, so ContentRotation stays 0 there while the display
+	// follows the turn. An app that locks its orientation keeps the display
+	// where it wants it; the device is then held another way than its picture
+	// and ContentRotation is the difference (contentRotationFor). A simulator's picture
 	// keeps its natural size when it turns; the content is drawn turned inside
 	// it, and the geometry and art stay upright. Turning the picture and frame
 	// together is the only step a client needs on either kind.
@@ -130,14 +133,34 @@ func (t *ADBTarget) DeviceFrame(ctx context.Context) (*DeviceFrame, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}
-	if t.info.Emulator {
-		if f, err := t.skinFrame(ctx); err == nil {
-			return f, nil
-		}
-		// Fall through. A missing skin is the ordinary case for an AVD built
-		// from a hardware profile with no art, not a reason to answer nothing.
+	// A rotation the device will not report costs the turn, not the bezel: the
+	// natural orientation is what every frame answered before rotation was
+	// handled at all, and the client hides a frame that does not suit the
+	// stream anyway.
+	display, err := t.adb.DisplayRotation(ctx, t.info.Serial)
+	readDisplay := err == nil
+	if err != nil {
+		display = 0
 	}
-	return t.derivedFrame(ctx)
+	var f *DeviceFrame
+	if t.info.Emulator {
+		f, err = t.skinFrame(ctx, display)
+		// A missing skin is the ordinary case for an AVD built from a
+		// hardware profile with no art, not a reason to answer nothing.
+	}
+	if f == nil {
+		if f, err = t.derivedFrame(ctx); err != nil {
+			return nil, err
+		}
+	}
+	// The geometry above follows the display, which is the stream's shape.
+	// A device held another way than its display (an app that locks its
+	// orientation) is shown turned, as a simulator is.
+	// A display it cannot read says nothing about the difference.
+	if readDisplay {
+		f.ContentRotation = contentRotationFor(t.held(ctx, display), display)
+	}
+	return f, nil
 }
 
 // FrameAsset serves one of the skin images. The name must be one the parsed
@@ -165,20 +188,11 @@ func (t *ADBTarget) FrameAsset(ctx context.Context, name string) ([]byte, string
 	return nil, "", fmt.Errorf("frame asset %q is not an image", name)
 }
 
-func (t *ADBTarget) skinFrame(ctx context.Context) (*DeviceFrame, error) {
+func (t *ADBTarget) skinFrame(ctx context.Context, rotation int) (*DeviceFrame, error) {
 	_, layout, err := t.skinLayout(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// A rotation the device will not report costs the turn, not the bezel: the
-	// natural orientation is what every frame answered before rotation was
-	// handled at all, and the client hides a frame that does not suit the
-	// stream anyway.
-	rotation, err := t.adb.DisplayRotation(ctx, t.info.Serial)
-	if err != nil {
-		rotation = 0
-	}
-
 	frame := layout.frameFor(rotation)
 	if frame == nil {
 		return nil, fmt.Errorf("skin layout declares no usable display")

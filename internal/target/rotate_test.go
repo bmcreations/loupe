@@ -111,6 +111,22 @@ func writeFakeRotateADB(t *testing.T, logPath string) string {
 	script := `#!/bin/sh
 echo "$*" >> "` + logPath + `"
 case "$*" in
+  *"emu sensor get"*)
+    printf 'acceleration = %s\r\nOK\r\n' "$FAKE_ADB_GRAVITY"
+    ;;
+  *"emu sensor set"*)
+    if [ -n "$FAKE_ADB_SENSOR_OUT" ]; then
+      echo "$FAKE_ADB_SENSOR_OUT"
+    else
+      echo "OK"
+    fi
+    ;;
+  *dumpsys*)
+    if [ -n "$FAKE_ADB_DISPLAY" ]; then
+      echo "Display: mDisplayId=0"
+      echo "  mDisplayRotation=ROTATION_$FAKE_ADB_DISPLAY"
+    fi
+    ;;
   *user_rotation*)
     if [ -n "$FAKE_ADB_USER_ROTATION_FAIL" ]; then
       echo "$FAKE_ADB_USER_ROTATION_FAIL" >&2
@@ -183,6 +199,125 @@ func TestADBTargetRotateRunsBothCommandsInOrder(t *testing.T) {
 	}
 }
 
+// TestADBTargetRotateTiltsAnEmulator: an emulator turns by its tilt sensor
+// with auto-rotate on, so an app that locks its orientation stays put the way
+// it does on a phone, and user_rotation is never written.
+func TestADBTargetRotateTiltsAnEmulator(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "adb.log")
+	adb := writeFakeRotateADB(t, log)
+	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+
+	if err := tgt.Rotate(t.Context(), 1); err != nil {
+		t.Fatalf("Rotate(1): %v", err)
+	}
+	lines := readLines(t, log)
+	if len(lines) != 3 {
+		t.Fatalf("adb saw %d commands: %v; want 3", len(lines), lines)
+	}
+	if !strings.Contains(lines[0], "emu sensor set acceleration "+gravities[1]) {
+		t.Fatalf("first command = %q; want the tilt for 90", lines[0])
+	}
+	if !strings.Contains(lines[1], "accelerometer_rotation 1") {
+		t.Fatalf("second command = %q; want auto-rotate on", lines[1])
+	}
+	if !strings.Contains(lines[2], "fixed-to-user-rotation default") {
+		t.Fatalf("third command = %q; want the display handed back to the app", lines[2])
+	}
+	for _, l := range lines {
+		if strings.Contains(l, "user_rotation") && !strings.Contains(l, "fixed-to-user-rotation") {
+			t.Fatalf("command %q writes user_rotation; an emulator turns by its sensor", l)
+		}
+	}
+}
+
+func TestADBTargetRotateSurfacesARefusedTilt(t *testing.T) {
+	adb := writeFakeRotateADB(t, filepath.Join(t.TempDir(), "adb.log"))
+	t.Setenv("FAKE_ADB_SENSOR_OUT", "KO: bad sensor value")
+	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	if err := tgt.Rotate(t.Context(), 1); err == nil || !strings.Contains(err.Error(), "KO") {
+		t.Fatalf("Rotate(1) = %v; want the console's KO", err)
+	}
+}
+
+// TestADBTargetRotationCountsFromTheHeldTurn: the Pixel launcher keeps its
+// display at 0 however the emulator is tilted, so a Rotate that counted from
+// the display would ask for 90 on every click.
+func TestADBTargetRotationCountsFromTheHeldTurn(t *testing.T) {
+	adb := writeFakeRotateADB(t, filepath.Join(t.TempDir(), "adb.log"))
+	t.Setenv("FAKE_ADB_DISPLAY", "0")
+	t.Setenv("FAKE_ADB_GRAVITY", "9.81:0:0")
+	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	got, err := tgt.Rotation(t.Context())
+	if err != nil || got != 1 {
+		t.Fatalf("Rotation() = %d, %v; want 1, the held turn", got, err)
+	}
+}
+
+// TestADBTargetRotationOfAPhoneIsItsDisplay: a physical phone has no sensor
+// loupe can set, so it stays on the display rotation it always answered.
+func TestADBTargetRotationOfAPhoneIsItsDisplay(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "adb.log")
+	adb := writeFakeRotateADB(t, log)
+	t.Setenv("FAKE_ADB_DISPLAY", "180")
+	t.Setenv("FAKE_ADB_GRAVITY", "9.81:0:0")
+	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "phone-1", State: "device"}, "", "")
+	got, err := tgt.Rotation(t.Context())
+	if err != nil || got != 2 {
+		t.Fatalf("Rotation() = %d, %v; want 2, the display", got, err)
+	}
+	for _, l := range readLines(t, log) {
+		if strings.Contains(l, "emu") {
+			t.Fatalf("command %q asks a phone for its emulator console", l)
+		}
+	}
+}
+
+func TestHeldFromGravity(t *testing.T) {
+	cases := []struct {
+		name    string
+		out     string
+		display int
+		want    int
+	}{
+		{"upright, as the console answers", "acceleration = 0:9.77631:0.812349\r\nOK\r\n", 1, 0},
+		{"top to the left, as the console answers", "acceleration = 9.81:0:0\r\nOK\r\n", 2, 1},
+		{"top to the left", "acceleration = 9.81:0:0", 0, 1},
+		{"upside down", "acceleration = 0:-9.81:0", 0, 2},
+		{"top to the right", "acceleration = -9.81:0:0", 0, 3},
+		{"each value set by gravities", "acceleration = " + gravities[3], 0, 3},
+		{"flat on a table", "acceleration = 0:0:9.81", 2, 2},
+		{"unreadable", "KO: unknown command", 1, 1},
+		{"short", "acceleration = 1:2", 3, 3},
+	}
+	for _, c := range cases {
+		if got := heldFromGravity(c.out, c.display); got != c.want {
+			t.Errorf("%s: heldFromGravity(%q, %d) = %d; want %d", c.name, c.out, c.display, got, c.want)
+		}
+	}
+	for to, g := range gravities {
+		if got := heldFromGravity("acceleration = "+g, 0); got != to {
+			t.Errorf("gravities[%d] = %q reads back as %d", to, g, got)
+		}
+	}
+}
+
+// TestContentRotationFor pins the direction against the simulator's: a device
+// turned counter-clockwise (1) showing an upright picture needs the same
+// three clockwise quarter turns simContentRotation(1) gives.
+func TestContentRotationFor(t *testing.T) {
+	if got, want := contentRotationFor(1, 0), simContentRotation(1); got != want {
+		t.Fatalf("contentRotationFor(1, 0) = %d; want %d, the simulator's", got, want)
+	}
+	for held := 0; held < 4; held++ {
+		if got := contentRotationFor(held, held); got != 0 {
+			t.Errorf("contentRotationFor(%d, %d) = %d; want 0, the display followed", held, held, got)
+		}
+	}
+	if got := contentRotationFor(0, 1); got != 1 {
+		t.Errorf("contentRotationFor(0, 1) = %d; want 1, a landscape-locked app on an upright phone", got)
+	}
+}
+
 // TestADBTargetRotateSurfacesAFailedShellCall fails the second command (the
 // one that pins auto-rotate off) and checks two things at once: Rotate
 // returns the failure rather than swallowing it, and the first command still
@@ -200,7 +335,7 @@ func TestADBTargetRotateSurfacesAFailedShellCall(t *testing.T) {
 	}
 	lines := readLines(t, log)
 	if len(lines) != 2 {
-		t.Fatalf("adb saw %d commands: %v; want 2 (both attempted)", len(lines), lines)
+		t.Fatalf("adb saw %d commands: %v; want 2 (both attempted, nothing after the failure)", len(lines), lines)
 	}
 }
 
