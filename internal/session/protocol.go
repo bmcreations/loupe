@@ -140,6 +140,14 @@ const (
 	// Session.ViewerReplay. A server that predates it logs the unknown type
 	// and keeps the connection.
 	MsgReplay byte = 0x18
+	// MsgFrameAck is the client telling the server a frame has been presented:
+	// 1 type byte, then the frame's pts as a u64 big-endian. The pts is the one
+	// in the frame header (18-byte envelope on /ws, 13-byte header on /wt and
+	// raw QUIC), which is OutMsg.PTSMicros, so the server matches it against
+	// what it recorded for that viewer. Sent after the frame is drawn, not on
+	// receipt: the gap between the two is the client's own queue. 0x19 is not
+	// reused here because QUICStreamSlot holds it in the stream-id space.
+	MsgFrameAck byte = 0x1A
 )
 
 // The raw-QUIC transport, ALPN QUICALPN on the same UDP port as /wt, for a

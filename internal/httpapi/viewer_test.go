@@ -357,7 +357,7 @@ func TestRunStatsTickThreadsTheRealPacerBaseline(t *testing.T) {
 		// base is well past badRttExcess (120ms).
 		cs: map[string]any{"rttMs": 250.0, "decFps": 60.0}, csAt: attach.Add(900 * time.Millisecond),
 	}
-	body, _, err := runStatsTick("t", sess, tr, pacer, fakeConn{name: "ws"}, "client")
+	body, _, err := runStatsTick("t", sess, tr, pacer, fakeConn{name: "ws"}, "client", session.FlowStats{}, false)
 	if err != nil {
 		t.Fatalf("runStatsTick: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestRunStatsTickReportsTheComputedVerdict(t *testing.T) {
 			cs: map[string]any{"rttMs": 12.0, "decFps": 0.0}, csAt: now.Add(-100 * time.Millisecond),
 		}
 		var err error
-		body, rec, err = runStatsTick("t", sess, tr, pacer, fakeConn{name: "ws"}, "client")
+		body, rec, err = runStatsTick("t", sess, tr, pacer, fakeConn{name: "ws"}, "client", session.FlowStats{}, false)
 		if err != nil {
 			t.Fatalf("runStatsTick: %v", err)
 		}
@@ -432,7 +432,7 @@ func TestRunStatsTickTraceCarriesHealth(t *testing.T) {
 		media: 60, frameCount: 60,
 		cs: map[string]any{"rttMs": 12.0, "decFps": 60.0}, csAt: attach.Add(900 * time.Millisecond),
 	}
-	_, rec, err := runStatsTick("t", sess, tr, pacer, fakeConn{name: "ws"}, "client")
+	_, rec, err := runStatsTick("t", sess, tr, pacer, fakeConn{name: "ws"}, "client", session.FlowStats{}, false)
 	if err != nil {
 		t.Fatalf("runStatsTick: %v", err)
 	}

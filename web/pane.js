@@ -171,6 +171,11 @@ export function createPane(deps) {
   // read 'stale' after 2.5s with no fresh MsgStats.
   let health = null;
   let healthReason = '';
+  // The server's frame-ack readings for this viewer, from its stats message.
+  // NaN until the server has measured them: a viewer that has not acked, or
+  // an older server, sends neither.
+  let flowQueueMs = NaN;
+  let flowBacklog = NaN;
   let statsReceivedAt = NaN;
   // Whether the target runs with no window (a Peek, or a headless AVD).
   // Written by the page from the targets list; nothing here reads it.
@@ -666,7 +671,7 @@ export function createPane(deps) {
 
   function enqueueFrame(frame) {
     // timestamp is the microsecond PTS supplied in the EncodedVideoChunk.
-    jitterBuf.enqueue({ frame, ptsMs: frame.timestamp / 1000 }, now());
+    jitterBuf.enqueue({ frame, ptsMs: frame.timestamp / 1000, ptsMicros: frame.timestamp }, now());
     startPresenting();
   }
 
@@ -700,6 +705,10 @@ export function createPane(deps) {
       } finally {
         item.frame.close();
       }
+      // After the draw, so the server's queueing estimate includes this
+      // client's own decode and jitter-buffer wait. Once per presented frame:
+      // a frame dropped before it got here is never acked.
+      if (ws && ws.open) ws.sendFrameAck(item.ptsMicros);
     }
 
     if (jitterBuf.held || (ws && ws.open)) {
@@ -769,6 +778,8 @@ export function createPane(deps) {
       shedRate = s.shedRate || 0;
       health = s.health;
       healthReason = s.healthReason || '';
+      flowQueueMs = typeof s.queueMs === 'number' ? s.queueMs : NaN;
+      flowBacklog = typeof s.backlog === 'number' ? s.backlog : NaN;
       statsReceivedAt = now();
       onStats(pane);
     } catch (_) {}
@@ -1061,7 +1072,7 @@ export function createPane(deps) {
     stats() {
       return {
         fps, decFps, kbps, rtt, dropped, decodeErrors, shedRate, health, healthReason,
-        statsReceivedAt,
+        statsReceivedAt, queueMs: flowQueueMs, backlog: flowBacklog,
         jitter: arrival.value,
         bufferMs: jitterBuf.bufferMs,
         queue: decoder ? decoder.decodeQueueSize : null,
@@ -1083,6 +1094,8 @@ export function createPane(deps) {
       targetId = next;
       health = undefined;
       healthReason = '';
+      flowQueueMs = NaN;
+      flowBacklog = NaN;
       statsReceivedAt = NaN;
       reconnect(true);
     },

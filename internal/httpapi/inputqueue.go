@@ -11,10 +11,12 @@ const inputQueueDepth = 256
 // itself instead of queuing it behind input. Pings have to be: their reply is
 // the client's rtt sample. Stats and hello do no device work, so there is
 // nothing to gain by making them wait. Replay only queues messages to the
-// viewer's own channel and must not sit behind a slow touch.
+// viewer's own channel and must not sit behind a slow touch. A frame ack is
+// the same as a ping in that its time is the measurement: read behind a slow
+// touch it would arrive late and read as queueing the link never had.
 func answeredInline(msgType byte) bool {
 	switch msgType {
-	case session.MsgPing, session.MsgClientStats, session.MsgHello, session.MsgReplay:
+	case session.MsgPing, session.MsgClientStats, session.MsgHello, session.MsgReplay, session.MsgFrameAck:
 		return true
 	}
 	return false

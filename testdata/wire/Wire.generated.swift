@@ -24,6 +24,7 @@ public enum Wire {
     public static let msgText: UInt8 = 0x16
     public static let msgTakeOver: UInt8 = 0x17
     public static let msgReplay: UInt8 = 0x18
+    public static let msgFrameAck: UInt8 = 0x1A
     public static let flagKey: UInt8 = 0x01
     public static let flagConfig: UInt8 = 0x02
     public static let frameHeaderLen = 18
