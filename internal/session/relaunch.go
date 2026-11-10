@@ -258,10 +258,13 @@ type bitrateSampler struct {
 	shed   uint64
 	await  uint64
 	seen   map[uint64]uint64
+	// offered is seen's counterpart for bytes handed to each viewer's
+	// transport.
+	offered map[uint64]uint64
 }
 
 func newBitrateSampler() *bitrateSampler {
-	return &bitrateSampler{seen: map[uint64]uint64{}}
+	return &bitrateSampler{seen: map[uint64]uint64{}, offered: map[uint64]uint64{}}
 }
 
 // next reports one interval, or false when no viewer was attached for all of
@@ -297,11 +300,11 @@ func (b *bitrateSampler) next(s *Session, now time.Time) (BitrateSample, bool) {
 	}
 	b.frames, b.shed, b.await = frames, shed, await
 
-	bytes, ok := s.intervalBytes(b.seen, now.Add(-bitrateSampleInterval))
+	bytes, offered, ok := s.intervalBytes(b.seen, b.offered, now.Add(-bitrateSampleInterval))
 	if !ok {
 		return BitrateSample{}, false
 	}
-	sample.Bytes = bytes
+	sample.Bytes, sample.Offered = bytes, offered
 	return sample, true
 }
 
@@ -312,20 +315,24 @@ func (b *bitrateSampler) next(s *Session, now time.Time) (BitrateSample, bool) {
 // viewers on two links, what the encoder must fit inside is the slower of them,
 // and summing would read two half-speed links as one fast one. seen carries
 // each viewer's running total between calls and is pruned here.
-func (s *Session) intervalBytes(seen map[uint64]uint64, since time.Time) (uint64, bool) {
+func (s *Session) intervalBytes(seen, seenOffered map[uint64]uint64, since time.Time) (uint64, uint64, bool) {
 	type reading struct {
-		total uint64
-		whole bool
+		total   uint64
+		offered uint64
+		whole   bool
 	}
 
 	s.mu.RLock()
 	cur := make(map[uint64]reading, len(s.viewers))
 	for id, v := range s.viewers {
-		cur[id] = reading{total: v.sent.Load(), whole: !v.joined.After(since)}
+		// offered is loaded first: it is added before sent for the same
+		// frame, so this order never reads more sent than offered.
+		off := v.offered.Load()
+		cur[id] = reading{total: v.sent.Load(), offered: off, whole: !v.joined.After(since)}
 	}
 	s.mu.RUnlock()
 
-	var low uint64
+	var low, lowOffered uint64
 	found := false
 	for id, r := range cur {
 		if !r.whole {
@@ -333,19 +340,21 @@ func (s *Session) intervalBytes(seen map[uint64]uint64, since time.Time) (uint64
 		}
 		delta := r.total - seen[id]
 		if !found || delta < low {
-			low, found = delta, true
+			low, lowOffered, found = delta, r.offered-seenOffered[id], true
 		}
 	}
 
 	for id := range seen {
 		if _, ok := cur[id]; !ok {
 			delete(seen, id)
+			delete(seenOffered, id)
 		}
 	}
 	for id, r := range cur {
 		seen[id] = r.total
+		seenOffered[id] = r.offered
 	}
-	return low, found
+	return low, lowOffered, found
 }
 
 // SetBitrateObserver installs a callback that receives every interval the

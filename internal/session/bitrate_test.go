@@ -837,3 +837,55 @@ func TestABurstOfKeyframeWaitsOnAnIdleScreenIsNotStarvation(t *testing.T) {
 		}
 	}
 }
+
+// The 8 November cellular run cut a simulator from 4 Mbps to 404 kbps in three
+// undercarried steps while the link delivered every byte it was handed.
+// Goodput sat at half the target because a quarter to a half of the frames
+// were held back awaiting a keyframe after an occasional stale drop, and a
+// chat screen never fills a 4 Mbps budget anyway. Each cut aimed at that
+// goodput and the next window read half again. This is the 109-119s window of
+// recording a14b8a9b2008: 516 frames, awaitFrac 0.46, goodput 822 kbps of
+// 1.675 Mbps, and the slowest viewer received what it was offered.
+func TestALinkThatCarriedEverythingOfferedIsNotUndercarried(t *testing.T) {
+	const current = 1_675_026
+	a := NewLiveBitrateAdapter(current)
+	start := time.Now()
+	a.Observe(start, BitrateSample{})
+
+	var next int
+	var rep BitrateReport
+	for i := 1; i <= 10; i++ {
+		next, rep = a.Observe(start.Add(time.Duration(i)*time.Second), BitrateSample{
+			Frames: 52, Shed: 1, AwaitKey: 24, Bytes: 102_729, Offered: 104_000,
+		})
+	}
+	if next != 0 {
+		t.Fatalf("cut to %d on a link that carried %d of %d bytes offered (gate %q)",
+			next, rep.Bytes, rep.Offered, rep.Gate)
+	}
+	if rep.Gate != GateLinkCarried {
+		t.Fatalf("gate = %q, want %q (awaitFrac %.2f, goodput %d)",
+			rep.Gate, GateLinkCarried, rep.AwaitFrac, rep.GoodputBps)
+	}
+}
+
+// The offered check must not hide a link that is actually failing: frames
+// handed to the transport and reset in flight count as offered and not as
+// carried, so a starved link still reads starved.
+func TestAStarvedLinkStillCutsWhenOfferedBytesAreKnown(t *testing.T) {
+	const configured = 4_000_000
+	a := NewBitrateAdapter(configured)
+	start := time.Now()
+	a.Observe(start, BitrateSample{})
+
+	var next int
+	var rep BitrateReport
+	for i := 1; i <= 10; i++ {
+		next, rep = a.Observe(start.Add(time.Duration(i)*time.Second), BitrateSample{
+			Frames: 60, Shed: 2, AwaitKey: 52, Bytes: 125, Offered: 60_000,
+		})
+	}
+	if rep.Gate != GateStarved || next != minAdaptiveBitRate {
+		t.Fatalf("gate %q next %d, want %q at the floor %d", rep.Gate, next, GateStarved, minAdaptiveBitRate)
+	}
+}

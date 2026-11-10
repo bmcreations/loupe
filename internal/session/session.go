@@ -142,6 +142,10 @@ type viewer struct {
 	// bytes, and counting it would read a fresh connection as a slow link.
 	joined time.Time
 	sent   atomic.Uint64
+	// offered is how many payload bytes were handed to this viewer's
+	// transport, delivered or not. Against sent it says whether the link
+	// carried what it was given (see carriedOfferedFraction).
+	offered atomic.Uint64
 
 	// scrollMu guards scrollAccH, scrollAccV, scrollLastX, scrollLastY and
 	// scrollTimer. ViewerScroll runs on this viewer's own read loop, but the
@@ -562,6 +566,21 @@ func (s *Session) NoteSent(id uint64, n int) {
 	s.mu.RUnlock()
 	if v != nil {
 		v.sent.Add(uint64(n))
+	}
+}
+
+// NoteOffered records payload bytes handed to a viewer's transport, whether or
+// not they arrive. It is called before NoteSent for the same frame, so offered
+// never trails sent.
+func (s *Session) NoteOffered(id uint64, n int) {
+	if n <= 0 {
+		return
+	}
+	s.mu.RLock()
+	v := s.viewers[id]
+	s.mu.RUnlock()
+	if v != nil {
+		v.offered.Add(uint64(n))
 	}
 }
 

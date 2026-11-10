@@ -626,3 +626,39 @@ func TestRefusingToStartIsDistinguishableFromFindingNothingToDo(t *testing.T) {
 	case <-time.After(3 * bitrateSampleInterval):
 	}
 }
+
+// Offered must come from the same viewer as Bytes. Pairing the slow viewer's
+// delivered bytes with the fast viewer's offered ones would read a link that
+// carried everything as one that dropped most of it, and the reverse would
+// hide a failing link.
+func TestSamplerPairsOfferedWithTheSlowestViewersBytes(t *testing.T) {
+	first := newSwapStream()
+	s, _ := openSwap(t, first)
+	slow, _ := s.AddViewer()
+	fast, _ := s.AddViewer()
+	s.mu.Lock()
+	s.viewers[slow].joined = time.Now().Add(-time.Hour)
+	s.viewers[fast].joined = time.Now().Add(-time.Hour)
+	s.mu.Unlock()
+
+	s.NoteOffered(slow, 1200)
+	s.NoteSent(slow, 1000)
+	s.NoteOffered(fast, 9000)
+	s.NoteSent(fast, 9000)
+
+	b := newBitrateSampler()
+	sample, ok := b.next(s, time.Now())
+	if !ok || sample.Bytes != 1000 || sample.Offered != 1200 {
+		t.Fatalf("sample = %+v ok=%v, want Bytes 1000 and Offered 1200 from the slower viewer", sample, ok)
+	}
+
+	// The second interval is a delta, not the running total.
+	s.NoteOffered(slow, 300)
+	s.NoteSent(slow, 300)
+	s.NoteOffered(fast, 900)
+	s.NoteSent(fast, 900)
+	sample, ok = b.next(s, time.Now())
+	if !ok || sample.Bytes != 300 || sample.Offered != 300 {
+		t.Fatalf("second sample = %+v ok=%v, want Bytes 300 and Offered 300", sample, ok)
+	}
+}
