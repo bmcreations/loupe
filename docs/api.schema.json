@@ -57,6 +57,9 @@
     "GET /api/avds/profiles": {
       "$ref": "#/$defs/httpapi.AVDProfilesResponse"
     },
+    "GET /api/camera/sources": {
+      "$ref": "#/$defs/httpapi.CameraSourcesResponse"
+    },
     "GET /api/claims": {
       "items": {
         "$ref": "#/$defs/httpapi.ClaimInfo"
@@ -176,6 +179,9 @@
     },
     "POST /api/camera 200": {
       "$ref": "#/$defs/httpapi.CameraResponse"
+    },
+    "POST /api/camera request": {
+      "$ref": "#/$defs/httpapi.CameraHostRequest"
     },
     "POST /api/claims 200": {
       "$ref": "#/$defs/httpapi.ClaimInfo"
@@ -560,6 +566,17 @@
       ],
       "type": "object"
     },
+    "httpapi.CameraHostRequest": {
+      "properties": {
+        "hostCamera": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hostCamera"
+      ],
+      "type": "object"
+    },
     "httpapi.CameraResponse": {
       "properties": {
         "applies": {
@@ -567,6 +584,9 @@
         },
         "height": {
           "type": "integer"
+        },
+        "hostCamera": {
+          "type": "string"
         },
         "ok": {
           "type": "boolean"
@@ -586,6 +606,24 @@
         "ok",
         "applies",
         "tookMs"
+      ],
+      "type": "object"
+    },
+    "httpapi.CameraSourcesResponse": {
+      "properties": {
+        "cameras": {
+          "items": {
+            "$ref": "#/$defs/target.HostCamera"
+          },
+          "type": "array"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "cameras"
       ],
       "type": "object"
     },
@@ -5042,6 +5080,21 @@
         "y",
         "width",
         "height"
+      ],
+      "type": "object"
+    },
+    "target.HostCamera": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label"
       ],
       "type": "object"
     },

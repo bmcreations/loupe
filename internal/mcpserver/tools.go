@@ -218,8 +218,9 @@ type installIn struct {
 
 type cameraIn struct {
 	Targeted
-	Path  string `json:"path,omitempty" jsonschema:"a PNG or JPEG on the Mac running loupe mcp"`
-	Clear bool   `json:"clear,omitempty" jsonschema:"give the camera back instead of setting an image"`
+	Path       string `json:"path,omitempty" jsonschema:"a PNG or JPEG on the Mac running loupe mcp"`
+	Clear      bool   `json:"clear,omitempty" jsonschema:"give the camera back instead of setting an image"`
+	HostCamera string `json:"hostCamera,omitempty" jsonschema:"AVD only: use this Mac camera, by name as GET /api/camera/sources lists it, instead of an image"`
 }
 
 type dropIn struct {
@@ -379,15 +380,20 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "camera",
-		Description: "Point an AVD's, iOS simulator's or physical iPhone's back camera at a PNG or JPEG read from this Mac's disk, or give the camera back with clear. On an iPhone only development-signed apps signed by a team this Mac has an Apple Development identity for can take it. The answer's applies says when an app sees it: cameraOpen (AVD, next time an app opens the camera), boot (AVD, after it is booted again through loupe), live (iOS app already running with loupe's camera shim), launch (iOS, after the app is launched through loupe, which relaunches it).",
+		Description: "Point an AVD's, iOS simulator's or physical iPhone's back camera at a PNG or JPEG read from this Mac's disk, or, on an AVD, at one of this Mac's cameras (hostCamera, a name from GET /api/camera/sources), or give the camera back with clear. Switching an AVD's camera source takes a cold boot. On an iPhone only development-signed apps signed by a team this Mac has an Apple Development identity for can take it. The answer's applies says when an app sees it: cameraOpen (AVD, next time an app opens the camera), boot (AVD, after it is booted again through loupe), live (iOS app already running with loupe's camera shim), launch (iOS, after the app is launched through loupe, which relaunches it).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in cameraIn) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"target": {in.Target}}
 		if in.Clear {
 			b, _, err := c.do(ctx, http.MethodDelete, "/api/camera", q, "", nil)
 			return jsonResult(b, err)
 		}
+		if in.HostCamera != "" {
+			body, _ := json.Marshal(httpapi.CameraHostRequest{HostCamera: in.HostCamera})
+			b, _, err := c.do(ctx, http.MethodPost, "/api/camera", q, "application/json", bytes.NewReader(body))
+			return jsonResult(b, err)
+		}
 		if in.Path == "" {
-			return errResult(fmt.Errorf("path: an image, or clear")), nil, nil
+			return errResult(fmt.Errorf("path: an image, hostCamera, or clear")), nil, nil
 		}
 		body, err := os.ReadFile(in.Path)
 		if err != nil {
