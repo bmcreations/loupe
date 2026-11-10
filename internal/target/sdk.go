@@ -47,12 +47,22 @@ func EmulatorBinary(sdk string) string {
 	return p
 }
 
+// PrivateAndroidCLI is where loupe puts an android CLI it downloads itself,
+// for a Mac without Homebrew. It needs no admin rights to write.
+func PrivateAndroidCLI() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "loupe", "bin", "android")
+}
+
 // AndroidCLI finds Google's `android` command-line tool, which creates an AVD
 // from a profile. The explicit path wins, then the two places its installer
-// and Homebrew put it, since launchd's PATH reaches neither. It returns ""
-// when none exists, and creation is then not offered.
+// and Homebrew put it, since launchd's PATH reaches neither, then loupe's own
+// download. It returns "" when none exists, and creation is then not offered.
 func AndroidCLI(explicit string) string {
-	for _, c := range []string{explicit, "/usr/local/bin/android", "/opt/homebrew/bin/android"} {
+	for _, c := range []string{explicit, "/usr/local/bin/android", "/opt/homebrew/bin/android", PrivateAndroidCLI()} {
 		if c == "" {
 			continue
 		}

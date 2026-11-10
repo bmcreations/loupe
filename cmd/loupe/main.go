@@ -682,6 +682,7 @@ func main() {
 	if err := remoteDevs.Load(filepath.Join(filepath.Dir(cfgPath), "remote-devices.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: remote device reservations unreadable, starting with none: %v\n", err)
 	}
+	remoteDevs.SetCLIInstaller(httpapi.NewCLIInstaller(target.PrivateAndroidCLI()))
 	api.SetRemoteDevices(remoteDevs)
 	go remoteDevs.Watch(ctx)
 	// New device… from installed images. It does not depend on device

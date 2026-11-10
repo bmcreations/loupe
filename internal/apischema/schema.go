@@ -151,6 +151,7 @@ var endpoints = []endpoint{
 	// DELETE signs out.
 	{"DELETE /api/remote/account", dirResponse, httpapi.RemoteAccountResponse{}},
 	// ?project=.
+	{"POST /api/remote/cli 202", dirResponse, httpapi.RemoteAccountResponse{}},
 	{"GET /api/remote/models", dirResponse, httpapi.RemoteModelsResponse{}},
 	{"GET /api/remote/models 502", dirResponse, httpapi.RemoteModelsError{}},
 	{"GET /api/devices/options", dirResponse, httpapi.DeviceOptionsResponse{}},

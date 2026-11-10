@@ -313,6 +313,7 @@ var routes = []route{
 	{"/api/remote", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRemote, ""},
 	{"/api/remote/extend", []string{http.MethodPost}, (*Server).handleRemoteExtend, ""},
 	{"/api/remote/account", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRemoteAccount, ""},
+	{"/api/remote/cli", []string{http.MethodPost}, (*Server).handleRemoteCLI, ""},
 	{"/api/remote/models", []string{http.MethodGet}, (*Server).handleRemoteModels, ""},
 	{"/api/devices/options", []string{http.MethodGet}, (*Server).handleDeviceOptions, ""},
 	{"/api/devices/shutdown", []string{http.MethodPost}, (*Server).handleDeviceShutdown, ""},

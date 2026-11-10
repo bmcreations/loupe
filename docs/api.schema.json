@@ -318,6 +318,9 @@
     "POST /api/remote/account 202": {
       "$ref": "#/$defs/httpapi.RemoteAccountResponse"
     },
+    "POST /api/remote/cli 202": {
+      "$ref": "#/$defs/httpapi.RemoteAccountResponse"
+    },
     "POST /api/remote/extend": {
       "$ref": "#/$defs/httpapi.RemoteListResponse"
     },
@@ -3796,7 +3799,16 @@
         "account": {
           "type": "string"
         },
+        "canInstallCLI": {
+          "type": "boolean"
+        },
+        "cliInstallError": {
+          "type": "string"
+        },
         "cliInstalled": {
+          "type": "boolean"
+        },
+        "cliInstalling": {
           "type": "boolean"
         },
         "projects": {

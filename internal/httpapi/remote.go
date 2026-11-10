@@ -120,6 +120,10 @@ type RemoteDevices struct {
 	creating sync.WaitGroup
 	// signingIn is true while `android auth login` waits on the browser.
 	signingIn bool
+	// installer installs the CLI on request; nil means it cannot.
+	installer  *CLIInstaller
+	installing bool
+	installErr string
 }
 
 // NewRemoteDevices takes the CLI lookup, not a path: the CLI may be installed
@@ -765,16 +769,23 @@ type RemoteModelsError struct {
 type RemoteAccountResponse struct {
 	// CLIInstalled is false while the android CLI is missing on this host;
 	// nothing else here is meaningful then.
-	CLIInstalled bool     `json:"cliInstalled"`
-	SignedIn     bool     `json:"signedIn"`
-	Account      string   `json:"account,omitempty"`
-	SigningIn    bool     `json:"signingIn,omitempty"`
-	Projects     []string `json:"projects"`
+	CLIInstalled bool   `json:"cliInstalled"`
+	SignedIn     bool   `json:"signedIn"`
+	Account      string `json:"account,omitempty"`
+	SigningIn    bool   `json:"signingIn,omitempty"`
+	// CanInstallCLI is true when POST /api/remote/cli can install it.
+	CanInstallCLI bool `json:"canInstallCLI,omitempty"`
+	// CLIInstalling is true while that install runs; CLIInstallError is why
+	// the last one failed.
+	CLIInstalling   bool     `json:"cliInstalling,omitempty"`
+	CLIInstallError string   `json:"cliInstallError,omitempty"`
+	Projects        []string `json:"projects"`
 }
 
 func (r *RemoteDevices) account(ctx context.Context) RemoteAccountResponse {
 	r.mu.Lock()
-	acct := RemoteAccountResponse{SigningIn: r.signingIn, Projects: []string{}}
+	acct := RemoteAccountResponse{SigningIn: r.signingIn, Projects: []string{},
+		CanInstallCLI: r.installer != nil, CLIInstalling: r.installing, CLIInstallError: r.installErr}
 	r.mu.Unlock()
 	if acct.CLIInstalled = r.Installed(); !acct.CLIInstalled {
 		return acct
