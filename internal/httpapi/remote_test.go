@@ -97,7 +97,7 @@ func remoteServer(t *testing.T, cli *fakeRemoteCLI) remoteRig {
 	clock := time.Date(2026, 11, 10, 10, 41, 0, 0, time.Local)
 	var mu sync.Mutex
 	var ended []string
-	rd := NewRemoteDevices("android", func(id, reason string) {
+	rd := NewRemoteDevices(func() string { return "android" }, func(id, reason string) {
 		mu.Lock()
 		defer mu.Unlock()
 		ended = append(ended, id+" "+reason)
@@ -284,7 +284,7 @@ func TestExitReleasesAndARestartReleasesWhatACrashLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 	cli := &fakeRemoteCLI{t: t}
-	next := NewRemoteDevices("android", nil, nil)
+	next := NewRemoteDevices(func() string { return "android" }, nil, nil)
 	next.run = cli.run
 	next.now = rig.rd.now
 	if err := next.Load(path); err != nil {
@@ -397,7 +397,7 @@ func TestARestartAfterAQuitMidReserveReleasesOnlyWhatThatReserveMade(t *testing.
 				t.Fatal(err)
 			}
 			cli := &fakeRemoteCLI{t: t, holding: true}
-			rd := NewRemoteDevices("android", nil, nil)
+			rd := NewRemoteDevices(func() string { return "android" }, nil, nil)
 			rd.run = cli.run
 			if err := rd.Load(path); err != nil {
 				t.Fatal(err)
@@ -409,5 +409,45 @@ func TestARestartAfterAQuitMidReserveReleasesOnlyWhatThatReserveMade(t *testing.
 				t.Errorf("removed = %v, want %v; ran %v", removed, tc.want, cli.ran())
 			}
 		})
+	}
+}
+
+// A client must tell "no CLI on this host" from "server too old": the old
+// server answers 404, so a missing CLI answers 200 cliInstalled false and 503.
+// The lookup runs per call, so installing the CLI needs no restart.
+func TestAMissingCLIIsReportedAndPickedUpOnceInstalled(t *testing.T) {
+	path := ""
+	rd := NewRemoteDevices(func() string { return path }, nil, nil)
+	s := &Server{mgr: NewManager(target.Options{})}
+	s.SetRemoteDevices(rd)
+
+	rec := do(s, http.MethodGet, "/api/remote/account", "")
+	var acct RemoteAccountResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &acct); err != nil || rec.Code != http.StatusOK || acct.CLIInstalled {
+		t.Fatalf("account without a CLI = %d %s (%v), want 200 cliInstalled false", rec.Code, rec.Body, err)
+	}
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/remote", `{"project":"demo-project","codename":"tokay","api":36}`},
+		{http.MethodPost, "/api/remote/account", ""},
+		{http.MethodDelete, "/api/remote/account", ""},
+		{http.MethodGet, "/api/remote/models?project=demo-project", ""},
+	} {
+		if rec := do(s, c.method, c.path, c.body); rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s %s without a CLI = %d, want 503", c.method, c.path, rec.Code)
+		}
+	}
+	if rec := do(s, http.MethodGet, "/api/remote", ""); rec.Code != http.StatusOK {
+		t.Errorf("list without a CLI = %d, want 200", rec.Code)
+	}
+
+	// "Installed": a script that answers auth status, at a path found lazily.
+	path = filepath.Join(t.TempDir(), "android")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho 'Logged in as Test Person <test@example.com>'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec = do(s, http.MethodGet, "/api/remote/account", "")
+	acct = RemoteAccountResponse{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &acct); err != nil || !acct.CLIInstalled || !acct.SignedIn {
+		t.Fatalf("account after install = %s (%v), want installed and signed in", rec.Body, err)
 	}
 }

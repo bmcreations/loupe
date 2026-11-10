@@ -86,7 +86,9 @@ type Server struct {
 	// installed, and /api/avds then answers 404.
 	avds *AVDCreator
 	// remote reserves Firebase remote devices through the same CLI
-	// (remote.go). Nil without the CLI, and /api/remote then answers 404.
+	// (remote.go). Set even without the CLI, which is looked up per call:
+	// /api/remote/account then reports cliInstalled false and the routes
+	// that need the CLI answer 503.
 	remote *RemoteDevices
 	// devs creates AVDs through avdmanager and simulators through simctl
 	// from what is installed. Nil when neither can, and /api/devices then

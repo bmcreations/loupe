@@ -674,18 +674,16 @@ func main() {
 	}
 	// Firebase remote devices, reserved through the same CLI. Independent of
 	// where AVDs live. Whatever a previous run left reserved is released now.
-	var remoteDevs *httpapi.RemoteDevices
-	if cli := target.AndroidCLI(*androidCLI); cli != "" {
-		remoteDevs = httpapi.NewRemoteDevices(cli, func(id, reason string) {
-			mgr.EndSession(id, reason)
-			mgr.Unregister(id)
-		}, tracer.Record)
-		if err := remoteDevs.Load(filepath.Join(filepath.Dir(cfgPath), "remote-devices.json")); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: remote device reservations unreadable, starting with none: %v\n", err)
-		}
-		api.SetRemoteDevices(remoteDevs)
-		go remoteDevs.Watch(ctx)
+	// The CLI is looked up per call: one installed later needs no restart.
+	remoteDevs := httpapi.NewRemoteDevices(func() string { return target.AndroidCLI(*androidCLI) }, func(id, reason string) {
+		mgr.EndSession(id, reason)
+		mgr.Unregister(id)
+	}, tracer.Record)
+	if err := remoteDevs.Load(filepath.Join(filepath.Dir(cfgPath), "remote-devices.json")); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: remote device reservations unreadable, starting with none: %v\n", err)
 	}
+	api.SetRemoteDevices(remoteDevs)
+	go remoteDevs.Watch(ctx)
 	// New device… from installed images. It does not depend on device
 	// discovery for iOS (simcapBin), and avdmanager follows ANDROID_AVD_HOME,
 	// so unlike the android CLI it needs no AVD-home check.

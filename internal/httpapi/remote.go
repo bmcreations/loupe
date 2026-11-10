@@ -100,7 +100,9 @@ type RemoteModel struct {
 
 // RemoteDevices makes and ends reservations through the android CLI.
 type RemoteDevices struct {
-	cli   string
+	// find locates the android CLI on each call, so one installed while
+	// loupe runs is picked up without a restart. "" means not installed.
+	find  func() string
 	trace func(map[string]any)
 	// run executes the CLI; tests replace it. Nothing here may reach runCLI
 	// in a test: the CLI on a developer's Mac is signed in and would bill.
@@ -120,12 +122,20 @@ type RemoteDevices struct {
 	signingIn bool
 }
 
-// NewRemoteDevices returns nil when cli is "": there is nothing to run.
-func NewRemoteDevices(cli string, endTarget func(id, reason string), trace func(map[string]any)) *RemoteDevices {
-	if cli == "" {
-		return nil
-	}
-	return &RemoteDevices{cli: cli, endTarget: endTarget, trace: trace, now: time.Now}
+// NewRemoteDevices takes the CLI lookup, not a path: the CLI may be installed
+// after loupe starts.
+func NewRemoteDevices(find func() string, endTarget func(id, reason string), trace func(map[string]any)) *RemoteDevices {
+	return &RemoteDevices{find: find, endTarget: endTarget, trace: trace, now: time.Now}
+}
+
+// errNoCLI is what every CLI call fails with while the android CLI is not
+// installed. Handlers answer it 503 so a client can tell it from the 404 of
+// a server that predates /api/remote.
+var errNoCLI = errors.New("the android CLI is not installed")
+
+// Installed reports whether there is a CLI to run.
+func (r *RemoteDevices) Installed() bool {
+	return r.run != nil || (r.find != nil && r.find() != "")
 }
 
 // SetRemoteDevices enables /api/remote. Nil leaves its routes answering 404.
@@ -135,7 +145,14 @@ func (r *RemoteDevices) exec(ctx context.Context, args ...string) ([]byte, []byt
 	if r.run != nil {
 		return r.run(ctx, args...)
 	}
-	return runCLI(ctx, r.cli, args...)
+	cli := ""
+	if r.find != nil {
+		cli = r.find()
+	}
+	if cli == "" {
+		return nil, nil, errNoCLI
+	}
+	return runCLI(ctx, cli, args...)
 }
 
 func (r *RemoteDevices) record(rec map[string]any) {
@@ -236,6 +253,9 @@ func (r *RemoteDevices) Reserve(project, codename string, api int, model string)
 	}
 	if !validCodename.MatchString(codename) || api <= 0 {
 		return "", errors.New("device must be a codename and an API level")
+	}
+	if !r.Installed() {
+		return "", errNoCLI
 	}
 	r.mu.Lock()
 	for _, it := range r.items {
@@ -743,16 +763,22 @@ type RemoteModelsError struct {
 // RemoteAccountResponse is the Google account the CLI is signed in as and
 // the projects it may reserve in.
 type RemoteAccountResponse struct {
-	SignedIn  bool     `json:"signedIn"`
-	Account   string   `json:"account,omitempty"`
-	SigningIn bool     `json:"signingIn,omitempty"`
-	Projects  []string `json:"projects"`
+	// CLIInstalled is false while the android CLI is missing on this host;
+	// nothing else here is meaningful then.
+	CLIInstalled bool     `json:"cliInstalled"`
+	SignedIn     bool     `json:"signedIn"`
+	Account      string   `json:"account,omitempty"`
+	SigningIn    bool     `json:"signingIn,omitempty"`
+	Projects     []string `json:"projects"`
 }
 
 func (r *RemoteDevices) account(ctx context.Context) RemoteAccountResponse {
 	r.mu.Lock()
 	acct := RemoteAccountResponse{SigningIn: r.signingIn, Projects: []string{}}
 	r.mu.Unlock()
+	if acct.CLIInstalled = r.Installed(); !acct.CLIInstalled {
+		return acct
+	}
 	out, _, _ := r.exec(ctx, "auth", "status")
 	m := reAccount.FindStringSubmatch(string(out))
 	if m == nil {
@@ -810,6 +836,10 @@ func (s *Server) handleRemote(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		if errors.Is(err, errNoCLI) {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -865,9 +895,17 @@ func (s *Server) handleRemoteAccount(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, rd.account(ctx))
 	case http.MethodPost:
+		if !rd.Installed() {
+			http.Error(w, errNoCLI.Error(), http.StatusServiceUnavailable)
+			return
+		}
 		_ = rd.signIn()
 		writeJSON(w, http.StatusAccepted, RemoteAccountResponse{SigningIn: true, Projects: []string{}})
 	case http.MethodDelete:
+		if !rd.Installed() {
+			http.Error(w, errNoCLI.Error(), http.StatusServiceUnavailable)
+			return
+		}
 		if _, stderr, err := rd.exec(ctx, "auth", "logout"); err != nil {
 			http.Error(w, remoteFailure("", string(stderr), err), http.StatusBadGateway)
 			return
@@ -885,6 +923,10 @@ func (s *Server) handleRemoteModels(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
 	if !validProject.MatchString(project) {
 		http.Error(w, "project is not a Google Cloud project id", http.StatusBadRequest)
+		return
+	}
+	if !rd.Installed() {
+		http.Error(w, errNoCLI.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), remoteCallTimeout)

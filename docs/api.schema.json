@@ -3796,6 +3796,9 @@
         "account": {
           "type": "string"
         },
+        "cliInstalled": {
+          "type": "boolean"
+        },
         "projects": {
           "items": {
             "type": "string"
@@ -3810,6 +3813,7 @@
         }
       },
       "required": [
+        "cliInstalled",
         "signedIn",
         "projects"
       ],
