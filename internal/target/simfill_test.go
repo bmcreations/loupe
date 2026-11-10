@@ -2,6 +2,7 @@ package target
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -15,8 +16,9 @@ var newGroupHits = []axNode{
 }
 
 // fakeHit answers a point in device pixels with the first of hits whose frame
-// holds it, else the deepest node of ui that does, as the simulator answers
-// with the bar itself between its items.
+// holds it, else the deepest node of ui that does. The simulator answered
+// New Group's gaps with the nearest item; answering with the container is the
+// harder case, since it must not be taken for a child.
 func fakeHit(ui *UI, hits []axNode, calls *int) func(x, y int) (*Node, error) {
 	return func(x, y int) (*Node, error) {
 		*calls++
@@ -81,6 +83,14 @@ func TestFillByHitAddsTheItemsOfAChildlessNavigationBar(t *testing.T) {
 		t.Fatalf("bar children = %d, want Back, the title and Create: %+v", len(bar.Children), bar.Children)
 	}
 
+	var order []string
+	for _, n := range bar.Children {
+		order = append(order, n.Text)
+	}
+	if fmt.Sprint(order) != "[Back New Group Create]" {
+		t.Errorf("bar children in order %v, want left to right", order)
+	}
+
 	back, _, err := Pick(ui.Root, Match{ID: "BackButton"})
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +147,7 @@ func TestFillByHitKeepsWhatItFoundBeforeAnError(t *testing.T) {
 	ok := fakeHit(ui, newGroupHits, &calls)
 	broken := errors.New("input process gone")
 	err := fillByHit(ui, func(x, y int) (*Node, error) {
-		if calls >= 2 {
+		if calls >= 3 {
 			return nil, broken
 		}
 		return ok(x, y)
@@ -146,7 +156,7 @@ func TestFillByHitKeepsWhatItFoundBeforeAnError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	if _, _, err := Pick(ui.Root, Match{ID: "BackButton"}); err != nil {
-		t.Errorf("BackButton, found by the second probe: %v", err)
+		t.Errorf("BackButton, found by the third probe: %v", err)
 	}
 }
 
@@ -159,10 +169,48 @@ func TestFillByHitStopsAtItsBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := 0
-	if err := fillByHit(ui, func(x, y int) (*Node, error) { calls++; return nil, nil }); err != nil {
+	// Something elsewhere answers every probe, so the centre does not mark
+	// the group a leaf.
+	elsewhere := &Node{Class: "Button", Bounds: [4]int{2000, 3000, 2010, 3010}}
+	if err := fillByHit(ui, func(x, y int) (*Node, error) { calls++; return elsewhere, nil }); err != nil {
 		t.Fatal(err)
 	}
 	if calls != fillMaxProbes {
 		t.Errorf("%d hit tests, want the cap %d", calls, fillMaxProbes)
+	}
+}
+
+// Childless groups that answer as themselves, ahead of a bar in tree order,
+// must not use up the probes the bar needs.
+func TestFillByHitSpendsOneProbeOnALeafGroup(t *testing.T) {
+	cards := ""
+	for i := range 10 {
+		cards += fmt.Sprintf(`{"role":"AXGroup","label":"card %d","frame":[0,%d,402,54]},`, i, 130+i*60)
+	}
+	raw := []byte(`{"role":"AXApplication","frame":[0,0,402,874],"children":[` + cards +
+		`{"role":"AXGroup","label":"Tab Bar","frame":[0,791,402,83]}]}`)
+	ui, err := parseAXTree(raw, 1206, 2622)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs := []axNode{
+		{Role: "AXRadioButton", Label: "Scan", Frame: []float64{25, 795, 76, 54}},
+		{Role: "AXRadioButton", Label: "Chat", Frame: []float64{93.66666666666667, 795, 76, 54}},
+		{Role: "AXRadioButton", Label: "Wallet", Frame: []float64{162.33333333333334, 795, 76, 54}},
+		{Role: "AXRadioButton", Label: "You", Frame: []float64{231, 795, 76, 54}},
+		{Role: "AXRadioButton", Label: "Search", Frame: []float64{319, 791, 62, 62}},
+	}
+	calls := 0
+	if err := fillByHit(ui, fakeHit(ui, tabs, &calls)); err != nil {
+		t.Fatal(err)
+	}
+	bar := find(ui.Root, func(n *Node) bool { return n.Text == "Tab Bar" })
+	if len(bar.Children) != 5 {
+		t.Errorf("tab bar children = %d, want 5, after %d probes", len(bar.Children), calls)
+	}
+	for _, c := range ui.Root.Children[:10] {
+		if len(c.Children) != 0 {
+			t.Errorf("%q got children %+v", c.Text, c.Children)
+		}
 	}
 }

@@ -1,5 +1,7 @@
 package target
 
+import "slices"
+
 // A navigation bar or tab bar can reach loupe as a container that lists no
 // children while its buttons answer hit tests. In Flipcash on an iPhone 17
 // simulator, iOS 27, Chats' navigation bar came through as a Group with id
@@ -22,8 +24,8 @@ const (
 	// fillRowPt is the spacing of rows in a container taller than two rows,
 	// in points: the 44pt minimum tap target.
 	fillRowPt = 44
-	// fillMaxProbes caps hit tests per dump. A hit took about 10ms through
-	// the input process, so a screen at the cap adds about a second.
+	// fillMaxProbes caps hit tests per dump. Chats' navigation bar and tab
+	// bar added about 90ms to its dump, for roughly 30 probes.
 	fillMaxProbes = 96
 )
 
@@ -55,7 +57,31 @@ func fillByHit(ui *UI, hit func(x, y int) (*Node, error)) error {
 
 	step := max(1, int(fillStepPt*ui.scale))
 	budget := fillMaxProbes
+	add := func(c, n *Node) {
+		if k := keyOf(n); !seen[k] {
+			seen[k] = true
+			c.Children = append(c.Children, n)
+		}
+	}
 	for _, c := range empty {
+		if budget <= 0 {
+			break
+		}
+		// A container that answers at its centre as itself is a leaf, such
+		// as a card combined into one element, and costs one probe rather
+		// than a row, so a screen of them leaves budget for the bars. A bar
+		// answers with an item there: New Group's centre is its title.
+		budget--
+		n, err := hit(c.Center[0], c.Center[1])
+		if err != nil {
+			return err
+		}
+		if n == nil || keyOf(n) == keyOf(c) {
+			continue
+		}
+		if boundsWithin(n.Bounds, c.Bounds) {
+			add(c, n)
+		}
 		for _, y := range fillRows(c.Bounds, ui.scale) {
 			for x := c.Bounds[0] + step/2; x < c.Bounds[2] && budget > 0; {
 				budget--
@@ -65,10 +91,7 @@ func fillByHit(ui *UI, hit func(x, y int) (*Node, error)) error {
 				}
 				next := x + step
 				if n != nil && keyOf(n) != keyOf(c) && boundsWithin(n.Bounds, c.Bounds) {
-					if k := keyOf(n); !seen[k] {
-						seen[k] = true
-						c.Children = append(c.Children, n)
-					}
+					add(c, n)
 					// Skip the rest of an item the probe landed on. The
 					// container itself, or anything around it, is not one.
 					if n.Bounds[0] <= x && n.Bounds[2] >= next {
@@ -78,6 +101,15 @@ func fillByHit(ui *UI, hit func(x, y int) (*Node, error)) error {
 				x = next
 			}
 		}
+		// Reading order, left to right within each row, so an index in a
+		// match counts the way the bar is drawn, not the order of probes.
+		row := max(1, int(fillRowPt*ui.scale))
+		slices.SortStableFunc(c.Children, func(a, b *Node) int {
+			if d := (a.Center[1]-c.Bounds[1])/row - (b.Center[1]-c.Bounds[1])/row; d != 0 {
+				return d
+			}
+			return a.Bounds[0] - b.Bounds[0]
+		})
 	}
 	return nil
 }
