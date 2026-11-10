@@ -284,7 +284,8 @@ async function connectWebTransport({ target, start, onControl, onFrame, onOpen, 
     setTimeout(() => markClosed(), 500);
   };
   readControl(control.readable, onControl).catch(readerFailed);
-  readFrames(uniReader, (f) => { received += f.bytes; onFrame(f); }).catch(readerFailed);
+  const reorder = new FrameReorder();
+  readFrames(uniReader, (f) => { received += f.bytes; onFrame(f); }, () => closed, GAP_WAIT_MS, reorder).catch(readerFailed);
 
   onOpen && onOpen();
 
@@ -299,6 +300,9 @@ async function connectWebTransport({ target, start, onControl, onFrame, onOpen, 
       writer.write(framed).catch(() => {});
     },
     get open() { return !closed; },
+    // For the client report: how often frames came out of order and what
+    // the reorder did about it.
+    frameOrder() { return reorder.stats(); },
     close() { try { wt.close(); } catch (_) {} },
   };
 }
@@ -332,19 +336,158 @@ async function readControl(readable, onControl) {
 //
 // Each stream is drained in its own task rather than in sequence. Serializing
 // them would reintroduce exactly the head-of-line blocking this transport
-// exists to avoid.
-async function readFrames(streams, onFrame) {
-  for (;;) {
-    const { value: stream, done } = await streams.read();
-    if (done) return;
-    drainFrame(stream, onFrame).catch(() => {
-      // A reset stream is the server abandoning a stale frame on purpose.
-      // Nothing to recover: the next frame arrives on its own stream.
-    });
+// exists to avoid. Draining them in parallel means they finish in any order,
+// so each frame goes through a FrameReorder before the caller sees it.
+export async function readFrames(streams, onFrame, isClosed = () => false, gapWaitMs = GAP_WAIT_MS, reorder = new FrameReorder()) {
+  let gapTimer = null;
+  const stopTimer = () => {
+    if (gapTimer !== null) clearTimeout(gapTimer);
+    gapTimer = null;
+  };
+  const deliver = (ready) => {
+    for (const f of ready) {
+      if (isClosed()) return;
+      onFrame(f);
+    }
+  };
+  // The wait is for one gap, not for gaps in general: a stream that keeps
+  // moving must not have a fresh gap cut short.
+  const armGapTimer = () => {
+    if (!reorder.hasGap || isClosed()) return stopTimer();
+    if (gapTimer !== null) return;
+    gapTimer = setTimeout(() => {
+      gapTimer = null;
+      if (isClosed()) return;
+      deliver(reorder.skipGap());
+      armGapTimer();
+    }, gapWaitMs);
+  };
+  try {
+    for (;;) {
+      const { value: stream, done } = await streams.read();
+      if (done) return;
+      drainFrame(stream).then((f) => {
+        if (!f) return;
+        const ready = reorder.accept(f);
+        if (ready.length) stopTimer();
+        deliver(ready);
+        armGapTimer();
+      }, () => {
+        // A reset stream is the server abandoning a stale frame on purpose.
+        // Its number will not arrive, and the server follows it with a
+        // keyframe, which is where FrameReorder resumes the order.
+        reorder.reset();
+        armGapTimer();
+      });
+    }
+  } finally {
+    stopTimer();
   }
 }
 
-async function drainFrame(stream, onFrame) {
+// GAP_WAIT_MS is how long a missing frame number is waited for before it is
+// given up on. A late frame is a retransmit and a reset is reported, so this
+// only fires on a frame that vanished without either. It matches Handset's
+// QuicTransport.gapWait.
+export const GAP_WAIT_MS = 500;
+
+// FrameReorder puts frames back in the server's order. It is the browser's
+// copy of Handset's FrameReorder (LoupeClient QuicWire.swift).
+//
+// The server numbers frames from 1 (wtConn.frameID) and counts the ones it
+// resets. Without this the client decoded frames in the order their streams
+// finished: a large keyframe finishing after the small deltas sent behind it
+// was decoded last, and a delta whose predecessor was reset was decoded
+// against the wrong reference. The decoder draws both without complaint, as
+// smeared blocks until the next keyframe.
+//
+// A gap is either a frame still in flight or one the server reset. A frame
+// still in flight always arrives, because QUIC retransmits it, so a gap waits
+// for it. A reset is seen as a stream ending in an error (reset()). After one
+// the server holds deltas back and sends a keyframe, and that keyframe is
+// where the order resumes: everything missing before it is skipped.
+export class FrameReorder {
+  constructor({ maxPending = 120 } = {}) {
+    // More held than this and the gap is taken as lost, without waiting.
+    this.maxPending = maxPending;
+    this.next = 1;
+    this.pending = new Map();
+    // Resets seen that the next keyframe has not yet accounted for.
+    this.resets = 0;
+    // Frames dropped because their turn had passed.
+    this.late = 0;
+    // Gaps skipped at a keyframe after a reset.
+    this.resyncs = 0;
+    // Gaps given up on without a keyframe: the decoder ran past a missing
+    // reference, so these can streak.
+    this.gapSkips = 0;
+    // Resets seen, and frames that arrived ahead of their turn.
+    this.resetCount = 0;
+    this.reordered = 0;
+    // Most frames held behind a gap since stats() was last read.
+    this.maxHeld = 0;
+  }
+
+  get hasGap() { return this.pending.size > 0; }
+
+  /** The frames now deliverable, in order. */
+  accept(f) {
+    const id = f.id;
+    if (id < this.next) {
+      this.late++;
+      return [];
+    }
+    if (this.resets > 0 && id > this.next && (f.key || f.config)) {
+      for (const k of [...this.pending.keys()]) if (k <= id) this.pending.delete(k);
+      this.next = id;
+      this.resets = 0;
+      this.resyncs++;
+    }
+    if (id > this.next) this.reordered++;
+    this.pending.set(id, f);
+    const out = this.drain();
+    if (this.pending.size > this.maxHeld) this.maxHeld = this.pending.size;
+    if (this.pending.size > this.maxPending) out.push(...this.skipGap());
+    return out;
+  }
+
+  /** A stream the server reset: one frame number that will not arrive. */
+  reset() { this.resets++; this.resetCount++; }
+
+  /** Gives up on the frames before the oldest one held. */
+  skipGap() {
+    if (!this.pending.size) return [];
+    this.gapSkips++;
+    this.next = Math.min(...this.pending.keys());
+    return this.drain();
+  }
+
+  /** Counters for the client report. maxHeld restarts at each read. */
+  stats() {
+    const out = {
+      reordered: this.reordered, resets: this.resetCount, resyncs: this.resyncs,
+      gapSkips: this.gapSkips, late: this.late, maxHeld: this.maxHeld,
+    };
+    this.maxHeld = this.pending.size;
+    return out;
+  }
+
+  drain() {
+    const out = [];
+    for (;;) {
+      const f = this.pending.get(this.next);
+      if (f === undefined) return out;
+      this.pending.delete(this.next);
+      out.push(f);
+      this.next = (this.next + 1) >>> 0;
+    }
+  }
+}
+
+// drainFrame reads one stream to its end and parses the frame on it, or
+// returns null for a stream too short to hold one (diagnoseStreams' probe).
+// It rejects when the stream is reset.
+async function drainFrame(stream) {
   const reader = stream.getReader();
   const chunks = [];
   let total = 0;
@@ -356,7 +499,7 @@ async function drainFrame(stream, onFrame) {
       total += value.length;
     }
   }
-  if (total < WT_FRAME_HEADER_LEN) return;
+  if (total < WT_FRAME_HEADER_LEN) return null;
 
   const buf = new Uint8Array(total);
   let at = 0;
@@ -364,13 +507,14 @@ async function drainFrame(stream, onFrame) {
 
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const flags = buf[12];
-  onFrame({
+  return {
+    id: view.getUint32(0),
     ptsMicros: Number(view.getBigUint64(4)),
     key: (flags & FLAG_KEY) !== 0,
     config: (flags & FLAG_CONFIG) !== 0,
     payload: buf.subarray(WT_FRAME_HEADER_LEN),
     bytes: total,
-  });
+  };
 }
 
 // tokenParam returns "&token=..." when the page holds a loupe token, or "".

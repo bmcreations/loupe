@@ -734,6 +734,9 @@ export function createPane(deps) {
       held: jitterBuf.held,
       overruns: jitterBuf.overruns,
       skipped: jitterBuf.skipped,
+      // WebTransport only: frames that finished out of order and what the
+      // reorder did with them (transport.js FrameReorder).
+      frameOrder: ws && ws.frameOrder ? ws.frameOrder() : undefined,
       codec: info ? info.codec : null,
       size: info ? `${info.codedWidth}x${info.codedHeight}` : null,
       visible: !hidden(),
