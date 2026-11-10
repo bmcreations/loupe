@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,6 +84,10 @@ type RemoteReservation struct {
 	ActiveAt  time.Time `json:"activeAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
 	EndedAt   time.Time `json:"endedAt"`
+	// Before is the reservation ids the project held when this reserve
+	// began. A reserve has no id of its own until the CLI returns, so a
+	// start after a quit in that window releases whatever is not in here.
+	Before []string `json:"before,omitempty"`
 }
 
 // RemoteModel is one reservable device and the API levels it comes with.
@@ -108,6 +113,9 @@ type RemoteDevices struct {
 	mu    sync.Mutex
 	path  string
 	items []*RemoteReservation
+	// creating counts reserves still inside the CLI, so exit can wait for
+	// their ids.
+	creating sync.WaitGroup
 	// signingIn is true while `android auth login` waits on the browser.
 	signingIn bool
 }
@@ -157,10 +165,14 @@ func (r *RemoteDevices) Load(path string) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	r.items = items
-	var orphans []*RemoteReservation
+	var orphans, unnamed []*RemoteReservation
 	for _, it := range r.items {
 		if it.State == remoteEnded {
 			continue
+		}
+		if it.Reservation == "" {
+			cp := *it
+			unnamed = append(unnamed, &cp)
 		}
 		// Usage counts up to the expiry at most: nobody knows when the old
 		// process died, and the reservation could not outlive its expiry.
@@ -180,6 +192,22 @@ func (r *RemoteDevices) Load(path string) error {
 		for _, it := range orphans {
 			r.releaseAtGoogle(it)
 			r.record(map[string]any{"action": "reconcile", "reservation": it.Reservation, "project": it.Project})
+		}
+		// The old process quit mid-reserve. What the project holds now and
+		// did not hold before is what that reserve made.
+		for _, it := range unnamed {
+			ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
+			now := r.held(ctx, it.Project)
+			cancel()
+			for _, id := range now {
+				if slices.Contains(it.Before, id) {
+					continue
+				}
+				cp := *it
+				cp.Reservation = id
+				r.releaseAtGoogle(&cp)
+				r.record(map[string]any{"action": "reconcile", "reservation": id, "project": it.Project, "midReserve": true})
+			}
 		}
 	}()
 	return nil
@@ -223,6 +251,7 @@ func (r *RemoteDevices) Reserve(project, codename string, api int, model string)
 	r.items = append(r.items, it)
 	r.saveLocked()
 	r.mu.Unlock()
+	r.creating.Add(1)
 	go r.create(it.Key, project, codename, api)
 	return it.Key, nil
 }
@@ -230,8 +259,16 @@ func (r *RemoteDevices) Reserve(project, codename string, api int, model string)
 var errBusy = errors.New("another reservation is being made")
 
 func (r *RemoteDevices) create(key, project, codename string, api int) {
+	defer r.creating.Done()
 	ctx, cancel := context.WithTimeout(context.Background(), remoteCreateTimeout)
 	defer cancel()
+	before := r.held(ctx, project)
+	r.mu.Lock()
+	if it := r.findLocked(key); it != nil {
+		it.Before = before
+		r.saveLocked()
+	}
+	r.mu.Unlock()
 	out, stderr, runErr := r.exec(ctx, "device", "remote", "create", "--connect", "--project="+project, codename+"/"+strconv.Itoa(api))
 	res := parseRemoteCreate(string(out) + "\n" + string(stderr))
 
@@ -263,6 +300,16 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 		rec["error"] = failure
 	}
 	r.record(rec)
+}
+
+// held is the ids of the project's reservations right now, never nil.
+func (r *RemoteDevices) held(ctx context.Context, project string) []string {
+	out, _, _ := r.exec(ctx, "device", "remote", "list", "--project="+project)
+	ids := []string{}
+	for _, row := range parseRemoteList(string(out)) {
+		ids = append(ids, row.id)
+	}
+	return ids
 }
 
 func (r *RemoteDevices) findLocked(key string) *RemoteReservation {
@@ -399,6 +446,14 @@ func (r *RemoteDevices) Watch(ctx context.Context) {
 
 // ReleaseAll releases every reservation this loupe holds. Called at exit.
 func (r *RemoteDevices) ReleaseAll() {
+	// A reserve in flight has no id to release yet. Wait for it: quitting
+	// now would leave the device billing until it expired.
+	done := make(chan struct{})
+	go func() { r.creating.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(remoteCreateTimeout):
+	}
 	r.mu.Lock()
 	var keys []string
 	for _, it := range r.items {

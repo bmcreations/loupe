@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +30,9 @@ func remoteFixture(t *testing.T, name string) []byte {
 type fakeRemoteCLI struct {
 	t       *testing.T
 	release chan struct{} // create waits on it when set
+	// holding makes list show the fixture's reservation from the start;
+	// otherwise the project holds nothing until create returns.
+	holding bool
 	fail    map[string]string
 
 	mu    sync.Mutex
@@ -50,8 +54,17 @@ func (f *fakeRemoteCLI) run(_ context.Context, args ...string) ([]byte, []byte, 
 		if f.release != nil {
 			<-f.release
 		}
+		f.mu.Lock()
+		f.holding = true
+		f.mu.Unlock()
 		return remoteFixture(f.t, "create.txt"), nil, nil
 	case strings.HasPrefix(line, "device remote list"):
+		f.mu.Lock()
+		holding := f.holding
+		f.mu.Unlock()
+		if !holding {
+			return []byte("No reservations found.\n"), nil, nil
+		}
 		return remoteFixture(f.t, "remote-list.txt"), nil, nil
 	case strings.HasPrefix(line, "device remote models"):
 		return remoteFixture(f.t, "models.txt"), nil, nil
@@ -340,5 +353,61 @@ func TestResolveClockRollsPastMidnight(t *testing.T) {
 	}
 	if !resolveClock("soon", now).IsZero() {
 		t.Error("unreadable clock should be zero")
+	}
+}
+
+func TestExitWaitsForAReserveInFlightThenReleasesIt(t *testing.T) {
+	cli := &fakeRemoteCLI{release: make(chan struct{})}
+	rig := remoteServer(t, cli)
+	rig.reserve(t)
+
+	exited := make(chan struct{})
+	go func() { rig.rd.ReleaseAll(); close(exited) }()
+	select {
+	case <-exited:
+		t.Fatal("exit did not wait for the reserve; its device would bill until it expired")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(cli.release)
+	<-exited
+
+	if got := rig.only(t); got.State != remoteEnded || got.Reason != "released" {
+		t.Errorf("after exit = %+v", got)
+	}
+	ran := cli.ran()
+	if last := ran[len(ran)-1]; last != "device remote remove --project=demo-project 21kulawh96ut3" {
+		t.Errorf("exit ran %v", ran)
+	}
+}
+
+func TestARestartAfterAQuitMidReserveReleasesOnlyWhatThatReserveMade(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before []string
+		want   bool
+	}{
+		{"made by the reserve", []string{}, true},
+		{"held before the reserve", []string{"21kulawh96ut3"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "remote-devices.json")
+			left := []RemoteReservation{{Key: "k1", Project: "demo-project", Codename: "tokay", API: 36, State: remoteReserving, Before: tc.before}}
+			raw, _ := json.Marshal(left)
+			if err := os.WriteFile(path, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cli := &fakeRemoteCLI{t: t, holding: true}
+			rd := NewRemoteDevices("android", nil, nil)
+			rd.run = cli.run
+			if err := rd.Load(path); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, func() bool { return len(cli.ran()) >= 1 })
+			time.Sleep(50 * time.Millisecond)
+			removed := slices.Contains(cli.ran(), "device remote remove --project=demo-project 21kulawh96ut3")
+			if removed != tc.want {
+				t.Errorf("removed = %v, want %v; ran %v", removed, tc.want, cli.ran())
+			}
+		})
 	}
 }
