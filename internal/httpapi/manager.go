@@ -311,6 +311,13 @@ func (m *Manager) SyncDevices(devices []target.DeviceInfo, build func(target.Dev
 			}
 			continue
 		}
+		// A remote device this server just released stays in adb's list
+		// until its tunnel closes; do not bring its row back.
+		if _, ok := m.targets[d.Serial]; !ok {
+			if at, gone := m.gone[d.Serial]; gone && time.Since(at) < goneFor {
+				continue
+			}
+		}
 		seen[d.Serial] = true
 		switch cur, ok := m.targets[d.Serial]; {
 		case !ok:

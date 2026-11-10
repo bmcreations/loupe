@@ -146,7 +146,10 @@ func TestReserveShowsAReservingRowThenMarksTheAttachedDevice(t *testing.T) {
 		t.Error("the reserving row outlived the reservation becoming active")
 	}
 	// adb's own row for the device gains the marker.
-	rows := rig.rd.decorate([]TargetInfo{{ID: "localhost:53523"}, {ID: "localhost:5555"}})
+	rows := rig.rd.decorate([]TargetInfo{{ID: "localhost:53523", Label: "localhost:53523"}, {ID: "localhost:5555"}})
+	if rows[0].Label != "Pixel 9" {
+		t.Errorf("attached row label = %q, want the reserved model", rows[0].Label)
+	}
 	if rows[0].Remote == nil || rows[0].Remote.Key != key || rows[0].Remote.ExpiresAt == "" || rows[1].Remote != nil {
 		t.Errorf("decorated = %+v / %+v", rows[0].Remote, rows[1].Remote)
 	}

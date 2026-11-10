@@ -466,6 +466,11 @@ func (r *RemoteDevices) decorate(rows []TargetInfo) []TargetInfo {
 			for i := range rows {
 				if rows[i].ID == it.Target {
 					rows[i].Remote = &RemoteInfo{Key: it.Key, Reservation: it.Reservation, Project: it.Project}
+					// adb has no model for a tunnelled device, so its row
+					// would read localhost:<port>.
+					if it.Model != "" {
+						rows[i].Label = it.Model
+					}
 					if !it.ExpiresAt.IsZero() {
 						rows[i].Remote.ExpiresAt = it.ExpiresAt.Format(time.RFC3339)
 					}
