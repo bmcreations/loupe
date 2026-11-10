@@ -34,7 +34,9 @@ fewer than one report per two seconds, is marked INVALID.
 
     python3 -I scripts/stream-bench.py --rescore TRACE START END [--sim <udid>]
 
-scores a saved Safari trace between two RFC 3339 times.
+scores a saved Safari trace between two RFC 3339 times. As with the probe,
+a run where the encoder made under 30 frames/s is INVALID: the swipes
+(--swipe, device pixels) did not move the page.
 
 Use simulators nobody else uses, claimed on the live loupe first.
 """
@@ -412,11 +414,15 @@ def finish_safari(args, name, plan, target, trace, out, load_start, window):
         json.dump(res, f, indent=1)
 
 
-def safari_invalid(sf, seconds):
+def safari_invalid(sf, s, seconds):
     if sf.get("transports") != ["webtransport"]:
         return "  INVALID (not webtransport)"
     if sf.get("reports", 0) < seconds / 2:
         return "  INVALID (few reports)"
+    # Swipes that miss the page (another simulator's coordinates) leave the
+    # screen still: a small queue that says nothing about the build.
+    if s.get("srcFpsP50", 0) < 30:
+        return "  INVALID (swipes did not move the page)"
     return ""
 
 
@@ -430,7 +436,7 @@ def row_safari(r, seconds):
             f"  decErr {sf.get('decodeErrors', 0)}  resyncs {sf.get('resyncs', 0)}"
             f"  cap {s.get('capP50kbps', 0):>5.0f}  src {s.get('srcFpsP50', 0):>3}fps"
             f"  load {max(l.get('load1', 0) for l in r.get('load') or [{}]):>4.1f}"
-            f"  reports {sf.get('reports', 0)}{safari_invalid(sf, seconds)}")
+            f"  reports {sf.get('reports', 0)}{safari_invalid(sf, s, seconds)}")
 
 
 def row(r):
