@@ -18,7 +18,7 @@ func withCameraDir(t *testing.T) string {
 
 func TestEmulatorCameraArgsOnlyWithAStagedImage(t *testing.T) {
 	dir := withCameraDir(t)
-	if got := emulatorCameraArgs("Pixel_9"); got != nil {
+	if got := emulatorCameraArgs("Pixel_9", "emulator"); got != nil {
 		t.Errorf("nothing staged: %q; want no flag, the AVD's own camera", got)
 	}
 	path := filepath.Join(dir, "avd-Pixel_9.png")
@@ -26,7 +26,7 @@ func TestEmulatorCameraArgsOnlyWithAStagedImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"-camera-back", "imagefile:" + path}
-	if got := emulatorCameraArgs("Pixel_9"); !reflect.DeepEqual(got, want) {
+	if got := emulatorCameraArgs("Pixel_9", "emulator"); !reflect.DeepEqual(got, want) {
 		t.Errorf("staged: %q; want %q", got, want)
 	}
 }
@@ -39,7 +39,7 @@ func TestEmulatorCameraArgsDropsTheBlankLeftByAClear(t *testing.T) {
 	if err := writeCameraFile(path, cameraBlank); err != nil {
 		t.Fatal(err)
 	}
-	if got := emulatorCameraArgs("Pixel_9"); got != nil {
+	if got := emulatorCameraArgs("Pixel_9", "emulator"); got != nil {
 		t.Errorf("blank staged: %q; want no flag", got)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

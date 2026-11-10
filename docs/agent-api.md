@@ -42,7 +42,8 @@ Common refusals on routes that change a device:
 | `POST /api/drop` | Paste an image into a simulator text field |
 | `POST /api/install` | Install an APK or split set, or an iOS app |
 | `POST /api/media` | Add a photo or video to the device library |
-| `POST`, `DELETE /api/camera` | Feed the back camera an image |
+| `POST`, `DELETE /api/camera` | Feed the back camera an image, or an AVD one of the Mac's cameras |
+| `GET /api/camera/sources` | The Mac cameras an AVD can use as its back camera |
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
@@ -385,13 +386,23 @@ goes into a simulator text field through `/api/drop`, not here.
 raw. `DELETE` gives the camera back. Both answer 200 `{target, ok, applies,
 tookMs}`; `POST` adds the image's `width` and `height`.
 
+An AVD can instead use one of the Mac's cameras: `POST` with
+`Content-Type: application/json` and `{"hostCamera": "<name>"}`, a name from
+`GET /api/camera/sources` (answers 200 `{target, ok, applies, hostCamera,
+tookMs}`). Anything else is read as an image. Staging an image drops a staged
+Mac camera and the reverse, and `DELETE` clears either. Simulators and
+physical iPhones answer 501 to `hostCamera`.
+
 Supported on AVDs, iOS simulators and physical iPhones. Physical Android
 devices, `emulator-` serials and synthetic answer 501. Not arbitrated.
 
 | Status | Meaning |
 |---|---|
 | 400 | Not a PNG or JPEG, or over 8192px a side. |
+| 400 | A JSON body without `hostCamera`. |
+| 404 | `hostCamera` names a camera the emulator does not list. |
 | 413 | Over 32 MiB. |
+| 501 | `hostCamera` on anything but an AVD. |
 
 `applies` says when an app sees the image:
 
@@ -399,7 +410,7 @@ devices, `emulator-` serials and synthetic answer 501. Not arbitrated.
 |---|---|
 | `cameraOpen` | AVD booted with the camera flag. The next time an app opens the camera. A preview already showing keeps the old image until the app closes and reopens the camera. |
 | `boot` | AVD running without the flag, or not running. Shut it down and boot it through loupe. |
-| `live` | iOS: an app this server launched with the shim is running and follows swaps. |
+| `live` | iOS: an app this server launched with the shim is running and follows swaps. AVD with a Mac camera: the emulator already runs with `-camera-back` for that camera, so there is nothing to do. |
 | `launch` | iOS: no such app is running. The next `launch` picks the image up. |
 
 **AVDs.** The emulator takes an image only as a boot flag, so loupe passes it
@@ -408,6 +419,23 @@ therefore costs one cold boot (about 14 to 15 seconds against 3.4 from the
 snapshot, measured on one AVD). A new image at the same path loads warm.
 `DELETE` on an AVD running with the flag stages black. The image is fitted
 whole and centered so the app sees all of it.
+
+A Mac camera is staged by name and looked up on each boot loupe starts:
+loupe runs `emulator -webcam-list` and passes `-camera-back webcamN` with the
+camera's current label, since labels shift as cameras come and go and the
+emulator takes no device id. If the camera is not connected at that boot, the
+AVD boots with its own camera and the reason goes to the server log; the name
+stays staged. Switching the camera source (none, an image, a Mac camera,
+another Mac camera) changes the boot config, and the emulator refuses a
+snapshot saved under another camera, so that boot cannot load `loupe-warm` and
+is a cold one.
+
+### `GET /api/camera/sources?target=<id>`
+
+The Mac's cameras as the AVD's emulator lists them:
+`{target, cameras: [{name, label}]}`. `name` is what `hostCamera` takes;
+`label` is the emulator's current `webcamN`, which changes between boots.
+Other targets answer 501.
 
 **iOS simulators.** The simulator has no camera, so loupe builds a shim on the
 first `POST` (about 4 seconds) and `launch` (the `/api/input` action and the

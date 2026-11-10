@@ -284,6 +284,7 @@ var routes = []route{
 	{"/api/media", []string{http.MethodPost}, (*Server).handleMedia, ""},
 	{"/api/drop", []string{http.MethodPost}, (*Server).handleDrop, ""},
 	{"/api/camera", []string{http.MethodPost, http.MethodDelete}, (*Server).handleCamera, ""},
+	{"/api/camera/sources", []string{http.MethodGet}, (*Server).handleCameraSources, ""},
 	{"/api/logcat", []string{http.MethodGet}, (*Server).handleLogcat, ""},
 	{"/api/crashes", []string{http.MethodGet}, (*Server).handleCrashes, ""},
 	{"/api/crashes/", []string{http.MethodGet}, (*Server).handleCrash, ""},
