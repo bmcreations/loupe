@@ -106,7 +106,17 @@ func keyframeDeadlineFor(base time.Duration) time.Duration {
 // deadlineFor returns the write deadline for one frame. Keyframes and parameter
 // sets get their own, because they are the frames nothing else can replace.
 func deadlineFor(key, config bool, base time.Duration) time.Duration {
-	if key || config {
+	return trackDeadlineFor(false, key, config, base)
+}
+
+// trackDeadlineFor is deadlineFor for a viewer on a given track. A remote-track
+// viewer gets the keyframe deadline for every frame: the remote gate already
+// holds the encoder while its frames are in flight too long, so a delta that
+// waits behind a keyframe is not stale, and abandoning it would cost a whole
+// keyframe wait (the 11:20 trace: 1-2 abandons/s at the 285 ms delta deadline,
+// each followed by 10-60 held frames). Only a real stall reaches this one.
+func trackDeadlineFor(remote, key, config bool, base time.Duration) time.Duration {
+	if remote || key || config {
 		return keyframeDeadlineFor(base)
 	}
 	return frameDeadlineFor(base)
@@ -392,6 +402,11 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 		rec["backlog"] = flow.Backlog
 		rec["oldestMs"] = round1(flow.OldestMs)
 		rec["ackBps"] = int64(flow.DeliveredBps)
+		// Which frames are stuck, and whether acks name frames in flight:
+		// a pts that never matches lands in ignoredAcks.
+		rec["inflightPts"] = []uint64{flow.OldestPTS, flow.NewestPTS}
+		rec["lastAckPts"] = flow.LastAckPTS
+		rec["ignoredAcks"] = flow.IgnoredAcks
 		// Which rule is judging this viewer's frames stale right now.
 		rec["staleRule"] = staleRule(flow)
 	}
@@ -482,6 +497,13 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		if sess.ViewerPassthrough(viewerID) {
 			counters = passthroughStats{sess}
 		}
+		// A remote-track viewer is paced by the server's remote gate, which
+		// holds the encoder until the viewer's acks say there is room. It never
+		// sheds a delta for age or pacing here: a frame it is sent is a frame
+		// the gate chose to encode, and only a lost frame (an abandoned write)
+		// breaks its decode chain.
+		track := sess.ViewerTrack(viewerID)
+		remote := track == "remote"
 		// askForKey asks the encoder for a keyframe, at most once per
 		// keyframeRequestInterval.
 		//
@@ -502,6 +524,11 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 			}
 			lastKeyReq = now
 			// ErrNoControl on targets that cannot be asked; nothing to do.
+			if remote {
+				// The main encoder's keyframes never reach this viewer.
+				_ = sess.RequestRemoteKeyframe()
+				return
+			}
 			_ = sess.RequestKeyframe()
 		}
 
@@ -608,25 +635,27 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				if !msg.Key && !msg.Config {
 					if needKey {
 						askForKey()
-						sess.NoteShed(session.ShedAwaitKey)
+						sess.NoteShedFor(viewerID, session.ShedAwaitKey)
 						continue
 					}
-					if !pacer.Admit() {
+					if !remote && !pacer.Admit() {
 						needKey = true
 						askForKey()
-						sess.NoteShed(session.ShedPacer)
+						sess.NoteShedFor(viewerID, session.ShedPacer)
 						continue
 					}
-					if stale, _ := frameStale(flowStats(flow), time.Since(msg.QueuedAt), rtt, pacer.Base()); stale {
-						needKey = true
-						askForKey()
-						sess.NoteShed(session.ShedStale)
-						continue
+					if !remote {
+						if stale, _ := frameStale(flowStats(flow), time.Since(msg.QueuedAt), rtt, pacer.Base()); stale {
+							needKey = true
+							askForKey()
+							sess.NoteShedFor(viewerID, session.ShedStale)
+							continue
+						}
 					}
 				}
 
 				sess.NoteOffered(viewerID, len(msg.Data))
-				err := conn.SendFrame(msg, msg.QueuedAt.Add(deadlineFor(msg.Key, msg.Config, pacer.Base())))
+				err := conn.SendFrame(msg, msg.QueuedAt.Add(trackDeadlineFor(remote, msg.Key, msg.Config, pacer.Base())))
 				delivered, fatal := frameDelivered(err)
 				if fatal {
 					stopErr = err
@@ -642,7 +671,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 					// was the keyframe that was meant to end the last wait.
 					needKey = true
 					askForKey()
-					sess.NoteShed(session.ShedAbandon)
+					sess.NoteShedFor(viewerID, session.ShedAbandon)
 					continue
 				}
 				// What the link actually carried, which is what the bitrate
@@ -666,6 +695,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 				if err != nil {
 					continue
 				}
+				rec["track"] = track
 				s.trace.Record(rec)
 				if !checkPeerWindow() {
 					return

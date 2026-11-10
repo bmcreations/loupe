@@ -85,6 +85,20 @@ New stdin ops, length-checked like 0x80/0x81:
 
 The 250 ms idle re-encode applies to the remote encoder only while open.
 
+Probe result (simcap d41e9c4, this Mac's hardware H.264): with low-latency rate
+control, `Quality` is rejected (-12900); without it, `Quality` 0.2 and 0.9 gave
+identical output. The remote encoder uses low-latency + `AverageBitRate` = cap +
+`DataRateLimits` [cap/8 bytes, 1 s], both set live by 0x84. There is no
+quality-based rate; slice R2's delay-based cap does that job instead.
+
+Correction (11-09, simcap 66573d2): the 0.2 and 0.9 probe ran with
+`DataRateLimits` set, and VideoToolbox ignores `Quality` whenever a limit is
+set. Without one, `Quality` sets frame size (noisy content at 60 fps: 0.3
+gave 2.8 Mbps, 0.6 gave 57 Mbps) and a live change applies on the next frame.
+simcap's remote encoder now runs without `DataRateLimits` and steers `Quality`
+from each delta frame's size against the cap, with a token-bucket frame budget
+as the per-frame bound; 0x84 sets the steer's target and the budget's rate.
+
 ### Task 3: loupe tracks become an enum
 
 `OutMsg.passthrough bool` becomes `OutMsg.track` (`trackMain`, `trackPassthrough`,

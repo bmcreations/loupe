@@ -279,7 +279,7 @@ func (b *bitrateSampler) next(s *Session, now time.Time) (BitrateSample, bool) {
 	// reads a ten-second average against a threshold of 0.50, so it is not
 	// worth ordering the loads to remove.
 	frames := s.framesIn.Load()
-	shedBy := s.ShedBreakdown()
+	shedBy := s.adapterShedBreakdown()
 	// Keyframe waits stay out of Shed: they are the consequence of a shed, not
 	// independent evidence of one, and counting them there lets a single
 	// dropped frame argue for a change sixteen times over. They are carried
@@ -325,6 +325,11 @@ func (s *Session) intervalBytes(seen, seenOffered map[uint64]uint64, since time.
 	s.mu.RLock()
 	cur := make(map[uint64]reading, len(s.viewers))
 	for id, v := range s.viewers {
+		// A remote viewer's link says nothing about what the main encoder
+		// should be set to, whichever track it is on.
+		if !v.local {
+			continue
+		}
 		// offered is loaded first: it is added before sent for the same
 		// frame, so this order never reads more sent than offered.
 		off := v.offered.Load()

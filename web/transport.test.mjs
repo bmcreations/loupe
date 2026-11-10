@@ -120,7 +120,8 @@ test('counts what it did for the client report', () => {
   r.accept(fr(6, 'key'));
   r.accept(fr(8));
   r.skipGap();
-  assert.deepEqual(r.stats(), { reordered: 3, resets: 1, resyncs: 1, gapSkips: 1, late: 0, maxHeld: 1 });
+  assert.deepEqual(r.stats(), { reordered: 3, resets: 1, resyncs: 1, gapSkips: 1, late: 0, maxHeld: 1,
+    streamsIn: 0, streamsDone: 0, drainMaxMs: 0 });
   assert.equal(r.stats().maxHeld, 0);
 });
 
@@ -247,6 +248,20 @@ atest('sendFrameAck on the WebSocket sends the encoded ack', async () => {
   const conn = await connect({ target: 't', preferWebTransport: false, onControl() {}, onFrame() {} });
   conn.sendFrameAck(ACK_PTS);
   assert.deepEqual(sent, [ACK_BYTES]);
+});
+
+atest('the WebSocket URL says the client acks, which is what puts it on the remote track', async () => {
+  let url = '';
+  class FakeWS {
+    static OPEN = 1;
+    constructor(u) { url = u; this.readyState = 1; }
+    send() {}
+    close() {}
+  }
+  globalThis.WebSocket = FakeWS;
+  globalThis.location = { protocol: 'https:', host: 'h', search: '' };
+  await connect({ target: 't', preferWebTransport: false, onControl() {}, onFrame() {} });
+  assert.match(url, /[?&]acks=1(&|$)/);
 });
 
 atest('sendFrameAck on WebTransport writes it, length-prefixed, to the control stream', async () => {

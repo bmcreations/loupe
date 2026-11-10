@@ -669,7 +669,30 @@ export function createPane(deps) {
     dispose: (item) => item.frame.close(),
   });
 
+  // draw puts one decoded frame on the canvas and acks it, the one place both
+  // presentation paths do that.
+  function drawAndAck(frame, ptsMicros) {
+    try {
+      ctx.drawImage(frame, 0, 0, el.canvas.width, el.canvas.height);
+      renderedThisSecond++;
+    } finally {
+      frame.close();
+    }
+    // After the draw, so the server's queueing estimate includes this
+    // client's own decode and jitter-buffer wait. Once per presented frame:
+    // a frame dropped before it got here is never acked.
+    if (ws && ws.open) ws.sendFrameAck(ptsMicros);
+  }
+
   function enqueueFrame(frame) {
+    // The remote track is gated by the server on this client's acks, so each
+    // frame it sends is meant to be shown and the buffer would only drop the
+    // older ones of a clump, which breaks nothing in the stream but throws away
+    // frames the gate paid for.
+    if (info && info.track === 'remote') {
+      drawAndAck(frame, frame.timestamp);
+      return;
+    }
     // timestamp is the microsecond PTS supplied in the EncodedVideoChunk.
     jitterBuf.enqueue({ frame, ptsMs: frame.timestamp / 1000, ptsMicros: frame.timestamp }, now());
     startPresenting();
@@ -699,16 +722,7 @@ export function createPane(deps) {
 
     const item = jitterBuf.due(now());
     if (item) {
-      try {
-        ctx.drawImage(item.frame, 0, 0, el.canvas.width, el.canvas.height);
-        renderedThisSecond++;
-      } finally {
-        item.frame.close();
-      }
-      // After the draw, so the server's queueing estimate includes this
-      // client's own decode and jitter-buffer wait. Once per presented frame:
-      // a frame dropped before it got here is never acked.
-      if (ws && ws.open) ws.sendFrameAck(item.ptsMicros);
+      drawAndAck(item.frame, item.ptsMicros);
     }
 
     if (jitterBuf.held || (ws && ws.open)) {

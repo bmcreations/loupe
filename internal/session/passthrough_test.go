@@ -84,14 +84,14 @@ func TestPassthroughGoesOnlyToViewersThatDecodeIt(t *testing.T) {
 			t.Fatalf("codec string never resolved (last %q)", got)
 		}
 	}
-	if m := next(t, mac); !m.Config || !m.passthrough {
+	if m := next(t, mac); !m.Config || m.track != trackPassthrough {
 		t.Fatalf("passthrough config: %+v", m)
 	}
 	if m := next(t, mac); !m.Key || m.PTSMicros != 5000 {
 		t.Fatalf("passthrough keyframe: key=%v pts=%d", m.Key, m.PTSMicros)
 	}
 	s.broadcast(OutMsg{Data: []byte{1}, Key: true})
-	if m := next(t, web); !m.Key || m.passthrough {
+	if m := next(t, web); !m.Key || m.track == trackPassthrough {
 		t.Fatalf("browser got %+v", m)
 	}
 	select {
@@ -225,7 +225,7 @@ func TestPassthroughGOPRestartsAtKey(t *testing.T) {
 func TestPassthroughReplayNotRepeated(t *testing.T) {
 	s := &Session{ID: "t", key: "t", stream: &rotStream{}, viewers: map[uint64]*viewer{}, done: make(chan struct{}),
 		pass: &passTrack{fourcc: "h265", codec: "hvc1"}}
-	k := OutMsg{Data: make([]byte, FrameHeaderLen+1), Key: true, PTSMicros: 5000, passthrough: true}
+	k := OutMsg{Data: make([]byte, FrameHeaderLen+1), Key: true, PTSMicros: 5000, track: trackPassthrough}
 	s.mu.Lock()
 	s.pass.cacheLocked(&k)
 	s.mu.Unlock()

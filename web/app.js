@@ -57,7 +57,7 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '');
 
 // Reported in client stats so a stale cached client is obvious in the trace
 // rather than something to deduce from its behaviour.
-const CLIENT_BUILD = 'jitter-pts-1';
+const CLIENT_BUILD = 'stream-count-1';
 
 // Report that the module reached evaluation. The boot probe in index.html logs
 // a 'load' event unconditionally, so a trace with 'boot' and 'load' but no

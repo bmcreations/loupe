@@ -142,6 +142,7 @@ type Simulator struct {
 	liveCaps   bool
 	pbWatcher  bool
 	liveResize bool
+	remoteCap  bool
 
 	// pbImage is whether simcap's -caps lists pasteboardimage, nil until
 	// it has answered (simdrop.go). Guarded by pbImageMu.
@@ -245,12 +246,13 @@ func (s *Simulator) Open(ctx context.Context, opts Options) (Stream, error) {
 	if err := s.ensureBooted(ctx); err != nil {
 		return nil, err
 	}
-	st, err := openSimcap(ctx, s.simcap, s.UDID(), s.Label(), opts)
+	live := s.liveBitRate(ctx)
+	st, err := openSimcapTracks(ctx, s.simcap, s.UDID(), s.Label(), opts, simcapTracks{remote: remoteTrackWanted(s.remoteCap)})
 	if err != nil {
 		return nil, err
 	}
 	st.sim, st.in = s, s.input()
-	st.live = s.liveBitRate(ctx)
+	st.live = live
 	st.resize = s.liveResize
 	if s.pbWatcher {
 		st.clip = watchSimPasteboard(s.simcap, s.UDID(), s.echoOfSet)
@@ -278,6 +280,8 @@ func (s *Simulator) liveBitRate(ctx context.Context) bool {
 				s.pbWatcher = true
 			case "resize":
 				s.liveResize = true
+			case "remote":
+				s.remoteCap = true
 			}
 		}
 	})
@@ -368,6 +372,19 @@ func openSimcap(ctx context.Context, bin, udid, name string, opts Options, extra
 // openSimcapWith is openSimcap, and with passthrough also reads the phone's
 // own HEVC from simcap's fd 3 (`-hevc`) as a second track.
 func openSimcapWith(ctx context.Context, bin, udid, name string, opts Options, passthrough bool, extra ...string) (*simStream, error) {
+	return openSimcapTracks(ctx, bin, udid, name, opts, simcapTracks{passthrough: passthrough}, extra...)
+}
+
+// simcapTracks says which extra outputs simcap is asked for besides stdout.
+type simcapTracks struct {
+	// passthrough is the phone's own HEVC on fd 3 (`-hevc`).
+	passthrough bool
+	// remote is the gated second H.264 encode on fd 4 (`-remote`).
+	remote bool
+}
+
+func openSimcapTracks(ctx context.Context, bin, udid, name string, opts Options, tracks simcapTracks, extra ...string) (*simStream, error) {
+	passthrough := tracks.passthrough
 	args := []string{udid}
 	if opts.BitRate > 0 {
 		args = append(args, "-bitrate", fmt.Sprint(opts.BitRate))
@@ -391,6 +408,9 @@ func openSimcapWith(ctx context.Context, bin, udid, name string, opts Options, p
 	if passthrough {
 		args = append(args, "-hevc")
 	}
+	if tracks.remote {
+		args = append(args, "-remote")
+	}
 	// Not CommandContext: ctx is the open request's, and the stream outlives
 	// it. Close ends simcap by closing its stdin.
 	cmd := exec.Command(bin, args...)
@@ -408,7 +428,7 @@ func openSimcapWith(ctx context.Context, bin, udid, name string, opts Options, p
 	if err != nil {
 		return nil, err
 	}
-	var altR *os.File
+	var altR, remoteR *os.File
 	if passthrough {
 		r, w, err := os.Pipe()
 		if err != nil {
@@ -418,9 +438,31 @@ func openSimcapWith(ctx context.Context, bin, udid, name string, opts Options, p
 		altR = r
 		defer w.Close() // the child holds its own copy once started
 	}
+	if tracks.remote {
+		if !passthrough {
+			// fd 4 is ExtraFiles[1], so fd 3 needs something in it. simcap
+			// does not open fd 3 without -hevc.
+			null, err := os.Open(os.DevNull)
+			if err != nil {
+				return nil, err
+			}
+			defer null.Close()
+			cmd.ExtraFiles = []*os.File{null}
+		}
+		r, w, err := os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		cmd.ExtraFiles = append(cmd.ExtraFiles, w) // fd 4
+		remoteR = r
+		defer w.Close()
+	}
 	if err := cmd.Start(); err != nil {
 		if altR != nil {
 			altR.Close()
+		}
+		if remoteR != nil {
+			remoteR.Close()
 		}
 		return nil, fmt.Errorf("start simcap %s: %w", bin, err)
 	}
@@ -441,6 +483,13 @@ func openSimcapWith(ctx context.Context, bin, udid, name string, opts Options, p
 	if altR != nil {
 		s.alt = make(chan Frame, 64)
 		go s.pumpPassthrough(altR)
+	}
+
+	// fd 4 likewise: its first keyframe fills a pipe before the H.264 header
+	// below has been read.
+	if remoteR != nil {
+		s.remote = make(chan Frame, 64)
+		go s.pumpRemote(remoteR)
 	}
 
 	type result struct {
@@ -533,6 +582,9 @@ type simStream struct {
 	// alt is the passthrough track from fd 3, nil when simcap was not asked
 	// for one.
 	alt chan Frame
+	// remote is the remote track from fd 4, nil when simcap was not asked
+	// for one (remote.go).
+	remote chan Frame
 
 	metaMu sync.RWMutex
 	meta   Meta

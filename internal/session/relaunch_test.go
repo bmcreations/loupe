@@ -366,7 +366,7 @@ func TestSyntheticTargetsAdaptByRelaunch(t *testing.T) {
 func TestSamplerExcludesKeyframeWaitsFromShedding(t *testing.T) {
 	first := newSwapStream()
 	s, _ := openSwap(t, first)
-	id, _ := s.AddViewer()
+	id, _ := s.AddViewerWith(ViewerOptions{Local: true})
 	s.mu.Lock()
 	s.viewers[id].joined = time.Now().Add(-time.Hour)
 	s.mu.Unlock()
@@ -393,7 +393,7 @@ func TestSamplerExcludesKeyframeWaitsFromShedding(t *testing.T) {
 func TestSamplerCountsAbandonedFramesAsShedding(t *testing.T) {
 	first := newSwapStream()
 	s, _ := openSwap(t, first)
-	id, _ := s.AddViewer()
+	id, _ := s.AddViewerWith(ViewerOptions{Local: true})
 	s.mu.Lock()
 	s.viewers[id].joined = time.Now().Add(-time.Hour)
 	s.mu.Unlock()
@@ -418,8 +418,8 @@ func TestSamplerCountsAbandonedFramesAsShedding(t *testing.T) {
 func TestSamplerReportsTheSlowestFullIntervalViewer(t *testing.T) {
 	first := newSwapStream()
 	s, _ := openSwap(t, first)
-	slow, _ := s.AddViewer()
-	fast, _ := s.AddViewer()
+	slow, _ := s.AddViewerWith(ViewerOptions{Local: true})
+	fast, _ := s.AddViewerWith(ViewerOptions{Local: true})
 	s.mu.Lock()
 	s.viewers[slow].joined = time.Now().Add(-time.Hour)
 	s.viewers[fast].joined = time.Now().Add(-time.Hour)
@@ -443,7 +443,7 @@ func TestSamplerReportsTheSlowestFullIntervalViewer(t *testing.T) {
 func TestSamplerIgnoresAViewerThatJoinedMidInterval(t *testing.T) {
 	first := newSwapStream()
 	s, _ := openSwap(t, first)
-	joiner, _ := s.AddViewer()
+	joiner, _ := s.AddViewerWith(ViewerOptions{Local: true})
 	s.NoteSent(joiner, 10)
 
 	if _, ok := newBitrateSampler().next(s, time.Now()); ok {
@@ -560,7 +560,7 @@ func TestKeyframesAreCountedSeparately(t *testing.T) {
 // congestion.
 func TestTheControllerReportsIntervalsItDoesNotActOn(t *testing.T) {
 	s, _ := openSwap(t, newSwapStream())
-	id, _ := s.AddViewer()
+	id, _ := s.AddViewerWith(ViewerOptions{Local: true})
 	s.mu.Lock()
 	s.viewers[id].joined = time.Now().Add(-time.Hour)
 	s.mu.Unlock()
@@ -634,8 +634,8 @@ func TestRefusingToStartIsDistinguishableFromFindingNothingToDo(t *testing.T) {
 func TestSamplerPairsOfferedWithTheSlowestViewersBytes(t *testing.T) {
 	first := newSwapStream()
 	s, _ := openSwap(t, first)
-	slow, _ := s.AddViewer()
-	fast, _ := s.AddViewer()
+	slow, _ := s.AddViewerWith(ViewerOptions{Local: true})
+	fast, _ := s.AddViewerWith(ViewerOptions{Local: true})
 	s.mu.Lock()
 	s.viewers[slow].joined = time.Now().Add(-time.Hour)
 	s.viewers[fast].joined = time.Now().Add(-time.Hour)
