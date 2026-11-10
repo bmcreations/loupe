@@ -1,0 +1,432 @@
+{
+ "children": [
+  {
+   "frame": [
+    0,
+    62,
+    402,
+    54
+   ],
+   "id": "New Group",
+   "role": "AXGroup"
+  },
+  {
+   "frame": [
+    36,
+    148,
+    74,
+    74
+   ],
+   "id": "new-group-photo-picker",
+   "label": "camera",
+   "role": "AXImage"
+  },
+  {
+   "focused": true,
+   "frame": [
+    122,
+    173,
+    244,
+    24
+   ],
+   "id": "new-group-title-field",
+   "role": "AXTextField",
+   "value": "Group Name (Required)"
+  },
+  {
+   "frame": [
+    28,
+    250,
+    337.66666666666663,
+    32
+   ],
+   "id": "new-private-group-footnote",
+   "label": "Only people you approve can join. Messages are end-to-end encrypted.",
+   "role": "AXStaticText"
+  },
+  {
+   "frame": [
+    0,
+    546,
+    134,
+    44
+   ],
+   "label": "I",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    134,
+    546,
+    134,
+    44
+   ],
+   "label": "The",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    268,
+    546,
+    134,
+    44
+   ],
+   "label": "I\u2019m",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    4.666666666666657,
+    597,
+    39.333333333333336,
+    54
+   ],
+   "label": "Q",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    44,
+    597,
+    39.66666666666666,
+    54
+   ],
+   "label": "W",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    83.66666666666666,
+    597,
+    39.33333333333334,
+    54
+   ],
+   "label": "E",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    122.99999999999999,
+    597,
+    39.66666666666667,
+    54
+   ],
+   "label": "R",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    162.66666666666666,
+    597,
+    39.33333333333334,
+    54
+   ],
+   "label": "T",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    202,
+    597,
+    39.66666666666666,
+    54
+   ],
+   "label": "Y",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    241.66666666666669,
+    597,
+    39.333333333333314,
+    54
+   ],
+   "label": "U",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    281,
+    597,
+    39.666666666666686,
+    54
+   ],
+   "label": "I",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    320.66666666666663,
+    597,
+    39.333333333333314,
+    54
+   ],
+   "label": "O",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    360,
+    597,
+    39.666666666666686,
+    54
+   ],
+   "label": "P",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    24.333333333333318,
+    651,
+    39.33333333333334,
+    54
+   ],
+   "label": "A",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    63.66666666666666,
+    651,
+    39.66666666666666,
+    54
+   ],
+   "label": "S",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    103.33333333333331,
+    651,
+    39.33333333333334,
+    54
+   ],
+   "label": "D",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    142.66666666666666,
+    651,
+    39.66666666666666,
+    54
+   ],
+   "label": "F",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    182.33333333333334,
+    651,
+    39.33333333333334,
+    54
+   ],
+   "label": "G",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    221.66666666666666,
+    651,
+    39.66666666666666,
+    54
+   ],
+   "label": "H",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    261.33333333333326,
+    651,
+    39.333333333333314,
+    54
+   ],
+   "label": "J",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    300.66666666666663,
+    651,
+    39.666666666666686,
+    54
+   ],
+   "label": "K",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    340.33333333333326,
+    651,
+    39.333333333333314,
+    54
+   ],
+   "label": "L",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    4.666666666666657,
+    705,
+    51.333333333333336,
+    54
+   ],
+   "id": "shift",
+   "label": "shift",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    63.66666666666666,
+    705,
+    39.66666666666666,
+    54
+   ],
+   "label": "Z",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    103.33333333333331,
+    705,
+    39.33333333333334,
+    54
+   ],
+   "label": "X",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    142.66666666666666,
+    705,
+    39.66666666666666,
+    54
+   ],
+   "label": "C",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    182.33333333333334,
+    705,
+    39.33333333333334,
+    54
+   ],
+   "label": "V",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    221.66666666666666,
+    705,
+    39.66666666666666,
+    54
+   ],
+   "label": "B",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    261.33333333333326,
+    705,
+    39.333333333333314,
+    54
+   ],
+   "label": "N",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    300.66666666666663,
+    705,
+    39.666666666666686,
+    54
+   ],
+   "label": "M",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    348,
+    705,
+    51.666666666666686,
+    54
+   ],
+   "id": "delete",
+   "label": "delete",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    4.666666666666657,
+    759,
+    98.66666666666667,
+    54
+   ],
+   "id": "more",
+   "label": "numbers",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    103.3333333333333,
+    759,
+    197.33333333333331,
+    54
+   ],
+   "id": "space",
+   "label": "space",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    300.66666666666663,
+    759,
+    99,
+    54
+   ],
+   "id": "Done",
+   "label": "done",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    0,
+    590,
+    402,
+    284
+   ],
+   "occluded": true,
+   "role": "AXGenericElement"
+  },
+  {
+   "frame": [
+    8.47726568115926,
+    805.6989567998571,
+    68.0852958475086,
+    68.73516393505099
+   ],
+   "label": "Emoji",
+   "role": "AXButton"
+  },
+  {
+   "frame": [
+    325.43743847133214,
+    805.3656234665239,
+    68.08529584750863,
+    68.73516393505099
+   ],
+   "id": "dictation",
+   "label": "Dictate",
+   "role": "AXButton"
+  }
+ ],
+ "frame": [
+  0,
+  0,
+  402,
+  874
+ ],
+ "label": "Flipcash",
+ "role": "AXApplication"
+}

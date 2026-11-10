@@ -66,7 +66,16 @@ func (s *Simulator) inspect(ctx context.Context, w, h int) (*UI, error) {
 	if err != nil {
 		return nil, fmt.Errorf("accessibility dump: %w", err)
 	}
-	return parseAXTree([]byte(out), w, h)
+	ui, err := parseAXTree([]byte(out), w, h)
+	if err != nil {
+		return nil, err
+	}
+	// Bars that list no children (simfill.go). A failed hit test keeps the
+	// tree as dumped, plus whatever was found before it.
+	if s.canHit(ctx) {
+		_ = fillByHit(ui, func(x, y int) (*Node, error) { return s.hitAt(ctx, x, y, ui.scale) })
+	}
+	return ui, nil
 }
 
 // parseAXTree turns simcap's tree into loupe's, in device pixels.
