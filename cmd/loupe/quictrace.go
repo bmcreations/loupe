@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/netip"
 
+	"github.com/bmcreations/loupe/internal/httpapi"
 	"github.com/bmcreations/loupe/internal/trace"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/qlog"
@@ -31,9 +33,17 @@ func quicTracer(tr *trace.Writer) func(context.Context, bool, quic.ConnectionID)
 	}
 }
 
+// quicStreamTypeUni is quic-go's protocol.StreamTypeUni, which sits in an
+// internal package; qlog frames carry it as their Type.
+const quicStreamTypeUni = 0
+
 type quicTrace struct {
 	tr   *trace.Writer
 	conn string
+	// credit is where this connection's stream limit is kept for the
+	// WebTransport side to read, set once the peer's address is known.
+	credit *httpapi.PeerCredit
+	remote netip.AddrPort
 }
 
 func (t *quicTrace) AddProducer() qlogwriter.Recorder { return t }
@@ -51,12 +61,35 @@ func (t *quicTrace) RecordEvent(ev qlogwriter.Event) {
 		if !remote.IsValid() {
 			remote = e.Remote.IPv6
 		}
+		t.remote = remote
+		t.credit = httpapi.PeerCreditFor(remote)
 		t.rec("started", map[string]any{"remote": remote.String()})
 	case qlog.VersionInformation:
 		t.rec("version", map[string]any{"chosen": e.ChosenVersion.String()})
 	case qlog.ALPNInformation:
 		t.rec("alpn", map[string]any{"proto": e.ChosenALPN})
+	case qlog.ParametersSet:
+		if e.Initiator == qlog.InitiatorRemote && !e.Restore && e.InitialMaxStreamsUni > 0 {
+			t.credit.NoteUni(uint64(e.InitialMaxStreamsUni))
+		}
+	case qlog.PacketReceived:
+		// Safari grants one stream at a time, so this runs once per frame;
+		// it only stores a number.
+		for _, f := range e.Frames {
+			if m, ok := f.Frame.(*qlog.MaxStreamsFrame); ok && m.Type == quicStreamTypeUni {
+				t.credit.NoteUni(uint64(m.MaxStreamNum))
+			}
+		}
+	case qlog.PacketSent:
+		for _, f := range e.Frames {
+			if b, ok := f.Frame.(*qlog.StreamsBlockedFrame); ok && b.Type == quicStreamTypeUni {
+				t.rec("streams-blocked", map[string]any{"limit": int64(b.StreamLimit)})
+			}
+		}
 	case qlog.ConnectionClosed:
+		if t.credit != nil {
+			httpapi.ForgetPeerCredit(t.remote, t.credit)
+		}
 		m := map[string]any{"by": string(e.Initiator)}
 		switch {
 		case e.ApplicationError != nil:

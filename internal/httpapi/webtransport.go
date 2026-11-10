@@ -120,6 +120,9 @@ type wtConn struct {
 	// all do.
 	starvedSince atomic.Int64
 	lastRecv     atomic.Int64
+	// credit is the peer's stream limit as the QUIC tracer last saw it, or
+	// nil when there is no tracer or the address did not match.
+	credit *PeerCredit
 }
 
 // wtStats is atomic because the read happens on the stats ticker while
@@ -365,6 +368,7 @@ func (c *wtConn) PeerWindow() peerSpend {
 		Streams:   c.spentStreams.Load(),
 		SinceSent: time.Since(time.Unix(0, c.lastSent.Load())),
 		SinceRecv: time.Since(time.Unix(0, c.lastRecv.Load())),
+		Granted:   c.credit.Uni(),
 	}
 	if at := c.starvedSince.Load(); at != 0 {
 		p.Starved = time.Since(time.Unix(0, at))
@@ -653,6 +657,9 @@ func (s *Server) handleWebTransport(w http.ResponseWriter, r *http.Request) {
 		sess:    wtSess,
 		control: control,
 		qconn:   qconnOf(r.Context()),
+	}
+	if conn.qconn != nil {
+		conn.credit = peerCreditOf(conn.qconn.RemoteAddr())
 	}
 	conn.lastSent.Store(time.Now().UnixNano())
 	conn.lastRecv.Store(time.Now().UnixNano())
