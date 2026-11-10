@@ -161,7 +161,12 @@ def frame_summary(path):
         return round(xs[min(len(xs) - 1, int(len(xs) * q))]) if xs else 0
     d = [f["arrMs"] - f["pts"] / 1000 - base for f in fr]
     ds = [f["arrMs"] - f["pts"] / 1000 - base for f in fr if f["arrMs"] >= 15000]
-    return {"stalls": stalls, "stallMs": round(stall_ms), "delayP50": pct(d, .5), "delayP95": pct(d, .95),
+    # Frames over 30 KB are 120+ ms of link time each at 2 Mbps. A continuous
+    # scroll hides them; the phone's swipe-then-pause makes one per swipe
+    # (reflection 2026-11-10), so the row shows them next to the fps.
+    big = [f["bytes"] for f in fr if f["bytes"] > 30_000]
+    return {"big": len(big), "maxKB": round(max(f["bytes"] for f in fr) / 1000),
+            "stalls": stalls, "stallMs": round(stall_ms), "delayP50": pct(d, .5), "delayP95": pct(d, .95),
             "settledP50": pct(ds, .5), "settledP95": pct(ds, .95), "settledMax": pct(ds, 1)}
 
 
@@ -245,6 +250,7 @@ def row(r):
             f"  settled {fs.get('settledP50', 0):>4}/{fs.get('settledP95', 0):>5}/{fs.get('settledMax', 0):>5}"
             f"  late {100 * p.get('late200Share', 0):>3.0f}%"
             f"  kbps {p.get('kbps', 0):>5.0f}"
+            f"  big {fs.get('big', 0):>3} (max {fs.get('maxKB', 0):>3}KB)"
             f"  cap {s.get('capP50kbps', 0):>5.0f} (min {s.get('capMinKbps', 0):>4.0f})"
             f"  held {s.get('heldMs', 0) / 1000:>4.1f}s unstuck {s.get('unstuck', 0)}"
             f"  src {s.get('srcFpsP50', 0):>3}fps"
@@ -265,6 +271,8 @@ def main():
     ap.add_argument("--ack-hold", type=int, default=0)
     # Negative units scroll the page down first; the runs alternate from there.
     ap.add_argument("--scroll", default="330,900,-8", help="x,y,units in stream pixels")
+    # Pass 3s as well before a phone round: people swipe and pause, and a
+    # continuous scroll never shows the first frame after a still screen.
     ap.add_argument("--scroll-every", default="700ms")
     ap.add_argument("--simcap", required=True)
     ap.add_argument("--cert", required=True)
