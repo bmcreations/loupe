@@ -451,3 +451,23 @@ func TestAMissingCLIIsReportedAndPickedUpOnceInstalled(t *testing.T) {
 		t.Fatalf("account after install = %s (%v), want installed and signed in", rec.Body, err)
 	}
 }
+
+func TestSignOutIsRefusedWhileADeviceIsReserved(t *testing.T) {
+	rig := remoteServer(t, &fakeRemoteCLI{})
+	key := rig.reserve(t)
+	waitFor(t, func() bool { return rig.only(t).State == remoteActive })
+	if rec := do(rig.s, http.MethodDelete, "/api/remote/account", ""); rec.Code != http.StatusConflict {
+		t.Fatalf("sign-out while reserved = %d: %s", rec.Code, rec.Body)
+	}
+	for _, c := range rig.cli.ran() {
+		if strings.Contains(c, "auth logout") {
+			t.Fatalf("sign-out reached the CLI: %v", rig.cli.ran())
+		}
+	}
+	if rec := do(rig.s, http.MethodDelete, "/api/remote?key="+key, ""); rec.Code != http.StatusOK {
+		t.Fatalf("release = %d: %s", rec.Code, rec.Body)
+	}
+	if rec := do(rig.s, http.MethodDelete, "/api/remote/account", ""); rec.Code != http.StatusOK {
+		t.Fatalf("sign-out after release = %d: %s", rec.Code, rec.Body)
+	}
+}

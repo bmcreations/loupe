@@ -282,6 +282,20 @@ func (r *RemoteDevices) Reserve(project, codename string, api int, model string)
 
 var errBusy = errors.New("another reservation is being made")
 
+var errHolding = errors.New("release the reserved device before signing out")
+
+// holding reports whether a device is reserved or being reserved.
+func (r *RemoteDevices) holding() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, it := range r.items {
+		if it.State == remoteReserving || it.State == remoteActive {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *RemoteDevices) create(key, project, codename string, api int) {
 	defer r.creating.Done()
 	ctx, cancel := context.WithTimeout(context.Background(), remoteCreateTimeout)
@@ -915,6 +929,12 @@ func (s *Server) handleRemoteAccount(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		if !rd.Installed() {
 			http.Error(w, errNoCLI.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		// Release runs as the signed-in account, so signing out under a
+		// held device would leave it running until it expires.
+		if rd.holding() {
+			http.Error(w, errHolding.Error(), http.StatusConflict)
 			return
 		}
 		if _, stderr, err := rd.exec(ctx, "auth", "logout"); err != nil {
