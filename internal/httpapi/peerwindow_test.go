@@ -38,6 +38,17 @@ func TestDecidePeerWindow(t *testing.T) {
 		{"starved long, never asked", peerSpend{Bytes: 8 << 20, Streams: 1182, Starved: starveClose, SinceRecv: alive}, false, peerWindowClose},
 		// The client has gone quiet too: a link, not a credit stall.
 		{"starved, client quiet", peerSpend{Bytes: 8 << 20, Streams: 1182, Starved: time.Minute, SinceRecv: controlAlive}, false, peerWindowOK},
+		// 10 November, Safari sim: room to open streams fell from 93 to 2
+		// over 14s before the first refusal. Moving while some is left lets
+		// the standby take over before the picture stops.
+		// Safari's first grant comes only once about half of its 100 is
+		// used; a threshold of 50 moved every connection at 47 streams.
+		{"fresh Safari connection, before its first grant", peerSpend{Streams: 60, Granted: 100}, false, peerWindowOK},
+		{"credit unknown", peerSpend{Bytes: 1 << 20, Streams: 600}, false, peerWindowOK},
+		{"credit room left", peerSpend{Bytes: 1 << 20, Streams: 600, Granted: 600 + peerUniOverhead + lowCredit + 1}, false, peerWindowOK},
+		{"credit running low", peerSpend{Bytes: 1 << 20, Streams: 600, Granted: 600 + peerUniOverhead + lowCredit}, false, peerWindowRotate},
+		{"credit low, already asked", peerSpend{Bytes: 1 << 20, Streams: 600, Granted: 600 + peerUniOverhead}, true, peerWindowOK},
+		{"credit low, client quiet", peerSpend{Bytes: 1 << 20, Streams: 600, Granted: 600, SinceRecv: controlAlive}, false, peerWindowOK},
 	}
 	for _, c := range cases {
 		if got, _ := decidePeerWindow(c.p, c.asked); got != c.want {
@@ -54,6 +65,11 @@ func TestPeerWindowThresholdsAreOrdered(t *testing.T) {
 	}
 	if !(rotateStreams < exhaustedStreams) {
 		t.Errorf("streams: rotate %d, exhausted %d", rotateStreams, exhaustedStreams)
+	}
+	// A fresh Safari connection grants 100 streams; a threshold at or past
+	// that would ask every new connection to move at once.
+	if !(peerUniOverhead+lowCredit < 100) {
+		t.Errorf("credit: low %d plus overhead %d leaves no room in 100", lowCredit, peerUniOverhead)
 	}
 	if !(starveRotate < starveClose) {
 		t.Errorf("credit: rotate %v, close %v", starveRotate, starveClose)

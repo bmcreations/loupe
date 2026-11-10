@@ -462,7 +462,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 			rotateAsked = true
 			s.trace.Record(map[string]any{"kind": "wt", "action": "rotate", "target": targetID,
 				"viewer": viewerID, "reason": reason, "bytes": p.Bytes, "streams": p.Streams,
-				"starvedMs": p.Starved.Milliseconds()})
+				"granted": p.Granted, "starvedMs": p.Starved.Milliseconds()})
 			if err := conn.SendControl(encodeRotate(p.Bytes, p.Streams)); err != nil {
 				stopErr = err
 				return false

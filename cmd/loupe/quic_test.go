@@ -193,3 +193,11 @@ func TestSharedQUICListenerKeepsWebTransportWorking(t *testing.T) {
 		t.Error("listenerTLSConfig changed the HTTP/3 server's own config")
 	}
 }
+
+// The WebTransport credit rule reads the peer's stream limit from this
+// tracer, so it must run when loupe was started without -trace.
+func TestQuicTracerRunsWithoutTrace(t *testing.T) {
+	if quicConfig(nil).Tracer == nil {
+		t.Fatal("quicConfig(nil) has no Tracer; Safari's stream credit would go unread without -trace")
+	}
+}

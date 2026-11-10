@@ -47,6 +47,21 @@ const (
 	// wait and a second of it is enough: at home the room never ran out.
 	starveRotate = 1 * time.Second
 	starveClose  = 6 * time.Second
+
+	// lowCredit is how much room to open streams a connection may have left
+	// before it is asked to move. Safari's room does not run out at once: on
+	// the Safari sim on 10 November it fell from 93 to 2 over 14s while the
+	// page read every stream, about 7 a second, then no grant came until the
+	// connection closed. Waiting for the first refusal and then starveRotate
+	// left the picture stopped for 3-5s per connection. It must sit well
+	// under half of Safari's first 100: Safari sends its first grant only
+	// once about half is used, and 50 moved every connection at 47 streams,
+	// once a second. 20 leaves the standby about 3s at that rate.
+	lowCredit = 20
+	// peerUniOverhead is the unidirectional streams HTTP/3 opens on the same
+	// connection before any frame -- control, QPACK encoder and decoder --
+	// which count against the same limit.
+	peerUniOverhead = 3
 	// controlAlive is how recently the client must have sent something on
 	// the control stream for a credit stall to count. The client reports
 	// once a second. Without that a stall is a link that has gone quiet,
@@ -71,6 +86,15 @@ type peerSpend struct {
 	Starved time.Duration
 	// SinceRecv is how long since the client last sent on the control stream.
 	SinceRecv time.Duration
+	// Granted is the most unidirectional streams the peer allows on this
+	// connection, or zero when it is not known.
+	Granted uint64
+}
+
+// creditLow reports whether the peer's stream credit is nearly spent while
+// the client is still talking.
+func (p peerSpend) creditLow() bool {
+	return p.Granted != 0 && p.Granted <= p.Streams+peerUniOverhead+lowCredit && p.SinceRecv < controlAlive
 }
 
 // starved reports whether the peer has stopped granting stream credit while
@@ -113,6 +137,9 @@ func decidePeerWindow(p peerSpend, asked bool) (peerWindowAction, string) {
 	}
 	if p.starved(starveRotate) {
 		return peerWindowRotate, "credit"
+	}
+	if p.creditLow() {
+		return peerWindowRotate, "credit-low"
 	}
 	return peerWindowOK, ""
 }
