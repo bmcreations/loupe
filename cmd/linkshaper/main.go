@@ -46,7 +46,16 @@ func main() {
 	planSrc := flag.String("plan", "0s rate=0", "impairment schedule; see ParsePlan")
 	seed := flag.Int64("seed", 1, "random seed, so a run can be repeated exactly")
 	every := flag.Duration("report", 5*time.Second, "how often to print counters")
+	tcp := flag.Bool("tcp", false, "also relay TCP on the same port, unshaped, so a browser can load the page from the shaper and dial WebTransport through it")
 	flag.Parse()
+
+	if *tcp {
+		ln, err := net.Listen("tcp", *listen)
+		if err != nil {
+			log.Fatalln("linkshaper: tcp:", err)
+		}
+		go passTCP(ln, *to)
+	}
 
 	plan, err := ParsePlan(*planSrc)
 	if err != nil {
