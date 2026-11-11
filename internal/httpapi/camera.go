@@ -49,6 +49,10 @@ type CameraResponse struct {
 	// Applies is when the app looking through the camera sees the change:
 	// cameraOpen, boot, live or launch.
 	Applies target.CameraApplies `json:"applies"`
+	// Live is true when the frame went to the Handset Camera feed rather than
+	// being staged as a still. It lets a client streaming frames tell "fed the
+	// live camera" from "staged a PNG" when both report applies: boot.
+	Live bool `json:"live,omitempty"`
 	// HostCamera is the Mac camera a POST staged, when it staged one.
 	HostCamera string `json:"hostCamera,omitempty"`
 	Width      int    `json:"width,omitempty"`
@@ -133,7 +137,7 @@ func (s *Server) handleCamera(w http.ResponseWriter, r *http.Request) {
 			rec["applies"] = applies
 			finish("ok", nil)
 			writeJSON(w, http.StatusOK, CameraResponse{
-				Target: t.ID(), OK: true, Applies: applies, HostCamera: camfeed.CameraName(),
+				Target: t.ID(), OK: true, Applies: applies, Live: true, HostCamera: camfeed.CameraName(),
 				Width: size.X, Height: size.Y, TookMs: time.Since(began).Milliseconds(),
 			})
 			return

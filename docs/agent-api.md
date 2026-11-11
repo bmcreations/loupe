@@ -384,7 +384,10 @@ goes into a simulator text field through `/api/drop`, not here.
 
 `POST` points the device's back camera at the request body, a PNG or JPEG sent
 raw. `DELETE` gives the camera back. Both answer 200 `{target, ok, applies,
-tookMs}`; `POST` adds the image's `width` and `height`.
+tookMs}`; `POST` adds the image's `width` and `height`. When an AVD is running
+on Handset Camera the frame goes to that live feed instead of being staged, and
+the answer adds `live: true` — so a client streaming frames can tell a fed frame
+from a staged still, which both otherwise report as `applies: boot`.
 
 An AVD can instead use one of the Mac's cameras: `POST` with
 `Content-Type: application/json` and `{"hostCamera": "<name>"}`, a name from
@@ -403,6 +406,7 @@ devices, `emulator-` serials and synthetic answer 501. Not arbitrated.
 | 404 | `hostCamera` names a camera the emulator does not list. |
 | 413 | Over 32 MiB. |
 | 501 | `hostCamera` on anything but an AVD. |
+| 503 | Handset Camera's live feed is set up but unreachable: not installed on the Mac, its helper is missing, or another feeder on the Mac holds it. |
 
 `applies` says when an app sees the image:
 

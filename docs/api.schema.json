@@ -588,6 +588,9 @@
         "hostCamera": {
           "type": "string"
         },
+        "live": {
+          "type": "boolean"
+        },
         "ok": {
           "type": "boolean"
         },
