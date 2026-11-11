@@ -185,7 +185,7 @@ func NewServer(mgr *Manager, web fs.FS, tracer *trace.Writer) *Server {
 // every embedded module's own imports, not just app.js's -- out of scope
 // here; TestEveryClientModuleIsStamped only checks that this list is
 // complete, not that every file naming a listed module gets stamped.
-var clientModules = []string{"jitter.js", "transport.js", "pane.js", "panes.js", "paneheader.js", "orientation.js", "layout.js", "sheet.js", "handedness.js", "appearance.js", "health.js", "pill.js", "drawer.js", "targets.js", "corners.js", "fold.js", "appcard.js", "devicesettings.js", "inspect.js", "toast.js", "eventlog.js", "livecheck.js", "immersive.js", "doubletap.js", "keyboard.js", "clipboard.js", "touches.js", "control.js", "streamconfig.js", "connstats.js", "states.js", "newdevice.js", "helpsheets.js", "record.js", "pip.js", "peek.js", "drop.js", "rotate.js", "panels.js", "cursor.js", "servers.js", "extoverlay.js", "zoom.js", "flag.js"}
+var clientModules = []string{"jitter.js", "transport.js", "pane.js", "panes.js", "paneheader.js", "orientation.js", "layout.js", "sheet.js", "handedness.js", "appearance.js", "health.js", "pill.js", "drawer.js", "targets.js", "corners.js", "fold.js", "appcard.js", "devicesettings.js", "inspect.js", "toast.js", "eventlog.js", "livecheck.js", "immersive.js", "doubletap.js", "keyboard.js", "clipboard.js", "touches.js", "control.js", "streamconfig.js", "connstats.js", "states.js", "newdevice.js", "helpsheets.js", "record.js", "pip.js", "peek.js", "drop.js", "rotate.js", "panels.js", "cursor.js", "servers.js", "extoverlay.js", "zoom.js", "flag.js", "camera.js"}
 
 func stampIndex(web fs.FS) (build string, page, app []byte) {
 	h := sha256.New()
