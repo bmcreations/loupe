@@ -16,6 +16,10 @@ type LiveCameraFeeder interface {
 	// FeedCameraFrame passes frame, an encoded PNG or JPEG as the client
 	// sent it, to the live camera.
 	FeedCameraFrame(ctx context.Context, frame []byte) (applies CameraApplies, handled bool, err error)
+	// StopCameraFeed has the live camera show its placeholder and keeps it
+	// staged, so frames can resume without a restart. It reports false when
+	// the target has no live camera staged.
+	StopCameraFeed() bool
 }
 
 // frameSink is where Handset Camera's frames go. A var so a test can catch
@@ -90,6 +94,16 @@ func (e *Emulator) lookHandsetLive(ctx context.Context) CameraApplies {
 	handsetLives[e.cfg.AVD] = handsetLive{at: time.Now(), applies: applies}
 	handsetLiveMu.Unlock()
 	return applies
+}
+
+// StopCameraFeed implements LiveCameraFeeder. The feed is the Mac's, so
+// another AVD on Handset Camera sees the placeholder too.
+func (e *Emulator) StopCameraFeed() bool {
+	if stagedHostCamera(e.cfg.AVD) != camfeed.CameraName() {
+		return false
+	}
+	frameSink.Stop()
+	return true
 }
 
 // stopHandsetFeed has Handset Camera show its placeholder when this AVD had

@@ -199,6 +199,33 @@ func (s *Server) stageHostCamera(w http.ResponseWriter, r *http.Request, t targe
 	})
 }
 
+// handleCameraFeed stops the live feed of an AVD on Handset Camera, DELETE
+// /api/camera/feed?target=<avd>: the camera shows its placeholder at once
+// instead of repeating the last frame, and stays staged, so frames posted
+// later play with no restart. DELETE /api/camera also unstages it.
+func (s *Server) handleCameraFeed(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.agentTarget(w, r)
+	if !ok {
+		return
+	}
+	lf, ok := t.(target.LiveCameraFeeder)
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, ErrorResponse{
+			Error: fmt.Sprintf("target %q has no live camera: AVDs on Handset Camera only (docs/agent-api.md, /api/camera/feed)", t.ID()),
+		})
+		return
+	}
+	s.awake.Touch(agentAwake)
+	if !lf.StopCameraFeed() {
+		writeJSON(w, http.StatusConflict, ErrorResponse{
+			Error: fmt.Sprintf("target %q is not on Handset Camera; DELETE /api/camera gives the camera back", t.ID()),
+		})
+		return
+	}
+	s.trace.Record(map[string]any{"kind": "agent", "target": t.ID(), "action": "camera-feed", "method": r.Method, "outcome": "stopped", "ua": r.UserAgent()})
+	writeJSON(w, http.StatusOK, CameraResponse{Target: t.ID(), OK: true, Applies: target.CameraLive, Live: true, HostCamera: camfeed.CameraName()})
+}
+
 // handleCameraSources lists the Mac cameras an AVD can take as its back
 // camera, GET /api/camera/sources?target=<avd>.
 func (s *Server) handleCameraSources(w http.ResponseWriter, r *http.Request) {

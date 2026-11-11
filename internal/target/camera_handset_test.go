@@ -137,3 +137,28 @@ func TestLeavingHandsetCameraStopsTheFeed(t *testing.T) {
 		t.Errorf("re-pick: %d stops; want 2", sink.stops)
 	}
 }
+
+// Stopping the feed blanks Handset Camera and leaves it staged, so the next
+// frame plays live with no restart.
+func TestStopCameraFeedKeepsHandsetCameraStaged(t *testing.T) {
+	dir := withCameraDir(t)
+	sink := withFrameSink(t)
+	withHostCameras(t, []HostCamera{{"FaceTime HD Camera", "webcam0"}, {camfeed.Name, "webcam1"}}, nil)
+	withProcesses(t, nil)
+	e := newTestEmulator()
+
+	if e.StopCameraFeed() || sink.stops != 0 {
+		t.Errorf("nothing staged: stopped %d; want not handled", sink.stops)
+	}
+	stageHost(t, dir, "Pixel_9", "FaceTime HD Camera")
+	if e.StopCameraFeed() || sink.stops != 0 {
+		t.Errorf("another Mac camera: stopped %d; want not handled", sink.stops)
+	}
+	stageHost(t, dir, "Pixel_9", camfeed.Name)
+	if !e.StopCameraFeed() || sink.stops != 1 {
+		t.Errorf("Handset Camera: stopped %d; want handled once", sink.stops)
+	}
+	if got := stagedHostCamera("Pixel_9"); got != camfeed.CameraName() {
+		t.Errorf("staged %q after stop; want Handset Camera kept", got)
+	}
+}
