@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/camfeed"
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -107,13 +108,43 @@ func (s *Server) handleCamera(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pngBytes, size, status, err := cameraPNG(http.MaxBytesReader(w, r.Body, maxCameraBytes))
+	raw, format, size, status, err := readCameraImage(http.MaxBytesReader(w, r.Body, maxCameraBytes))
 	if err != nil {
 		finish("refused", err)
 		writeJSON(w, status, ErrorResponse{Error: err.Error()})
 		return
 	}
-	rec["width"], rec["height"], rec["bytes"] = size.X, size.Y, len(pngBytes)
+	rec["width"], rec["height"], rec["bytes"] = size.X, size.Y, len(raw)
+	// An AVD on Handset Camera takes the frame as sent, with no PNG round trip:
+	// a client streaming its webcam sends several a second.
+	if lf, ok := t.(target.LiveCameraFeeder); ok {
+		applies, handled, err := lf.FeedCameraFrame(ctx, raw)
+		if handled {
+			rec["live"] = true
+			if err != nil {
+				status := http.StatusBadGateway
+				if errors.Is(err, camfeed.ErrNoCamera) || errors.Is(err, camfeed.ErrNoHelper) || errors.Is(err, camfeed.ErrBusy) {
+					status = http.StatusServiceUnavailable
+				}
+				finish("error", err)
+				writeJSON(w, status, ErrorResponse{Error: err.Error()})
+				return
+			}
+			rec["applies"] = applies
+			finish("ok", nil)
+			writeJSON(w, http.StatusOK, CameraResponse{
+				Target: t.ID(), OK: true, Applies: applies, HostCamera: camfeed.CameraName(),
+				Width: size.X, Height: size.Y, TookMs: time.Since(began).Milliseconds(),
+			})
+			return
+		}
+	}
+	pngBytes, status, err := cameraPNG(raw, format)
+	if err != nil {
+		finish("refused", err)
+		writeJSON(w, status, ErrorResponse{Error: err.Error()})
+		return
+	}
 	applies, err := cf.SetCamera(ctx, pngBytes)
 	if err != nil {
 		finish("error", err)
@@ -191,32 +222,37 @@ func (s *Server) handleCameraSources(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, CameraSourcesResponse{Target: t.ID(), Cameras: cams})
 }
 
-// cameraPNG reads a PNG or JPEG body and returns it as PNG with its size. A
-// PNG goes through unchanged; a JPEG is decoded and re-encoded. On error it
-// returns the status to answer with.
-func cameraPNG(body io.Reader) ([]byte, image.Point, int, error) {
+// readCameraImage reads a PNG or JPEG body and checks its size from the
+// header. On error it returns the status to answer with.
+func readCameraImage(body io.Reader) ([]byte, string, image.Point, int, error) {
 	raw, err := io.ReadAll(body)
 	if err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			return nil, image.Point{}, http.StatusRequestEntityTooLarge, fmt.Errorf("image is over %d bytes", maxCameraBytes)
+			return nil, "", image.Point{}, http.StatusRequestEntityTooLarge, fmt.Errorf("image is over %d bytes", maxCameraBytes)
 		}
-		return nil, image.Point{}, http.StatusBadRequest, err
+		return nil, "", image.Point{}, http.StatusBadRequest, err
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
 	if err != nil || (format != "png" && format != "jpeg") {
-		return nil, image.Point{}, http.StatusBadRequest, errors.New("body is not a PNG or JPEG image")
+		return nil, "", image.Point{}, http.StatusBadRequest, errors.New("body is not a PNG or JPEG image")
 	}
 	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > maxCameraSide || cfg.Height > maxCameraSide {
-		return nil, image.Point{}, http.StatusBadRequest, fmt.Errorf("image is %dx%d; each side must be 1 to %d pixels", cfg.Width, cfg.Height, maxCameraSide)
+		return nil, "", image.Point{}, http.StatusBadRequest, fmt.Errorf("image is %dx%d; each side must be 1 to %d pixels", cfg.Width, cfg.Height, maxCameraSide)
 	}
-	size := image.Pt(cfg.Width, cfg.Height)
+	return raw, format, image.Pt(cfg.Width, cfg.Height), 0, nil
+}
+
+// cameraPNG returns an image readCameraImage accepted as PNG. A PNG goes
+// through unchanged once it decodes; a JPEG is decoded and re-encoded. On
+// error it returns the status to answer with.
+func cameraPNG(raw []byte, format string) ([]byte, int, error) {
 	img, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
-		return nil, image.Point{}, http.StatusBadRequest, fmt.Errorf("decode %s: %w", format, err)
+		return nil, http.StatusBadRequest, fmt.Errorf("decode %s: %w", format, err)
 	}
 	if format == "png" {
-		return raw, size, 0, nil
+		return raw, 0, nil
 	}
 	// A JPEG decodes as YCbCr, which the PNG encoder would write at 16 bits
 	// a channel: twice the bytes for nothing a camera frame can show.
@@ -224,7 +260,7 @@ func cameraPNG(body io.Reader) ([]byte, image.Point, int, error) {
 	draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
 	var out bytes.Buffer
 	if err := pngcodec.Encode(&out, rgba); err != nil {
-		return nil, image.Point{}, http.StatusInternalServerError, err
+		return nil, http.StatusInternalServerError, err
 	}
-	return out.Bytes(), size, 0, nil
+	return out.Bytes(), 0, nil
 }

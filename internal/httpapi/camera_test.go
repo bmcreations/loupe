@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/camfeed"
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -246,5 +247,63 @@ func TestCameraSources(t *testing.T) {
 	}
 	if w := serveAgent(t, &hostCameraTarget{cams: nil, cameraTarget: cameraTarget{err: errors.New("no emulator")}}, http.MethodGet, "/api/camera/sources?target=stub", nil); w.Code != http.StatusBadGateway {
 		t.Errorf("lister fails: status %d; want 502", w.Code)
+	}
+}
+
+// liveCameraTarget takes frames live, as an AVD on Handset Camera does.
+type liveCameraTarget struct {
+	cameraTarget
+	handled bool
+	liveErr error
+	frames  [][]byte
+}
+
+func (f *liveCameraTarget) FeedCameraFrame(ctx context.Context, frame []byte) (target.CameraApplies, bool, error) {
+	if !f.handled {
+		return "", false, nil
+	}
+	f.frames = append(f.frames, frame)
+	return target.CameraLive, true, f.liveErr
+}
+
+// A live camera takes the JPEG as sent, with no PNG round trip, and the
+// staged image is left alone.
+func TestCameraFeedsALiveCameraTheFrameAsSent(t *testing.T) {
+	body := testImage(t, 64, 48, encodeJPEG)
+	f := &liveCameraTarget{handled: true}
+	w := serveAgent(t, f, http.MethodPost, "/api/camera?target=stub", bytes.NewReader(body))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s; want 200", w.Code, w.Body)
+	}
+	if len(f.frames) != 1 || !bytes.Equal(f.frames[0], body) || f.got != nil {
+		t.Errorf("live got %d frames, staged %d bytes; want the JPEG live and nothing staged", len(f.frames), len(f.got))
+	}
+	if s := w.Body.String(); !strings.Contains(s, `"applies":"live"`) || !strings.Contains(s, `"hostCamera":"Handset Camera"`) {
+		t.Errorf("answer %s; want live on Handset Camera", s)
+	}
+}
+
+func TestCameraStagesWhenALiveCameraDeclines(t *testing.T) {
+	f := &liveCameraTarget{}
+	w := serveAgent(t, f, http.MethodPost, "/api/camera?target=stub", bytes.NewReader(testImage(t, 40, 30, encodePNG)))
+	if w.Code != http.StatusOK || f.got == nil {
+		t.Errorf("status %d, staged %d bytes; want 200 and the image staged", w.Code, len(f.got))
+	}
+}
+
+func TestCameraLiveFeedErrors(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want int
+	}{
+		{camfeed.ErrNoCamera, http.StatusServiceUnavailable},
+		{camfeed.ErrNoHelper, http.StatusServiceUnavailable},
+		{errors.New("helper crashed"), http.StatusBadGateway},
+	} {
+		f := &liveCameraTarget{handled: true, liveErr: tc.err}
+		w := serveAgent(t, f, http.MethodPost, "/api/camera?target=stub", bytes.NewReader(testImage(t, 40, 30, encodePNG)))
+		if w.Code != tc.want {
+			t.Errorf("%v: status %d; want %d", tc.err, w.Code, tc.want)
+		}
 	}
 }
