@@ -2389,6 +2389,12 @@ html.multi .pane .overlay .card { max-width: 100%; }
 }
 .sheetAction:active { opacity: 0.6; }
 .sheetNote { margin: 0 0 8px; color: var(--label-secondary); font-size: var(--text-footnote); }
+/* Camera feed: a front/back segmented selector above the start/stop action. */
+.camFacing { display: flex; margin-bottom: 8px; }
+.camFacingBtn { margin: 0; border-radius: 0; }
+.camFacingBtn:first-child { border-radius: 9px 0 0 9px; }
+.camFacingBtn:last-child { border-radius: 0 9px 9px 0; border-left-width: 0; }
+.camFacingBtn[aria-pressed="true"] { background: var(--tint); color: var(--label-on-tint); border-color: var(--tint); }
 .logcatSwitch { margin-bottom: 8px; }
 .logcatBody[hidden], .logGestures[hidden], .logcatSwitch[hidden] { display: none; }
 .logcatBar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
