@@ -26,6 +26,9 @@ import { showToast } from './toast.js';
 // The feeder repeats the latest frame at 30 fps, so ~12 fps of fresh frames
 // is plenty and keeps a phone's radio and battery down.
 export const INTERVAL_MS = 80;
+// Uploads allowed in flight once the feed is live; two hide one round trip
+// without letting a slow link queue stale frames.
+export const MAX_IN_FLIGHT = 2;
 // Each side is capped to match the feeder's 1280x720 target; a larger grab is
 // only re-scaled downstream.
 export const MAX_W = 1280;
@@ -153,6 +156,7 @@ export function mount(deps) {
   const win = deps.win || doc.defaultView;
   const isSecure = deps.isSecure || (() => !!(win && win.isSecureContext));
   const openCamera = deps.openCamera || defaultOpenCamera;
+  const now = deps.now || (() => Date.now());
   const sleep = deps.sleep || ((ms) => new Promise((r) => (win ? win.setTimeout(r, ms) : setTimeout(r, ms))));
 
   let facing = 'environment'; // back camera by default
@@ -258,17 +262,33 @@ export function mount(deps) {
     }
     if (mine !== gen || !active) { try { src.stop(); } catch (e) {} return; }
     source = src;
+    // Until a frame comes back live, send one at a time so an AVD that isn't
+    // on Handset Camera stages a single still before the loop stops. After
+    // that, keep up to MAX_IN_FLIGHT uploads going and pace from each
+    // frame's start: waiting out every round trip held a phone on a
+    // tailnet to about 4 fps.
+    let confirmed = false;
+    let inFlight = 0;
     while (active && mine === gen) {
       if (paused) { await sleep(250); continue; }
+      if (inFlight >= MAX_IN_FLIGHT) { await sleep(10); continue; }
+      const started = now();
       let blob = null;
       try { blob = await src.grab(); } catch (e) { blob = null; }
       if (!active || mine !== gen) break;
-      if (blob) {
+      if (blob && !confirmed) {
         const outcome = await postFrame(target, blob);
         if (!active || mine !== gen) break;
         if (outcome === 'stop') { stopFromLoop(mine); return; }
+        if (outcome === 'ok') confirmed = true;
+      } else if (blob) {
+        inFlight += 1;
+        postFrame(target, blob).then((outcome) => {
+          inFlight -= 1;
+          if (outcome === 'stop' && active && mine === gen) stopFromLoop(mine);
+        });
       }
-      await sleep(INTERVAL_MS);
+      await sleep(Math.max(0, INTERVAL_MS - (now() - started)));
     }
     try { src.stop(); } catch (e) {}
     if (source === src) source = null;

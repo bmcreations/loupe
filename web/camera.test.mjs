@@ -82,6 +82,28 @@ function harness(opts = {}) {
   return { m, host, posts, stops: () => stops, note: () => host.querySelector('.sheetNote').textContent };
 }
 
+test('once live, the next upload starts before the previous one answers', async () => {
+  let calls = 0;
+  const held = [];
+  const h = harness({
+    fetch: () => {
+      calls += 1;
+      if (calls === 1) return Promise.resolve(jsonResponse(200, { ok: true, live: true }));
+      return new Promise((r) => held.push(r));
+    },
+  });
+  h.m.start();
+  await tick(10);
+  // Frame 1 confirmed live; frames 2 and 3 are both in flight, unanswered,
+  // and the loop waits rather than queueing a fourth.
+  assert.equal(h.posts.length, 3);
+  held.forEach((r) => r(jsonResponse(200, { ok: true, live: true })));
+  await tick(4);
+  assert.ok(h.posts.length > 3, 'resumes once uploads answer');
+  h.m.stop();
+  held.forEach((r) => r(jsonResponse(200, { ok: true, live: true })));
+});
+
 test('insecure context: start refuses and explains, no capture', async () => {
   const h = harness({ secure: false });
   h.m.start();
