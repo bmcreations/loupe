@@ -122,7 +122,7 @@ func (s *Server) handleCamera(w http.ResponseWriter, r *http.Request) {
 	// An AVD on Handset Camera takes the frame as sent, with no PNG round trip:
 	// a client streaming its webcam sends several a second.
 	if lf, ok := t.(target.LiveCameraFeeder); ok {
-		applies, handled, err := lf.FeedCameraFrame(ctx, raw)
+		applies, handled, err := lf.FeedCameraFrame(ctx, raw, r.URL.Query().Get("hold") == "1")
 		if handled {
 			rec["live"] = true
 			if err != nil {

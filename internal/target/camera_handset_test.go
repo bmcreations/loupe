@@ -10,10 +10,12 @@ import (
 
 type recordingSink struct {
 	frames [][]byte
+	held   [][]byte
 	stops  int
 }
 
 func (s *recordingSink) Send(frame []byte) error { s.frames = append(s.frames, frame); return nil }
+func (s *recordingSink) Hold(frame []byte) error { s.held = append(s.held, frame); return nil }
 func (s *recordingSink) Stop()                   { s.stops++ }
 
 func withFrameSink(t *testing.T) *recordingSink {
@@ -38,11 +40,11 @@ func TestFeedCameraFrameOnlyForHandsetCamera(t *testing.T) {
 
 	// Nothing staged, then another Mac camera: the frame is not handled.
 	e := newTestEmulator()
-	if _, handled, _ := e.FeedCameraFrame(context.Background(), []byte("f")); handled {
+	if _, handled, _ := e.FeedCameraFrame(context.Background(), []byte("f"), false); handled {
 		t.Error("handled with nothing staged")
 	}
 	stageHost(t, dir, "Pixel_9", "FaceTime HD Camera")
-	if _, handled, _ := e.FeedCameraFrame(context.Background(), []byte("f")); handled {
+	if _, handled, _ := e.FeedCameraFrame(context.Background(), []byte("f"), false); handled {
 		t.Error("handled with another Mac camera staged")
 	}
 	if len(sink.frames) != 0 {
@@ -51,7 +53,7 @@ func TestFeedCameraFrameOnlyForHandsetCamera(t *testing.T) {
 
 	// Handset Camera staged and the emulator not running: on boot.
 	stageHost(t, dir, "Pixel_9", camfeed.Name)
-	applies, handled, err := e.FeedCameraFrame(context.Background(), []byte("f1"))
+	applies, handled, err := e.FeedCameraFrame(context.Background(), []byte("f1"), false)
 	if !handled || err != nil || applies != CameraOnBoot {
 		t.Errorf("%v %v %v; want handled, on boot", applies, handled, err)
 	}
@@ -66,7 +68,7 @@ func TestFeedCameraFrameLiveWhenBootedOnIt(t *testing.T) {
 	withHostCameras(t, []HostCamera{{camfeed.Name, "webcam3"}}, nil)
 	withProcesses(t, []process{{args: []string{"qemu-system-aarch64", "-avd", "Pixel_9", "-camera-back", "webcam3"}}})
 	stageHost(t, dir, "Pixel_9", camfeed.Name)
-	applies, handled, err := newTestEmulator().FeedCameraFrame(context.Background(), []byte("f"))
+	applies, handled, err := newTestEmulator().FeedCameraFrame(context.Background(), []byte("f"), false)
 	if !handled || err != nil || applies != CameraLive {
 		t.Errorf("%v %v %v; want handled, live", applies, handled, err)
 	}
@@ -85,7 +87,7 @@ func TestStaleLiveStateRefreshesInBackground(t *testing.T) {
 	handsetLiveMu.Unlock()
 
 	e := newTestEmulator()
-	if applies, _, _ := e.FeedCameraFrame(context.Background(), []byte("f")); applies != CameraOnBoot {
+	if applies, _, _ := e.FeedCameraFrame(context.Background(), []byte("f"), false); applies != CameraOnBoot {
 		t.Fatalf("applies %v; want the cached on boot", applies)
 	}
 	deadline := time.Now().Add(2 * time.Second)
@@ -101,7 +103,7 @@ func TestStaleLiveStateRefreshesInBackground(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if applies, _, _ := e.FeedCameraFrame(context.Background(), []byte("f")); applies != CameraLive {
+	if applies, _, _ := e.FeedCameraFrame(context.Background(), []byte("f"), false); applies != CameraLive {
 		t.Errorf("applies %v; want live after the refresh", applies)
 	}
 }
@@ -160,5 +162,22 @@ func TestStopCameraFeedKeepsHandsetCameraStaged(t *testing.T) {
 	}
 	if got := stagedHostCamera("Pixel_9"); got != camfeed.CameraName() {
 		t.Errorf("staged %q after stop; want Handset Camera kept", got)
+	}
+}
+
+// A held frame goes to the sink's Hold, so a still image outlasts the idle
+// timeout.
+func TestFeedCameraFrameHoldsAStill(t *testing.T) {
+	dir := withCameraDir(t)
+	sink := withFrameSink(t)
+	withHostCameras(t, []HostCamera{{camfeed.Name, "webcam1"}}, nil)
+	withProcesses(t, nil)
+	e := newTestEmulator()
+	stageHost(t, dir, "Pixel_9", camfeed.Name)
+	if _, handled, err := e.FeedCameraFrame(context.Background(), []byte("still"), true); !handled || err != nil {
+		t.Fatalf("handled %v, err %v", handled, err)
+	}
+	if len(sink.held) != 1 || len(sink.frames) != 0 {
+		t.Fatalf("held %q, sent %q; want the still held", sink.held, sink.frames)
 	}
 }

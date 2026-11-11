@@ -388,7 +388,10 @@ raw. `DELETE` gives the camera back. Both answer 200 `{target, ok, applies,
 tookMs}`; `POST` adds the image's `width` and `height`. When an AVD is running
 on Handset Camera the frame goes to that live feed instead of being staged, and
 the answer adds `live: true` — so a client streaming frames can tell a fed frame
-from a staged still, which both otherwise report as `applies: boot`.
+from a staged still, which both otherwise report as `applies: boot`. A fed
+frame gives way to the camera's placeholder once no frame has come for a
+minute; add `hold=1` to keep a still image up until the next frame or
+`DELETE /api/camera/feed`.
 
 An AVD can instead use one of the Mac's cameras: `POST` with
 `Content-Type: application/json` and `{"hostCamera": "<name>"}`, a name from

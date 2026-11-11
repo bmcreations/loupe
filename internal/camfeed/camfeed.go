@@ -56,14 +56,16 @@ const (
 	// next frame tries again, so a camera that is still registering (about
 	// 15 s after it is allowed) is picked up without a helper per frame.
 	missingBackoff = 3 * time.Second
-	// idleTimeout stops a helper no frame has reached for this long. It holds
-	// the camera's input while it runs.
-	idleTimeout = time.Minute
 	// busyBackoff is how long a "busy" exit is believed before another helper
 	// is tried, so a second loupe neither feeds into nothing nor churns
 	// helpers while the first still holds the camera.
 	busyBackoff = 5 * time.Second
 )
+
+// idleTimeout stops a helper no frame has reached for this long, unless a
+// frame is held. It holds the camera's input while it runs. A var so a test
+// can shorten it.
+var idleTimeout = time.Minute
 
 // helperPath finds loupe-camfeed: $LOUPE_CAMFEED, then the file next to the
 // running loupe (Handset bundles both in Contents/Helpers), then a
@@ -98,6 +100,10 @@ type Feed struct {
 	pending []byte
 	// stopPending asks the helper to show the camera's placeholder.
 	stopPending bool
+	// held is a still frame from Hold that stays up past idleTimeout, or nil.
+	// It is sent again when the helper has exited, as an update of the
+	// extension does.
+	held []byte
 	// running is whether the writer goroutine is alive.
 	running bool
 	// missingAt is when a helper last answered "missing".
@@ -126,8 +132,21 @@ func (f *Feed) Send(frame []byte) error {
 	if !f.busyAt.IsZero() && time.Since(f.busyAt) < busyBackoff {
 		return ErrBusy
 	}
-	f.pending, f.stopPending = frame, false
+	f.pending, f.stopPending, f.held = frame, false, nil
 	f.kick()
+	return nil
+}
+
+// Hold is Send for a still image: the camera keeps showing frame until the
+// next Send, Hold or Stop, where a sent frame gives way to the placeholder
+// once no frame has come for idleTimeout.
+func (f *Feed) Hold(frame []byte) error {
+	if err := f.Send(frame); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	f.held = frame
+	f.mu.Unlock()
 	return nil
 }
 
@@ -135,6 +154,7 @@ func (f *Feed) Send(frame []byte) error {
 func (f *Feed) Stop() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.held = nil
 	if !f.running {
 		return
 	}
@@ -167,6 +187,16 @@ type helper struct {
 	waitErr error
 }
 
+// done reports whether the process has exited.
+func (h *helper) done() bool {
+	select {
+	case <-h.exited:
+		return true
+	default:
+		return false
+	}
+}
+
 // busy reports whether the helper has exited because another process holds the
 // camera. It is read only after the helper has exited.
 func (h *helper) busy() bool {
@@ -185,7 +215,7 @@ func (f *Feed) noteExit(h *helper) {
 }
 
 // run writes queued frames to a helper, starting one when there is none,
-// until no frame has come for idleTimeout.
+// until no frame has come for idleTimeout and none is held.
 func (f *Feed) run() {
 	var h *helper
 	defer func() {
@@ -201,9 +231,14 @@ func (f *Feed) run() {
 		case <-idle.C:
 			f.mu.Lock()
 			if f.pending == nil && !f.stopPending {
-				f.running = false
-				f.mu.Unlock()
-				return
+				if f.held == nil {
+					f.running = false
+					f.mu.Unlock()
+					return
+				}
+				if h == nil || h.done() {
+					f.pending = f.held
+				}
 			}
 			f.mu.Unlock()
 		}
