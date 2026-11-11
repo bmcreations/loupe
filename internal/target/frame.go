@@ -63,6 +63,18 @@ type DeviceFrame struct {
 	// it, and the geometry and art stay upright. Turning the picture and frame
 	// together is the only step a client needs on either kind.
 	ContentRotation int `json:"contentRotation,omitempty"`
+	// DisplayRotation is how far the display is turned from its natural
+	// orientation, as Android's ROTATION_ quarter-turn count, on a derived
+	// frame only. Omitted when it is 0, and on a skin, whose geometry is
+	// already turned (Rotation).
+	//
+	// A derived frame is laid out in the natural orientation whichever way
+	// the display faces, and its bezel is symmetric, so the box at 90 and at
+	// 270 is the same; only the cutout tells them apart. The cutout path is
+	// in the natural orientation's pixels, and Android shows that picture
+	// turned counter-clockwise by this many quarters: at ROTATION_90 the
+	// cutout is on the left edge, at ROTATION_270 on the right.
+	DisplayRotation int `json:"displayRotation,omitempty"`
 }
 
 // FrameCutout is the device's own cutout path plus the transform that places
@@ -152,6 +164,7 @@ func (t *ADBTarget) DeviceFrame(ctx context.Context) (*DeviceFrame, error) {
 		if f, err = t.derivedFrame(ctx); err != nil {
 			return nil, err
 		}
+		f.DisplayRotation = display
 	}
 	// The geometry above follows the display, which is the stream's shape.
 	// A device held another way than its display (an app that locks its
