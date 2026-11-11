@@ -5016,6 +5016,9 @@
         "display": {
           "$ref": "#/$defs/target.FrameRect"
         },
+        "displayRotation": {
+          "type": "integer"
+        },
         "height": {
           "type": "integer"
         },

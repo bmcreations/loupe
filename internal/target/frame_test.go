@@ -1,8 +1,11 @@
 package target
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -355,6 +358,44 @@ func TestADumpWithNoCutoutReportsNone(t *testing.T) {
 	} {
 		if spec, ok := firstCutoutSpec(dump); ok {
 			t.Fatalf("dump %q yielded cutout %q, want none", dump, spec)
+		}
+	}
+}
+
+// A derived frame stays in the display's natural orientation, which is the
+// same box at 90 and 270. DisplayRotation says which way the display is
+// turned, so a client can put the cutout on the edge Android does: the left
+// at ROTATION_90, the right at ROTATION_270 (read off an API 36 emulator's
+// DisplayCutout insets, 2026-11-10).
+func TestDerivedFrameCarriesTheDisplayRotation(t *testing.T) {
+	for _, tc := range []struct {
+		dump string
+		want int
+	}{{"ROTATION_0", 0}, {"ROTATION_90", 1}, {"ROTATION_180", 2}, {"ROTATION_270", 3}} {
+		adb, _ := fakeADB(t, `case "$*" in
+*"wm size"*) echo 'Physical size: 1080x2400' ;;
+*"wm density"*) echo 'Physical density: 420' ;;
+*"dumpsys window displays"*) cat <<'X'
+Display: mDisplayId=0
+  mDisplayRotation=`+tc.dump+` mLastOrientation=-1
+      mDisplayCutout=DisplayCutout{cutoutPathParserInfo={CutoutPathParserInfo{displayWidth=1080 cutoutSpec={M 0,0 L -20, 0 L -20, 26 L 20, 26 L 20, 0 Z @dp} rotation={0}}}}
+X
+;;
+esac`)
+		tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "R5CT", State: "device"}, "", "")
+		f, err := tgt.DeviceFrame(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.DisplayRotation != tc.want {
+			t.Errorf("%s: DisplayRotation = %d, want %d", tc.dump, f.DisplayRotation, tc.want)
+		}
+		if f.Display.Width != 1080 || f.Display.Height != 2400 || f.Cutout == nil {
+			t.Errorf("%s: display %+v cutout %v; want the upright 1080x2400 screen and its cutout", tc.dump, f.Display, f.Cutout)
+		}
+		b, _ := json.Marshal(f)
+		if has := strings.Contains(string(b), "displayRotation"); has != (tc.want != 0) {
+			t.Errorf("%s: %s; want displayRotation only when turned", tc.dump, b)
 		}
 	}
 }
