@@ -3,6 +3,7 @@ package target
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/bmcreations/loupe/internal/camfeed"
 )
@@ -68,6 +69,40 @@ func TestFeedCameraFrameLiveWhenBootedOnIt(t *testing.T) {
 	applies, handled, err := newTestEmulator().FeedCameraFrame(context.Background(), []byte("f"))
 	if !handled || err != nil || applies != CameraLive {
 		t.Errorf("%v %v %v; want handled, live", applies, handled, err)
+	}
+}
+
+// Past the TTL a frame gets the cached answer at once and the look runs in
+// the background, so a frame never waits on ps and -webcam-list.
+func TestStaleLiveStateRefreshesInBackground(t *testing.T) {
+	dir := withCameraDir(t)
+	withFrameSink(t)
+	withHostCameras(t, []HostCamera{{camfeed.Name, "webcam3"}}, nil)
+	withProcesses(t, []process{{args: []string{"qemu-system-aarch64", "-avd", "Pixel_9", "-camera-back", "webcam3"}}})
+	stageHost(t, dir, "Pixel_9", camfeed.Name)
+	handsetLiveMu.Lock()
+	handsetLives["Pixel_9"] = handsetLive{at: time.Now().Add(-time.Minute), applies: CameraOnBoot}
+	handsetLiveMu.Unlock()
+
+	e := newTestEmulator()
+	if applies, _, _ := e.FeedCameraFrame(context.Background(), []byte("f")); applies != CameraOnBoot {
+		t.Fatalf("applies %v; want the cached on boot", applies)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		handsetLiveMu.Lock()
+		got := handsetLives["Pixel_9"]
+		handsetLiveMu.Unlock()
+		if got.applies == CameraLive && !got.refreshing {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cache is %+v; want refreshed to live", got)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if applies, _, _ := e.FeedCameraFrame(context.Background(), []byte("f")); applies != CameraLive {
+		t.Errorf("applies %v; want live after the refresh", applies)
 	}
 }
 

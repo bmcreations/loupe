@@ -27,12 +27,16 @@ var frameSink interface {
 
 // handsetLiveTTL is how long FeedCameraFrame trusts its last look at whether
 // the running emulator was booted on Handset Camera. Looking runs ps and
-// `emulator -webcam-list`, and a client sends several frames a second.
+// `emulator -webcam-list`, which can take a second, and a client sends
+// several frames a second. Past the TTL the old answer is still returned
+// while a look runs in the background, so no frame waits on it; only the
+// first frame for an AVD does.
 const handsetLiveTTL = 2 * time.Second
 
 type handsetLive struct {
-	at      time.Time
-	applies CameraApplies
+	at         time.Time
+	applies    CameraApplies
+	refreshing bool
 }
 
 var (
@@ -59,10 +63,21 @@ func (e *Emulator) FeedCameraFrame(ctx context.Context, frame []byte) (CameraApp
 func (e *Emulator) handsetApplies(ctx context.Context) CameraApplies {
 	handsetLiveMu.Lock()
 	last, ok := handsetLives[e.cfg.AVD]
-	handsetLiveMu.Unlock()
-	if ok && time.Since(last.at) < handsetLiveTTL {
-		return last.applies
+	if !ok {
+		handsetLiveMu.Unlock()
+		return e.lookHandsetLive(ctx)
 	}
+	if time.Since(last.at) >= handsetLiveTTL && !last.refreshing {
+		last.refreshing = true
+		handsetLives[e.cfg.AVD] = last
+		go e.lookHandsetLive(context.WithoutCancel(ctx))
+	}
+	handsetLiveMu.Unlock()
+	return last.applies
+}
+
+// lookHandsetLive checks the running emulator's flags and caches the answer.
+func (e *Emulator) lookHandsetLive(ctx context.Context) CameraApplies {
 	applies := CameraOnBoot
 	if args := runningAVDArgs(ctx, e.cfg.AVD); args != nil {
 		if cams, err := e.HostCameras(ctx); err == nil {
