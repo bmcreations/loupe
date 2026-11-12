@@ -418,8 +418,8 @@ devices, `emulator-` serials and synthetic answer 501. Not arbitrated.
 |---|---|
 | `cameraOpen` | AVD booted with the camera flag. The next time an app opens the camera. A preview already showing keeps the old image until the app closes and reopens the camera. |
 | `boot` | AVD running without the flag, or not running. Shut it down and boot it through loupe. |
-| `live` | iOS: an app this server launched with the shim is running and follows swaps. AVD with a Mac camera: the emulator already runs with `-camera-back` for that camera, so there is nothing to do. |
-| `launch` | iOS: no such app is running. The next `launch` picks the image up. |
+| `live` | iOS: an app with the shim is running and follows swaps. AVD with a Mac camera: the emulator already runs with `-camera-back` for that camera, so there is nothing to do. |
+| `launch` | iOS: no such app is running. The next launch picks the image up. |
 
 **AVDs.** The emulator takes an image only as a boot flag, so loupe passes it
 on any boot it starts while an image is staged. Turning the image on or off
@@ -459,12 +459,20 @@ first `POST` (about 4 seconds) and `launch` (the `/api/input` action and the
 MCP tool) starts the app with it, **relaunching it** if it is running without
 the shim. An app that already has the shim is only brought to the front.
 
+While an image is staged, loupe also sets the shim in the simulator's launchd
+environment, so an app started any other way, from its icon or by
+`simctl launch`, gets it too. An app started with its own
+`DYLD_INSERT_LIBRARIES`, as Xcode's Run does with Main Thread Checker on,
+replaces that value and has no camera until loupe's `launch` relaunches it.
+The shim does nothing in a process that is not an installed app, or when no
+image is staged.
+
 The shim supplies one back camera, 1920x1080 frames at 30 per second, QR
 metadata detection and a preview layer. It differs from a phone in these
 ways: `videoRotationAngle` is kept but not applied, QR bounds are in the
 landscape frame's coordinates, metadata is QR only (asking for another type
 throws), and there is no photo or movie output. `DELETE` makes apps with the
-shim see black and later launches plain.
+shim see black, clears the simulator's environment, and makes later launches plain.
 
 **Physical iPhones.** The same shim, for **development-signed** apps only:
 dyld ignores the launch environment in an App Store, TestFlight or enterprise

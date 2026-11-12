@@ -1,9 +1,11 @@
 // loupecam gives an iOS simulator app a back camera that sees an image file.
 //
 // The simulator has no camera: AVCaptureDevice answers nil for every device
-// type. Loupe launches an app with this library in DYLD_INSERT_LIBRARIES and
-// the image's host path in LOUPE_CAMERA_FILE, and it stands in for the parts
-// of AVFoundation a scanner touches:
+// type. While an image is staged, loupe puts this library in
+// DYLD_INSERT_LIBRARIES and the image's host path in LOUPE_CAMERA_FILE, both
+// in the simulator's launchd environment and in the apps it launches itself,
+// and in an installed app it stands in for the parts of AVFoundation a
+// scanner touches:
 //
 //   - AVCaptureDevice's lookups answer one fake back camera, and camera
 //     access reads as authorized.
@@ -1149,8 +1151,25 @@ static void LCTick(uint64_t n) {
 
 #pragma mark - Install
 
+// LCWanted reports whether this process should get the fake camera. Loupe
+// also puts the shim in the simulator's launchd environment, so every
+// process the simulator starts loads it, daemons and launchctl included.
+// Only an installed app gets the camera, and only while the image is staged:
+// a stale environment must not hand apps a pre-authorized black camera.
+static BOOL LCWanted(void) {
+	NSString *bundle = [[NSBundle mainBundle] bundlePath];
+	if (![bundle hasSuffix:@".app"] || [bundle rangeOfString:@"/Containers/Bundle/Application/"].location == NSNotFound) {
+		return NO;
+	}
+	NSString *file = [[[NSProcessInfo processInfo] environment] objectForKey:@"LOUPE_CAMERA_FILE"];
+	return file.length > 0 && [[NSFileManager defaultManager] fileExistsAtPath:file];
+}
+
 __attribute__((constructor)) static void LCInstall(void) {
 	@autoreleasepool {
+		if (!LCWanted()) {
+			return;
+		}
 		gFrameLock = [NSLock new];
 		gRunning = [[NSHashTable weakObjectsHashTable] retain];
 		gLayers = [[NSHashTable weakObjectsHashTable] retain];
