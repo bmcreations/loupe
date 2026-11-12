@@ -72,7 +72,7 @@ func (s *Server) inputCaller(r *http.Request, targetID string) inputCaller {
 			if sess, ok := s.mgr.Session(targetID); ok && sess.HasViewer(id) {
 				return inputCaller{viewer: id}
 			}
-			c.person = s.mgr.HasViewer(id)
+			c.person = s.mgr.HasViewer(id) || s.lifeViewers.recent(targetID, v)
 		}
 	}
 	return c
