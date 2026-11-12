@@ -55,6 +55,9 @@ type Server struct {
 	destPath string
 	t3cache  t3Cache
 
+	// version is what /api/version reports (version.go).
+	version string
+
 	// handoffURL is the link /api/handoff builds on (handoff.go).
 	handoffURL string
 	// lan is what /api/lan answers with (lan.go); nil turns it off.
@@ -328,6 +331,7 @@ var routes = []route{
 	{"/api/devices/handsoff", []string{http.MethodPost}, (*Server).handleHandsOff, ""},
 	{"/api/claims", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleClaims, ""},
 	{"/api/auth", []string{http.MethodGet}, (*Server).handleAuth, ""},
+	{"/api/version", []string{http.MethodGet}, (*Server).handleVersion, ""},
 	{"/api/pair", []string{http.MethodPost}, (*Server).handlePair, ""},
 	{"/api/pairings", []string{http.MethodGet, http.MethodPost}, (*Server).handlePairings, ""},
 	{"/api/pairings/", []string{http.MethodDelete}, (*Server).handlePairingItem, ""},

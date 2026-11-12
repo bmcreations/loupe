@@ -54,6 +54,7 @@ Common refusals on routes that change a device:
 | `GET`, `POST /api/clipboard/shared` | Shared clipboard |
 | `GET /api/handoff` | Link that moves a session to another browser |
 | `GET /api/lan` | Addresses on the local network, and the key to check there |
+| `GET /api/version` | The running server's version |
 | `GET`, `POST`, `DELETE /api/overlays` | Images and boxes over the video |
 | `GET`, `POST /api/extensions` | Extension registry and proxy |
 | `GET`, `POST`, `DELETE /api/claims` | Claims |
@@ -791,6 +792,13 @@ the tunnel host. The certificate names the tunnel host, not the address, so the
 client checks the key against `spki`, which it read over a connection that
 verified. `urls` is empty when the server listens on loopback only, runs
 without TLS, or has no private address.
+
+### `GET /api/version`
+
+Returns `{"version"}`: what `loupe version` prints, the release tag or `dev`
+for a plain `go build`. A supervisor that ships loupe beside itself compares it
+with the binary it bundles, to tell an old server still running after an update
+from the new one.
 
 ### `/api/overlays?target=<id>`
 

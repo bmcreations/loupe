@@ -171,6 +171,9 @@
     "GET /api/ui": {
       "$ref": "#/$defs/httpapi.UIResponse"
     },
+    "GET /api/version": {
+      "$ref": "#/$defs/httpapi.VersionResponse"
+    },
     "OKResponse": {
       "$ref": "#/$defs/httpapi.OKResponse"
     },
@@ -4584,6 +4587,17 @@
         "height",
         "rotation",
         "nodes"
+      ],
+      "type": "object"
+    },
+    "httpapi.VersionResponse": {
+      "properties": {
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
       ],
       "type": "object"
     },
