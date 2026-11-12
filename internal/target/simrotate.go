@@ -33,6 +33,14 @@ func simRotationFromName(name string) int {
 	return 0
 }
 
+// simOrientOpenBudget is added to an `orient` command's budget. simcap opens
+// CoreDevice's orientation-control capability on the first `orient` a helper
+// gets and waits up to 10s for it (orientation.swift), before the call's own
+// 5s. With only simInputBudget, the first Rotate after loupe or the helper
+// started failed with "no reply in 5s" while the open was still going. A var
+// so tests can shrink it.
+var simOrientOpenBudget = 10 * time.Second
+
 // Rotate implements Rotator through simcap's `orient set`, which calls
 // CoreDevice's orientation-control capability, the one Device Hub's rotate
 // buttons use. The video surface does not change size: the content is drawn
@@ -45,7 +53,7 @@ func (s *Simulator) Rotate(ctx context.Context, to int) error {
 	if err := s.requireBooted(); err != nil {
 		return err
 	}
-	_, err = s.input().do(ctx, 0, "orient set %s", name)
+	_, err = s.input().do(ctx, simOrientOpenBudget, "orient set %s", name)
 	return err
 }
 
@@ -55,7 +63,7 @@ func (s *Simulator) Rotation(ctx context.Context) (int, error) {
 	if err := s.requireBooted(); err != nil {
 		return 0, err
 	}
-	out, err := s.input().do(ctx, 0, "orient get")
+	out, err := s.input().do(ctx, simOrientOpenBudget, "orient get")
 	if err != nil {
 		return 0, err
 	}
