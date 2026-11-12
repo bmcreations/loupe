@@ -14,14 +14,21 @@ import (
 type LiveCameraFeeder interface {
 	CameraFeeder
 	// FeedCameraFrame passes frame, an encoded PNG or JPEG as the client
-	// sent it, to the live camera.
-	FeedCameraFrame(ctx context.Context, frame []byte) (applies CameraApplies, handled bool, err error)
+	// sent it, to the live camera. A held frame is a still image that stays
+	// up until the next frame or StopCameraFeed; otherwise the camera shows
+	// its placeholder a while after frames stop.
+	FeedCameraFrame(ctx context.Context, frame []byte, hold bool) (applies CameraApplies, handled bool, err error)
+	// StopCameraFeed has the live camera show its placeholder and keeps it
+	// staged, so frames can resume without a restart. It reports false when
+	// the target has no live camera staged.
+	StopCameraFeed() bool
 }
 
 // frameSink is where Handset Camera's frames go. A var so a test can catch
 // them.
 var frameSink interface {
 	Send(frame []byte) error
+	Hold(frame []byte) error
 	Stop()
 } = camfeed.Default
 
@@ -48,11 +55,15 @@ var (
 // is Handset Camera takes each frame through camfeed: live when the running
 // emulator was booted on it, and at the next boot otherwise, which shows the
 // newest frame sent. Any other AVD is not handled.
-func (e *Emulator) FeedCameraFrame(ctx context.Context, frame []byte) (CameraApplies, bool, error) {
+func (e *Emulator) FeedCameraFrame(ctx context.Context, frame []byte, hold bool) (CameraApplies, bool, error) {
 	if stagedHostCamera(e.cfg.AVD) != camfeed.CameraName() {
 		return "", false, nil
 	}
-	if err := frameSink.Send(frame); err != nil {
+	send := frameSink.Send
+	if hold {
+		send = frameSink.Hold
+	}
+	if err := send(frame); err != nil {
 		return "", true, err
 	}
 	return e.handsetApplies(ctx), true, nil
@@ -90,6 +101,16 @@ func (e *Emulator) lookHandsetLive(ctx context.Context) CameraApplies {
 	handsetLives[e.cfg.AVD] = handsetLive{at: time.Now(), applies: applies}
 	handsetLiveMu.Unlock()
 	return applies
+}
+
+// StopCameraFeed implements LiveCameraFeeder. The feed is the Mac's, so
+// another AVD on Handset Camera sees the placeholder too.
+func (e *Emulator) StopCameraFeed() bool {
+	if stagedHostCamera(e.cfg.AVD) != camfeed.CameraName() {
+		return false
+	}
+	frameSink.Stop()
+	return true
 }
 
 // stopHandsetFeed has Handset Camera show its placeholder when this AVD had

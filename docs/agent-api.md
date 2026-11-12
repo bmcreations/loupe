@@ -44,6 +44,7 @@ Common refusals on routes that change a device:
 | `POST /api/media` | Add a photo or video to the device library |
 | `POST`, `DELETE /api/camera` | Feed the back camera an image, or an AVD one of the Mac's cameras |
 | `GET /api/camera/sources` | The Mac cameras an AVD can use as its back camera |
+| `DELETE /api/camera/feed` | Blank Handset Camera's live feed and keep it as the AVD's camera |
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
@@ -387,7 +388,10 @@ raw. `DELETE` gives the camera back. Both answer 200 `{target, ok, applies,
 tookMs}`; `POST` adds the image's `width` and `height`. When an AVD is running
 on Handset Camera the frame goes to that live feed instead of being staged, and
 the answer adds `live: true` — so a client streaming frames can tell a fed frame
-from a staged still, which both otherwise report as `applies: boot`.
+from a staged still, which both otherwise report as `applies: boot`. A fed
+frame gives way to the camera's placeholder once no frame has come for a
+minute; add `hold=1` to keep a still image up until the next frame or
+`DELETE /api/camera/feed`.
 
 An AVD can instead use one of the Mac's cameras: `POST` with
 `Content-Type: application/json` and `{"hostCamera": "<name>"}`, a name from
@@ -433,6 +437,15 @@ stays staged. Switching the camera source (none, an image, a Mac camera,
 another Mac camera) changes the boot config, and the emulator refuses a
 snapshot saved under another camera, so that boot cannot load `loupe-warm` and
 is a cold one.
+
+### `DELETE /api/camera/feed?target=<id>`
+
+Stops the live feed of an AVD on Handset Camera. The camera shows its
+placeholder at once instead of repeating the last frame for up to a minute,
+and stays staged, so the next frame posted plays with no restart. The feed is
+the Mac's, so every AVD on Handset Camera goes blank. Answers 200 `{target,
+ok, applies: "live", live: true, hostCamera}`; 409 when the AVD is not on
+Handset Camera; 501 on other targets.
 
 ### `GET /api/camera/sources?target=<id>`
 

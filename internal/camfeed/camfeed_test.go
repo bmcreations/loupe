@@ -134,3 +134,41 @@ func TestNoHelper(t *testing.T) {
 		t.Errorf("Send = %v; want ErrNoHelper", err)
 	}
 }
+
+// A sent frame gives way once no frame comes for idleTimeout; a held one is
+// still being written to the helper after it.
+func TestFeedHoldOutlastsIdle(t *testing.T) {
+	old := idleTimeout
+	idleTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { idleTimeout = old })
+
+	fakeHelper(t, "ready")
+	sent := &Feed{}
+	if err := sent.Send([]byte("one")); err != nil {
+		t.Fatal(err)
+	}
+	held := &Feed{}
+	if err := held.Hold([]byte("still")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	sent.mu.Lock()
+	sentRunning := sent.running
+	sent.mu.Unlock()
+	held.mu.Lock()
+	heldRunning := held.running
+	held.mu.Unlock()
+	if sentRunning {
+		t.Error("a sent frame's writer still runs past idleTimeout")
+	}
+	if !heldRunning {
+		t.Error("a held frame's writer stopped at idleTimeout")
+	}
+	held.Stop()
+	time.Sleep(500 * time.Millisecond)
+	held.mu.Lock()
+	defer held.mu.Unlock()
+	if held.running || held.held != nil {
+		t.Errorf("after Stop: running %v, held %q; want neither", held.running, held.held)
+	}
+}

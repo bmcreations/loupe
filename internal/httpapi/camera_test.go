@@ -256,13 +256,24 @@ type liveCameraTarget struct {
 	handled bool
 	liveErr error
 	frames  [][]byte
+	holds   []bool
+	stops   int
 }
 
-func (f *liveCameraTarget) FeedCameraFrame(ctx context.Context, frame []byte) (target.CameraApplies, bool, error) {
+func (f *liveCameraTarget) StopCameraFeed() bool {
+	if !f.handled {
+		return false
+	}
+	f.stops++
+	return true
+}
+
+func (f *liveCameraTarget) FeedCameraFrame(ctx context.Context, frame []byte, hold bool) (target.CameraApplies, bool, error) {
 	if !f.handled {
 		return "", false, nil
 	}
 	f.frames = append(f.frames, frame)
+	f.holds = append(f.holds, hold)
 	return target.CameraLive, true, f.liveErr
 }
 
@@ -280,6 +291,23 @@ func TestCameraFeedsALiveCameraTheFrameAsSent(t *testing.T) {
 	}
 	if s := w.Body.String(); !strings.Contains(s, `"applies":"live"`) || !strings.Contains(s, `"hostCamera":"Handset Camera"`) {
 		t.Errorf("answer %s; want live on Handset Camera", s)
+	}
+}
+
+// hold=1 marks a still image, which stays up until the feed is stopped.
+func TestCameraPassesHoldToALiveCamera(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"/api/camera?target=stub", false},
+		{"/api/camera?target=stub&hold=1", true},
+	} {
+		f := &liveCameraTarget{handled: true}
+		w := serveAgent(t, f, http.MethodPost, tc.path, bytes.NewReader(testImage(t, 40, 30, encodeJPEG)))
+		if w.Code != http.StatusOK || len(f.holds) != 1 || f.holds[0] != tc.want {
+			t.Errorf("%s: status %d, holds %v; want 200, [%v]", tc.path, w.Code, f.holds, tc.want)
+		}
 	}
 }
 
@@ -305,5 +333,20 @@ func TestCameraLiveFeedErrors(t *testing.T) {
 		if w.Code != tc.want {
 			t.Errorf("%v: status %d; want %d", tc.err, w.Code, tc.want)
 		}
+	}
+}
+
+// DELETE /api/camera/feed blanks the live camera and leaves it staged.
+func TestCameraFeedStop(t *testing.T) {
+	f := &liveCameraTarget{handled: true}
+	w := serveAgent(t, f, http.MethodDelete, "/api/camera/feed?target=stub", nil)
+	if w.Code != http.StatusOK || f.stops != 1 || f.cleared {
+		t.Errorf("status %d %s, %d stops, cleared %v; want 200, one stop, still staged", w.Code, w.Body, f.stops, f.cleared)
+	}
+	if w := serveAgent(t, &liveCameraTarget{}, http.MethodDelete, "/api/camera/feed?target=stub", nil); w.Code != http.StatusConflict {
+		t.Errorf("not on Handset Camera: status %d; want 409", w.Code)
+	}
+	if w := serveAgent(t, &cameraTarget{}, http.MethodDelete, "/api/camera/feed?target=stub", nil); w.Code != http.StatusNotImplemented {
+		t.Errorf("no live camera: status %d; want 501", w.Code)
 	}
 }

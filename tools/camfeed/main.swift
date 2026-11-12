@@ -102,7 +102,22 @@ var streaming = false
 var enqueued = 0
 var streamingStartedAt: DispatchTime?
 
-/// The image scaled to fill 1280×720, cropped at the long edge.
+/// Where a picture of w×h goes in the frame: fitted whole into the centred
+/// 3:4 strip, 540×720. An AVD's back sensor is mounted at 90°, so the
+/// emulator keeps only that strip of a 16:9 host camera and scales it up.
+/// Filled to 1280×720, a webcam lost 58% of its width and looked zoomed in
+/// next to the same camera in other apps. Measured on pixel_fold_hinge
+/// (API 36): a labeled 1280×720 grid saved a 960×1280 photo of x 370-908
+/// and every row.
+enum Layout {
+    static func pictureRect(width w: Double, height h: Double, frameWidth: Double, frameHeight: Double) -> CGRect {
+        let scale = min(frameHeight * 3 / 4 / w, frameHeight / h)
+        let pw = w * scale, ph = h * scale
+        return CGRect(x: (frameWidth - pw) / 2, y: (frameHeight - ph) / 2, width: pw, height: ph)
+    }
+}
+
+/// The image as a 1280×720 frame, on black, placed by Layout.pictureRect.
 func pixelBuffer(_ data: Data) -> CVPixelBuffer? {
     guard let src = CGImageSourceCreateWithData(data as CFData, nil),
           let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
@@ -115,10 +130,11 @@ func pixelBuffer(_ data: Data) -> CVPixelBuffer? {
         data: CVPixelBufferGetBaseAddress(pb), width: width, height: height, bitsPerComponent: 8,
         bytesPerRow: CVPixelBufferGetBytesPerRow(pb), space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else { return nil }
-    let scale = max(Double(width) / Double(image.width), Double(height) / Double(image.height))
-    let w = Double(image.width) * scale, h = Double(image.height) * scale
-    ctx.interpolationQuality = .medium
-    ctx.draw(image, in: CGRect(x: (Double(width) - w) / 2, y: (Double(height) - h) / 2, width: w, height: h))
+    ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: Layout.pictureRect(width: Double(image.width), height: Double(image.height),
+                                    frameWidth: Double(width), frameHeight: Double(height)))
     return pb
 }
 
