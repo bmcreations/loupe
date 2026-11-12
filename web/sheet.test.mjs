@@ -152,11 +152,11 @@ test('Hardware and Control lead the sections, and Hardware is Vol -, Vol +, Powe
     assert.doesNotThrow(() => handle.showSection('nonexistent'));
   });
 
-  test('the groups are Hardware, Control, App, Device, Stream, Viewer and More, in that order', () => {
+  test('the groups are Hardware, Control, Camera, App, Device, Stream, Viewer and More, in that order', () => {
     const root = freshRoot();
     mount(root, {});
     const ids = root.querySelectorAll('section').map((s) => s.dataset.section);
-    assert.deepEqual(ids, ['hardware', 'control', 'app', 'device', 'stream', 'viewer', 'more']);
+    assert.deepEqual(ids, ['hardware', 'control', 'camera', 'app', 'device', 'stream', 'viewer', 'more']);
   });
 
   function pageShown(root) {

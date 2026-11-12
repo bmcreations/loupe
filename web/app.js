@@ -32,6 +32,7 @@ import { mount as mountCorners, pageLink } from './corners.js';
 import { mount as mountFold } from './fold.js';
 import { mount as mountAppCard } from './appcard.js';
 import { mount as mountDeviceSettings } from './devicesettings.js';
+import { mount as mountCamera, offered as cameraOffered } from './camera.js';
 import { mount as mountInspect } from './inspect.js';
 import { mount as mountEventLog, mountLogPage, decodeEvent } from './eventlog.js';
 import { mount as mountImmersive, centreFit } from './immersive.js';
@@ -1797,6 +1798,20 @@ takeOverBtn.addEventListener('click', () => {
 });
 sheetHandle.sections.control.append(controlNote, takeOverBtn);
 
+// Camera feed: a browser (a phone in Safari, or this Mac) capturing getUserMedia
+// and POSTing JPEG frames to /api/camera, which routes them to the AVD's Handset
+// Camera. Shown only for Android emulators, in a secure context (getUserMedia
+// needs https; see refreshToolSections / camera.refresh()). Mounted here, before
+// refreshToolSections runs at startup (showLogOf below), so the const exists.
+const camera = mountCamera({
+  host: sheetHandle.sections.camera,
+  doc: document,
+  targetId: () => focused().targetId,
+  fetch: (url, init) => fetch(url, init),
+  report,
+  toast: el.toast,
+});
+
 function refreshToolSections() {
   const p = focused();
   const t = p && lastTargets.find((x) => x.id === p.targetId);
@@ -1804,6 +1819,10 @@ function refreshToolSections() {
   else sheetHandle.hideSection('hardware');
   if (p && p.heldByOther) sheetHandle.showSection('control');
   else sheetHandle.hideSection('control');
+  if (t && cameraOffered(t)) sheetHandle.showSection('camera');
+  else sheetHandle.hideSection('camera');
+  camera.onTargetSwitch(p ? p.targetId : null);
+  camera.refresh();
 }
 
 // The page body is the Gestures / Logcat switch; logcat is Android only.

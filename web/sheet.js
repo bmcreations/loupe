@@ -121,6 +121,7 @@ export function detentHeightPx(vh, detentName) {
 
 const SECTION_TITLES = {
   hardware: 'Hardware',
+  camera: 'Camera',
   control: 'Control',
   app: 'App',
   device: 'Device',
@@ -137,7 +138,7 @@ export const HARDWARE_KEYS = [
   { label: 'Power', keycode: 26 },
 ];
 
-export const SECTION_ORDER = ['hardware', 'control', 'app', 'device', 'stream', 'viewer', 'more'];
+export const SECTION_ORDER = ['hardware', 'control', 'camera', 'app', 'device', 'stream', 'viewer', 'more'];
 
 // mount(root, {onOpen, onClose, onPage, scrim, trigger}) builds the sheet's
 // DOM into root (expected to be the empty #sheet element) and wires:
