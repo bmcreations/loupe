@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 var _ Rotator = (*Simulator)(nil)
@@ -152,5 +153,37 @@ func TestDeviceFrameOmitsAnUprightContentRotation(t *testing.T) {
 	b, _ = json.Marshal(&DeviceFrame{Width: 10, Height: 20, ContentRotation: 3})
 	if !strings.Contains(string(b), `"contentRotation":3`) {
 		t.Errorf("turned frame marshalled %s", b)
+	}
+}
+
+// A fresh helper's first `orient` waits for simcap to open the orientation
+// capability, which takes longer than a plain command's budget.
+func TestSimulatorRotateWaitsForTheOrientationOpen(t *testing.T) {
+	old := simOrientOpenBudget
+	simOrientOpenBudget = 2 * time.Second
+	defer func() { simOrientOpenBudget = old }()
+
+	bin := filepath.Join(t.TempDir(), "simcap")
+	script := `#!/bin/sh
+opened=
+while read -r line; do
+  if [ "$line" = route ]; then echo "ok hub"; continue; fi
+  case "$line" in
+    "orient "*) [ -z "$opened" ] && sleep 0.5 && opened=1; echo "ok landscapeLeft unlocked" ;;
+    *) echo ok ;;
+  esac
+done
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	in := &simInput{bin: bin, udid: "u", budget: 100 * time.Millisecond}
+	defer in.close()
+	s := &Simulator{}
+	s.inputOnce.Do(func() { s.in = in })
+	s.booted.Store(true)
+
+	if err := s.Rotate(context.Background(), 1); err != nil {
+		t.Fatalf("Rotate with a 0.5s orientation open: %v", err)
 	}
 }

@@ -33,6 +33,9 @@ type Server struct {
 	mgr   *Manager
 	web   fs.FS
 	trace *trace.Writer
+	// lifeViewers remembers which viewer last shut down or reset each
+	// target, so the boot that follows counts as that person (lifeviewer.go).
+	lifeViewers lifeViewers
 	// claims holds agents' claims and the hands-off set (claims.go).
 	claims *claimBook
 	// bgBoots holds the ids of AVDs with a wait=0 boot running.

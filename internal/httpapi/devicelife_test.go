@@ -936,3 +936,35 @@ func TestListingCarriesStartSavedAt(t *testing.T) {
 		}
 	}
 }
+
+// A person's restart is a shutdown then a boot with the same viewer id. The
+// shutdown ends the stream the viewer was on, so by the boot that id is
+// attached nowhere; it still speaks for the person, and an agent's claim
+// must not leave the device off.
+func TestBootAfterAPersonsShutdownIsThePersonsDespiteAClaim(t *testing.T) {
+	s, lt := newLifeServer(t, "avd:a", nil)
+	s.claims = newClaimBook(nil)
+	if _, holder := s.claims.take("avd:a", "a", "s1", ""); holder != nil {
+		t.Fatalf("claim refused: %+v", holder)
+	}
+	sess, err := s.mgr.Acquire(t.Context(), "avd:a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vid, _ := sess.AddViewer()
+	viewer := map[string]string{HeaderViewer: itoa(vid)}
+	if w := doRecord(s, http.MethodPost, "/api/devices/shutdown?target=avd:a", viewer); w.Code != http.StatusOK {
+		t.Fatalf("person's shutdown = %d %s", w.Code, w.Body.String())
+	}
+	if s.mgr.HasViewer(vid) {
+		t.Fatal("the viewer is still attached; the test needs the shutdown to end it")
+	}
+	lt.boots = true
+	if w := doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a", viewer); w.Code != http.StatusOK {
+		t.Fatalf("person's boot after their shutdown = %d %s; want 200", w.Code, w.Body.String())
+	}
+	// Any other unattached id is still an agent without a claim.
+	if w := doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a", map[string]string{HeaderViewer: itoa(vid + 99)}); w.Code != http.StatusConflict {
+		t.Fatalf("stranger's boot = %d %s; want 409", w.Code, w.Body.String())
+	}
+}
