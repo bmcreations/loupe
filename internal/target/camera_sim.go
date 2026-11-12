@@ -105,6 +105,7 @@ func (s *Simulator) SetCamera(ctx context.Context, png []byte) (CameraApplies, e
 	if err := writeCameraFile(path, png); err != nil {
 		return "", err
 	}
+	s.syncCameraEnvBooted(ctx)
 	if s.anyShimmed() {
 		return CameraLive, nil
 	}
@@ -121,6 +122,7 @@ func (s *Simulator) ClearCamera(ctx context.Context) (CameraApplies, error) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
+	s.syncCameraEnvBooted(ctx)
 	if s.anyShimmed() {
 		return CameraLive, nil
 	}
@@ -139,8 +141,9 @@ func (s *Simulator) stagedCamera() string {
 	return path
 }
 
-// anyShimmed reports whether an app this server launched with the shim is
-// still running, forgetting the ones that are not.
+// anyShimmed reports whether an app with the shim is still running: one this
+// server launched, forgetting the ones that are not, or the last one the
+// shim's marker names.
 func (s *Simulator) anyShimmed() bool {
 	s.shimMu.Lock()
 	defer s.shimMu.Unlock()
@@ -149,7 +152,12 @@ func (s *Simulator) anyShimmed() bool {
 			delete(s.shimmed, b)
 		}
 	}
-	return len(s.shimmed) > 0
+	if len(s.shimmed) > 0 {
+		return true
+	}
+	// One started from its icon got the shim from the simulator's launchd.
+	path, err := cameraFile("sim-" + s.UDID())
+	return err == nil && markerAlive(path)
 }
 
 func (s *Simulator) shimmedPid(bundle string) int {

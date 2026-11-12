@@ -211,6 +211,9 @@ func (s *Simulator) Update(info SimInfo) {
 func (s *Simulator) setBooted(b bool) {
 	if s.booted.Swap(b) != b {
 		s.hingeSent.reset()
+		if b {
+			s.syncCameraEnvSoon()
+		}
 	}
 }
 
