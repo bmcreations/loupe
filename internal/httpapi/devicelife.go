@@ -120,6 +120,9 @@ func (s *Server) deviceLife(w http.ResponseWriter, r *http.Request, action strin
 	if !s.arbitrate(w, r, id, action, c) {
 		return
 	}
+	if c.viewer != 0 || c.person {
+		s.lifeViewers.note(id, r.Header.Get(HeaderViewer))
+	}
 
 	reason := "shutDown"
 	if action == "delete" {
