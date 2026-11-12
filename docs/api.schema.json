@@ -3,6 +3,9 @@
     "DELETE /api/camera 200": {
       "$ref": "#/$defs/httpapi.CameraResponse"
     },
+    "DELETE /api/camera/feed 200": {
+      "$ref": "#/$defs/httpapi.CameraResponse"
+    },
     "DELETE /api/claims 409": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
@@ -587,6 +590,9 @@
         },
         "hostCamera": {
           "type": "string"
+        },
+        "live": {
+          "type": "boolean"
         },
         "ok": {
           "type": "boolean"

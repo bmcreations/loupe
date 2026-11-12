@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/bmcreations/loupe/internal/camfeed"
 )
 
 // CameraApplies says when a camera image reaches the app looking through the
@@ -312,6 +314,7 @@ func (e *Emulator) ClearCamera(ctx context.Context) (CameraApplies, error) {
 	if err != nil {
 		return "", err
 	}
+	e.stopHandsetFeed()
 	if err := e.removeHostCamera(); err != nil {
 		return "", err
 	}
@@ -359,6 +362,9 @@ func (e *Emulator) SetHostCamera(ctx context.Context, name string) (CameraApplie
 	if !ok {
 		return "", fmt.Errorf("%w: %q", ErrNoHostCamera, name)
 	}
+	if name != camfeed.CameraName() {
+		e.stopHandsetFeed()
+	}
 	hp, err := hostCameraFile(e.cfg.AVD)
 	if err != nil {
 		return "", err
@@ -383,6 +389,9 @@ func (e *Emulator) SetHostCamera(ctx context.Context, name string) (CameraApplie
 	if err := os.WriteFile(hp, []byte(name), 0o644); err != nil {
 		return "", err
 	}
+	handsetLiveMu.Lock()
+	delete(handsetLives, e.cfg.AVD)
+	handsetLiveMu.Unlock()
 	if bootedWithHostCamera(args, cam.Label) {
 		return CameraLive, nil
 	}

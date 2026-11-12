@@ -5,7 +5,7 @@ LABEL := dev.bmcreations.loupe
 PLIST := $(HOME)/Library/LaunchAgents/$(LABEL).plist
 GUI   := gui/$(shell id -u)
 
-.PHONY: build composeagent a11ydump simcap xcrunner test vet fmt run synthetic clean dist \
+.PHONY: build composeagent a11ydump simcap camfeed xcrunner test vet fmt run synthetic clean dist \
 	agent-install agent-uninstall agent-restart agent-status agent-log
 
 # A checkout can add its own targets in private.mk, which is not part of this
@@ -88,6 +88,14 @@ simcap:
 	fi
 endif
 
+# loupe-camfeed writes the frames clients send for an AVD on Handset Camera
+# into the camera Handset installs (internal/camfeed). Handset bundles a
+# prebuilt copy beside its loupe; a checkout builds its own into .build.
+camfeed:
+	mkdir -p .build
+	xcrun -sdk macosx swiftc -O -o .build/loupe-camfeed.new tools/camfeed/main.swift
+	mv -f .build/loupe-camfeed.new .build/loupe-camfeed
+
 # The XCUITest runner that applies a physical iPhone's touches below iOS 27,
 # signed with TEAM, a development team ID from Xcode's Accounts. Built once
 # for any iPhone; the server installs and starts it with test-without-building.
@@ -154,6 +162,7 @@ agent-install: build
 	@echo "loaded $(LABEL) -> $(PLIST)"
 	@[ -e .build/simcap ] || echo "warning: no .build/simcap: no simulators or iPhones (make simcap)"
 	@[ -e .build/simcap-bridge ] || echo "warning: no .build/simcap-bridge: no ui on a cabled iPhone (make simcap)"
+	@[ -e .build/loupe-camfeed ] || echo "warning: no .build/loupe-camfeed: no live Handset Camera on emulators (make camfeed)"
 	@[ -e .build/xcrunner ] || echo "warning: no .build/xcrunner: no touches on an iPhone below iOS 27 (make xcrunner TEAM=...)"
 
 agent-uninstall:

@@ -118,6 +118,7 @@ var endpoints = []endpoint{
 	{"GET /api/camera/sources", dirResponse, httpapi.CameraSourcesResponse{}},
 	{"POST /api/camera 200", dirResponse, httpapi.CameraResponse{}},
 	{"DELETE /api/camera 200", dirResponse, httpapi.CameraResponse{}},
+	{"DELETE /api/camera/feed 200", dirResponse, httpapi.CameraResponse{}},
 	{"GET /api/clipboard", dirResponse, httpapi.ClipboardResponse{}},
 	{"POST /api/clipboard request", dirRequest, httpapi.ClipboardRequest{}},
 	{"POST /api/clipboard 200", dirResponse, httpapi.OKResponse{}},
