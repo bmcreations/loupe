@@ -193,6 +193,7 @@ var endpoints = []endpoint{
 	{"GET /api/lan", dirResponse, httpapi.LANResponse{}},
 	// Open to callers with no credential, which get method "none".
 	{"GET /api/auth", dirResponse, httpapi.AuthResponse{}},
+	{"GET /api/version", dirResponse, httpapi.VersionResponse{}},
 	{"POST /api/pairings request", dirRequest, httpapi.PairingRequest{}},
 	{"POST /api/pairings 201", dirResponse, httpapi.PairingResponse{}},
 	// 403: the caller is a session without canPair.
