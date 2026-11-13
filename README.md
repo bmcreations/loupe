@@ -131,6 +131,8 @@ the tools, and [docs/agent-api.md](docs/agent-api.md) every HTTP route.
   the composable that drew it, with its source line.
 - `camera` points an AVD's, simulator's or iPhone's back camera at an
   image, so a scanner can be tested without holding a phone up to a screen.
+- `/api/mic` is a WebSocket that feeds raw 16 kHz PCM into an AVD's
+  microphone, so voice input can be tested without speaking to the Mac.
 - Claims, the human hold and flags let you share a device with an agent. See
   [Work on the same device as your agent](#work-on-the-same-device-as-your-agent).
 - **Recording** writes the encoder's output to an MP4, with no re-encode.

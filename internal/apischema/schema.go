@@ -119,6 +119,10 @@ var endpoints = []endpoint{
 	{"POST /api/camera 200", dirResponse, httpapi.CameraResponse{}},
 	{"DELETE /api/camera 200", dirResponse, httpapi.CameraResponse{}},
 	{"DELETE /api/camera/feed 200", dirResponse, httpapi.CameraResponse{}},
+	// The text frames GET /api/mic sends after the WebSocket upgrade:
+	// {"state":"live"}, or {"error","code"} just before the socket closes.
+	// A refusal before the upgrade is an ErrorResponse.
+	{"GET /api/mic message", dirResponse, httpapi.MicMessage{}},
 	{"GET /api/clipboard", dirResponse, httpapi.ClipboardResponse{}},
 	{"POST /api/clipboard request", dirRequest, httpapi.ClipboardRequest{}},
 	{"POST /api/clipboard 200", dirResponse, httpapi.OKResponse{}},

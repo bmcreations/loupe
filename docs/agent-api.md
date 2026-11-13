@@ -45,6 +45,7 @@ Common refusals on routes that change a device:
 | `POST`, `DELETE /api/camera` | Feed the back camera an image, or an AVD one of the Mac's cameras |
 | `GET /api/camera/sources` | The Mac cameras an AVD can use as its back camera |
 | `DELETE /api/camera/feed` | Blank Handset Camera's live feed and keep it as the AVD's camera |
+| `GET /api/mic` | WebSocket that feeds an AVD's microphone |
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
@@ -507,6 +508,63 @@ final class LoupeCameraFrames {
 ```
 
 This is a sketch and has not been exercised in an app.
+
+### `GET /api/mic?target=<id>`
+
+A WebSocket that feeds an AVD's microphone. Send raw PCM in binary frames:
+signed 16-bit little-endian, 16000 Hz, mono. Loupe cuts the stream into 20 ms
+packets (640 bytes) and passes them to the emulator's gRPC `injectAudio` in
+real-time mode, so the guest hears audio as it arrives. Packet n is stamped
+n × 20 ms. Bytes short of a whole packet when the socket closes are not sent,
+and text frames from the client are ignored. The emulator takes the feed
+although loupe boots it with `-no-audio`.
+
+The feed is live, not a file upload: send audio as it is captured, in frames
+well under 320 ms (10240 bytes). A frame need not end on a packet or a
+sample, and the socket closes on a frame over 1 MiB. Audio sent faster than
+real time overflows the queue below and is dropped: in a test against an
+emulator that took every packet at once, a 2 s clip sent as one frame lost
+83 of its 100 packets. The trace's
+`dropped` counts what was lost; the client is not told.
+
+Loupe answers in text frames:
+
+- `{"state":"live"}` once the emulator holds the call, at least 200 ms after
+  the upgrade: loupe waits that long for the emulator to refuse the call,
+  since it sends nothing for a call it accepts. Waiting for a closing socket
+  or waking a paused AVD adds to it.
+- `{"error":"<message>","code":"<code>"}`, after which loupe closes the
+  socket. This can come before `live` or at any point after it.
+
+| `code` | Meaning |
+|---|---|
+| `notAvd` | The target is not an AVD this loupe runs: a phone, a simulator, an `emulator-` serial or a peer's target. |
+| `noGrpc` | The emulator has no gRPC service. It was booted without `-grpc`, by an older loupe or outside loupe. Shut it down and boot it through loupe. |
+| `micBusy` | Another `/api/mic` socket feeds this target, or something else holds the emulator's one microphone through its gRPC. |
+| `emulatorGone` | The emulator's gRPC connection or call ended under the feed, or loupe doesn't list the target (it may have shut down). |
+| `bad` | Anything else, such as an AVD that is shut down ("open it in the viewer to boot it"). |
+
+Before the upgrade, a missing `?target=` is refused with a JSON 400 and a
+request without the token with 401. An unknown target is upgraded and then
+refused with `emulatorGone`, so a 404 on the upgrade always means a loupe
+without this route.
+
+When the gRPC write falls behind, loupe keeps up to 320 ms of audio queued and
+drops the oldest packet past that, so the guest hears late audio as a gap
+rather than a growing delay. Reading the socket never waits on the emulator.
+
+When the client closes the socket, loupe sends what is still queued,
+half-closes the call so the emulator can play what it buffered (about
+300 ms), and cancels the call if that takes longer than a second. When the
+call fails first, the client gets the error frame and the socket closes.
+Loupe pings the socket every 20 seconds, so a client that vanished without
+closing it stops holding the microphone.
+
+One socket feeds a target at a time. A second socket for the same target gets
+`micBusy` while the first is open. A socket opened while the previous one is
+closing waits up to 1.5 seconds for it, so a client can close and reconnect at
+once. A feed wakes an AVD that loupe paused for being idle and keeps it from
+being paused until the socket closes. Not arbitrated, like `/api/camera`.
 
 ## Device lifecycle
 

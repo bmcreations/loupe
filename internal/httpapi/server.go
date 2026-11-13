@@ -112,6 +112,9 @@ type Server struct {
 	// agent has driven a device recently. Nil keeps nothing awake.
 	awake *awake.Keeper
 
+	// mics holds the targets an /api/mic socket is feeding, one each.
+	mics micSlots
+
 	// aapt2 reads an uploaded APK's package name. Empty when the SDK has no
 	// build-tools, which leaves ?package= as the only source.
 	aapt2 string
@@ -292,6 +295,7 @@ var routes = []route{
 	{"/api/camera", []string{http.MethodPost, http.MethodDelete}, (*Server).handleCamera, ""},
 	{"/api/camera/sources", []string{http.MethodGet}, (*Server).handleCameraSources, ""},
 	{"/api/camera/feed", []string{http.MethodDelete}, (*Server).handleCameraFeed, ""},
+	{"/api/mic", []string{http.MethodGet}, (*Server).handleMic, ""},
 	{"/api/logcat", []string{http.MethodGet}, (*Server).handleLogcat, ""},
 	{"/api/crashes", []string{http.MethodGet}, (*Server).handleCrashes, ""},
 	{"/api/crashes/", []string{http.MethodGet}, (*Server).handleCrash, ""},
