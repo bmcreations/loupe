@@ -149,9 +149,15 @@ func (m *micSlots) give(id string, sl *micSlot) {
 // Everything after is a text frame.
 func (s *Server) handleMic(w http.ResponseWriter, r *http.Request) {
 	began := time.Now()
-	t, ok := s.agentTarget(w, r)
-	if !ok {
-		return
+	// An unknown target is refused after the upgrade (below), so clients
+	// can read a 404 on the upgrade as a loupe without this route.
+	id := r.URL.Query().Get("target")
+	var t target.Target
+	if _, known := s.mgr.Target(id); known || id == "" {
+		var ok bool
+		if t, ok = s.agentTarget(w, r); !ok {
+			return
+		}
 	}
 	conn, err := wsx.Upgrade(w, r)
 	if err != nil {
@@ -160,7 +166,7 @@ func (s *Server) handleMic(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	rec := map[string]any{"kind": "agent", "target": t.ID(), "action": "mic", "method": r.Method, "ua": r.UserAgent()}
+	rec := map[string]any{"kind": "agent", "target": id, "action": "mic", "method": r.Method, "ua": r.UserAgent()}
 	defer func() {
 		rec["tookMs"] = time.Since(began).Milliseconds()
 		s.trace.Record(rec)
@@ -170,6 +176,11 @@ func (s *Server) handleMic(w http.ResponseWriter, r *http.Request) {
 		writeMic(conn, MicMessage{Error: err.Error(), Code: code})
 	}
 
+	if t == nil {
+		refuse(micEmulatorGone, fmt.Errorf("no target %q: the emulator may have shut down; GET /api/targets lists them", id))
+		return
+	}
+	rec["target"] = t.ID()
 	mf, ok := t.(target.MicFeeder)
 	if !ok {
 		refuse(micNotAvd, fmt.Errorf("target %q is not an AVD this loupe runs: only those take a microphone feed (docs/agent-api.md, /api/mic)", t.ID()))

@@ -541,11 +541,13 @@ Loupe answers in text frames:
 | `notAvd` | The target is not an AVD this loupe runs: a phone, a simulator, an `emulator-` serial or a peer's target. |
 | `noGrpc` | The emulator has no gRPC service. It was booted without `-grpc`, by an older loupe or outside loupe. Shut it down and boot it through loupe. |
 | `micBusy` | Another `/api/mic` socket feeds this target, or something else holds the emulator's one microphone through its gRPC. |
-| `emulatorGone` | The emulator's gRPC connection or call ended under the feed. |
+| `emulatorGone` | The emulator's gRPC connection or call ended under the feed, or loupe doesn't list the target (it may have shut down). |
 | `bad` | Anything else, such as an AVD that is shut down ("open it in the viewer to boot it"). |
 
-Before the upgrade, a missing or unknown `?target=` is refused with a JSON
-400 or 404, and a request without the token with 401.
+Before the upgrade, a missing `?target=` is refused with a JSON 400 and a
+request without the token with 401. An unknown target is upgraded and then
+refused with `emulatorGone`, so a 404 on the upgrade always means a loupe
+without this route.
 
 When the gRPC write falls behind, loupe keeps up to 320 ms of audio queued and
 drops the oldest packet past that, so the guest hears late audio as a gap

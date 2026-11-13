@@ -362,7 +362,6 @@ func TestMicBeforeTheUpgradeIsHTTP(t *testing.T) {
 	}{
 		{"target=avd:x", false, http.StatusUnauthorized},
 		{"", true, http.StatusBadRequest},
-		{"target=avd:nope", true, http.StatusNotFound},
 	} {
 		if got, _ := dialMic(t, srv, c.query, c.auth); got != c.want {
 			t.Errorf("?%s auth=%v: %d, want %d", c.query, c.auth, got, c.want)
@@ -378,6 +377,21 @@ func TestMicBeforeTheUpgradeIsHTTP(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("plain GET: %d, want 400", resp.StatusCode)
+	}
+}
+
+// A target loupe doesn't list (an emulator that went away between the
+// app's list and its connect) is refused after the upgrade, so a client can
+// keep reading a 404 on the upgrade as a loupe without the route.
+func TestMicUnknownTargetIsRefusedAfterTheUpgrade(t *testing.T) {
+	srv, tr := micServer(t, &fakeMicTarget{id: "avd:x"})
+	code, ws := dialMic(t, srv, "target=avd:nope", true)
+	if code != http.StatusSwitchingProtocols {
+		t.Fatalf("status %d, want 101", code)
+	}
+	ws.wantError(t, "emulatorGone")
+	if rec := micRecord(t, tr, 0); rec["outcome"] != "refused" || rec["code"] != "emulatorGone" {
+		t.Errorf("trace %v", rec)
 	}
 }
 
