@@ -117,6 +117,9 @@
     "GET /api/lan": {
       "$ref": "#/$defs/httpapi.LANResponse"
     },
+    "GET /api/mic message": {
+      "$ref": "#/$defs/httpapi.MicMessage"
+    },
     "GET /api/overlays": {
       "$ref": "#/$defs/httpapi.OverlaysResponse"
     },
@@ -3396,6 +3399,20 @@
         "bytes",
         "tookMs"
       ],
+      "type": "object"
+    },
+    "httpapi.MicMessage": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
       "type": "object"
     },
     "httpapi.NamedDestination": {
