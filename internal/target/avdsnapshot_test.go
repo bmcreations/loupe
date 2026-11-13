@@ -10,6 +10,7 @@ import (
 func TestEmulatorArgsLoadTheWarmSnapshotOnlyWhenThereIsOne(t *testing.T) {
 	cold := emulatorArgs("api34", 5556, "host", "", true)
 	want := []string{"-avd", "api34", "-port", "5556", "-gpu", "host",
+		"-grpc", "8556", "-grpc-use-token",
 		"-no-snapshot-save", "-no-boot-anim", "-netdelay", "none", "-netspeed", "full"}
 	if !reflect.DeepEqual(cold, want) {
 		t.Errorf("cold:\n got %q\nwant %q", cold, want)
@@ -17,6 +18,7 @@ func TestEmulatorArgsLoadTheWarmSnapshotOnlyWhenThereIsOne(t *testing.T) {
 	warm := emulatorArgs("api34", 5556, "host", WarmSnapshot, true)
 	want = []string{"-avd", "api34", "-port", "5556", "-gpu", "host",
 		"-snapshot", "loupe-warm",
+		"-grpc", "8556", "-grpc-use-token",
 		"-no-snapshot-save", "-no-boot-anim", "-netdelay", "none", "-netspeed", "full"}
 	if !reflect.DeepEqual(warm, want) {
 		t.Errorf("warm:\n got %q\nwant %q", warm, want)
@@ -26,7 +28,8 @@ func TestEmulatorArgsLoadTheWarmSnapshotOnlyWhenThereIsOne(t *testing.T) {
 func TestEmulatorArgsHideTheWindowWithoutOne(t *testing.T) {
 	got := emulatorArgs("api34", 5556, "host", WarmSnapshot, false)
 	want := []string{"-avd", "api34", "-port", "5556", "-gpu", "host",
-		"-snapshot", "loupe-warm", "-qt-hide-window", "-no-audio",
+		"-snapshot", "loupe-warm", "-grpc", "8556", "-grpc-use-token",
+		"-qt-hide-window", "-no-audio",
 		"-no-snapshot-save", "-no-boot-anim", "-netdelay", "none", "-netspeed", "full"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("headless:\n got %q\nwant %q", got, want)

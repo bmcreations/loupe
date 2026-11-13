@@ -55,6 +55,12 @@ func hasSnapshot(dir, name string) bool {
 // the windowed binary; Pixel_10 read 27fps headless. -qt-hide-window keeps
 // the windowed binary, which macOS lists as a UIElement, so it has no Dock
 // tile, and it loaded a loupe-warm saved by the headless one.
+//
+// -grpc opens the emulator's control service on port+3000, which takes
+// injected microphone audio even with -no-audio. -grpc-use-token makes it
+// listen on 127.0.0.1 only and want a bearer token, which the emulator writes
+// with the port into its pid_<pid>.ini under the AVD running directory.
+// Clients read the port from there rather than recomputing it.
 func emulatorArgs(avd string, port int, gpu, snapshot string, window bool) []string {
 	args := []string{
 		"-avd", avd,
@@ -64,6 +70,7 @@ func emulatorArgs(avd string, port int, gpu, snapshot string, window bool) []str
 	if snapshot != "" {
 		args = append(args, "-snapshot", snapshot)
 	}
+	args = append(args, "-grpc", strconv.Itoa(port+3000), "-grpc-use-token")
 	if !window {
 		args = append(args, "-qt-hide-window", "-no-audio")
 	}
