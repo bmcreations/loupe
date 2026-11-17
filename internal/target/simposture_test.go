@@ -359,3 +359,31 @@ func TestSimReportedPosture(t *testing.T) {
 		}
 	}
 }
+
+// Taking the hinge off flat lit the Duo's cover for about a second before
+// the inner panel came back, even for a sweep to 120. While a write of 90 or
+// more settles, a cover reading is that blip, not a fold; once settled, or
+// for a smaller angle, the panel stands.
+func TestSimSettlingPanel(t *testing.T) {
+	at := time.Unix(1000, 0)
+	for _, c := range []struct {
+		lit   string
+		deg   int
+		sent  bool
+		after time.Duration
+		want  string
+	}{
+		{"closed", 120, true, time.Second, "opened"},
+		{"closed", 90, true, time.Second, "opened"},
+		{"closed", 180, true, time.Second, "opened"},
+		{"closed", 120, true, simPostureSettle, "closed"},
+		{"closed", 60, true, time.Second, "closed"},
+		{"closed", 120, false, time.Second, "closed"},
+		{"opened", 0, true, time.Second, "opened"},
+		{"", 120, true, time.Second, ""},
+	} {
+		if got := simSettlingPanel(c.lit, c.deg, at, c.sent, at.Add(c.after)); got != c.want {
+			t.Errorf("simSettlingPanel(%q, %d, sent %v, +%v) = %q, want %q", c.lit, c.deg, c.sent, c.after, got, c.want)
+		}
+	}
+}

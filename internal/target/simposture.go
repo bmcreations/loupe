@@ -168,6 +168,24 @@ const (
 	simClosedBelow = 5
 )
 
+// simSettlingPanel is the lit panel's posture as a GET counts it. Taking the
+// Duo's hinge off flat lit the cover for about a second before the inner
+// panel came back, for a jump or a sweep, to 150 or to 120. So while a write
+// of simInnerLitFrom or more is settling, a cover reading is that blip and
+// counts as the inner panel. Once settled, or for a smaller angle, which can
+// leave the cover lit for good, the panel stands.
+func simSettlingPanel(lit string, deg int, at time.Time, sent bool, now time.Time) string {
+	if lit == "closed" && sent && deg >= simInnerLitFrom && now.Sub(at) < simPostureSettle {
+		return "opened"
+	}
+	return lit
+}
+
+// simInnerLitFrom is the smallest angle that lit the inner panel whichever
+// way the hinge came from (90 and 120 did, from shut and from flat; 60 from
+// shut left the cover lit).
+const simInnerLitFrom = 90
+
 // hingeReadback is the angle a GET reports, given the posture the lit panel
 // reads. The last angle sent stands unless the panel contradicts it
 // (simPanelContradicts) once simPostureSettle has passed since it was sent,
@@ -198,6 +216,7 @@ func (s *Simulator) Settings(ctx context.Context) ([]Setting, error) {
 	}
 	deg, at, sent := s.hingeSent.last()
 	now := time.Now()
+	p = simSettlingPanel(p, deg, at, sent, now)
 	d, known := hingeReadback(p, deg, at, sent, now)
 	out := []Setting{{
 		ID: "posture", Type: SettingEnum, Value: simReportedPosture(p, d, known), Options: simPostureOptions,
