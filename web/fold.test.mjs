@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 
 const { installFakeDom, tick, jsonResponse, deferred } = await import('./fakedom.js');
-const { mount, postureOf, postureLabel, foldMotion, slabTransform, FLAT } = await import('./fold.js');
+const { mount, postureOf, postureLabel, foldMotion, slabTransform, shutTransform, litStep, FLAT } = await import('./fold.js');
 
 let failures = 0;
 // One at a time: every test shares the fake document's <html> class list.
@@ -43,7 +43,7 @@ function rig(answers, opts = {}) {
   const handle = mount(nav, {
     fetch: f, targetId: () => 'sim:duo',
     onShape: () => shapes++, onChanged: () => changed++,
-    ...(opts.surface ? { surface: opts.surface } : { wrap }),
+    ...(opts.surface ? { surface: opts.surface } : { wrap, ...(opts.canvas ? { canvas: opts.canvas } : {}) }),
   });
   const btn = nav.children[0], menu = nav.children[1];
   return { handle, btn, menu, wrap, calls, shapes: () => shapes, changed: () => changed };
@@ -94,14 +94,43 @@ test('foldMotion flips across the closed panel and tilts between the open ones',
   assert.equal(foldMotion('', 'closed'), null);
 });
 
-test('slabTransform centres the shut half and moves it onto the other panel', () => {
+test('slabTransform centres the shut half and lands it on the other panel exactly', () => {
   const book = { left: 0, top: 100, width: 800, height: 560 };
   // Shut in place: the left half, slid right by a quarter so it is centred.
-  assert.equal(slabTransform(book, book), 'translate(0px, 0px) scale(1) translateX(-200px)');
-  // Onto a taller portrait rect centred lower down.
+  assert.equal(shutTransform(book), 'translate(0px, 0px) scale(1, 1) translateX(-200px)');
+  // Onto a taller, narrower portrait rect centred lower down. The panels
+  // differ in shape, so the half takes the rect's width as well as its height.
   const to = { left: 250, top: 50, width: 300, height: 700 };
-  assert.equal(slabTransform(book, to), 'translate(0px, 20px) scale(1.25) translateX(-200px)');
-  assert.equal(FLAT, 'translate(0px, 0px) scale(1) translateX(0px)');
+  assert.equal(slabTransform(book, to), 'translate(0px, 20px) scale(0.75, 1.25) translateX(-200px)');
+  assert.equal(FLAT, 'translate(0px, 0px) scale(1, 1) translateX(0px)');
+});
+
+// Mean brightness of the canvas, frame by frame, as an iPhone Duo's stream
+// gave it after reshaping to the other panel (closed to open, sampled on
+// sim 84C8A348 at 7d41278d).
+const fadeUp = [29, 54, 81, 105, 128, 148, 165, 179, 201, 209, 215, 215, 224, 228, 230, 233, 233, 236, 236, 236, 238];
+function litAfter(means) {
+  const state = {};
+  for (let i = 0; i < means.length; i++) if (litStep(state, means[i])) return i;
+  return -1;
+}
+
+test('a panel fading up from black is not lit until it is steady', () => {
+  const at = litAfter(fadeUp);
+  assert.ok(at > 0, 'it is lit in the end');
+  assert.ok(fadeUp[at] >= 0.95 * fadeUp[fadeUp.length - 1], `lit at ${fadeUp[at]}, short of ${fadeUp[fadeUp.length - 1]}`);
+});
+
+test('a dark screen that holds still counts as lit; a cleared canvas does not', () => {
+  assert.equal(litAfter([12, 12, 12, 12, 12]), 3);
+  assert.equal(litAfter(new Array(29).fill(0)), -1);
+  assert.equal(litAfter(new Array(30).fill(0)), 29, 'unless it stays that way for half a second');
+  // The clear before the first frame does not count toward steady.
+  assert.equal(litAfter([0, 0, 0, 0, 200, 200, 200, 200]), 7);
+});
+
+test('a picture that never holds still stops the wait after 45 frames', () => {
+  assert.equal(litAfter(Array.from({ length: 60 }, (_, i) => (i % 2 ? 60 : 180))), 44);
 });
 
 test('a flip turns away at once and back in when the new panel arrives', async () => {
@@ -179,6 +208,45 @@ test('the motion lands on the focused pane\'s box, read when it starts', async (
   await new Promise((res) => setTimeout(res, 5));
   assert.equal(first.classList.contains('fold-back'), true);
   assert.equal(other.wrap.classList.contains('fold-back'), false);
+});
+
+test('a posture written by the Tools sheet folds the same way', async () => {
+  const r = rig([jsonResponse(200, { settings: [duo] })]);
+  await r.handle.refresh(); await tick();
+  const after = r.handle.begin('closed');
+  assert.equal(typeof after, 'function');
+  assert.equal(r.wrap.classList.contains('fold-away'), true);
+  assert.equal(r.wrap.dataset.fold, 'closing');
+  assert.equal(r.btn.getAttribute('aria-label'), 'Fold: Closed');
+  assert.equal(r.calls.length, 1, 'the sheet sends the PUT, not the button');
+  assert.equal(r.handle.begin('opened'), null, 'one fold at a time');
+  // The sheet's PUT was refused: back as it was.
+  after(false);
+  assert.equal(r.wrap.classList.contains('fold-away'), false);
+  assert.equal(r.btn.getAttribute('aria-label'), 'Fold: Open');
+});
+
+test('begin has nothing to draw for the posture it is in, or one not offered', async () => {
+  const r = rig([jsonResponse(200, { settings: [duo] })]);
+  await r.handle.refresh(); await tick();
+  assert.equal(r.handle.begin('opened'), null);
+  assert.equal(r.handle.begin('halfOpened'), null);
+  assert.equal(r.wrap.classList.contains('fold-away'), false);
+});
+
+test('half open lays a crease over the canvas, and only half open', async () => {
+  installFakeDom();
+  const canvas = document.createElement('canvas');
+  const r = rig([jsonResponse(200, { settings: [{ ...fold, value: 'halfOpened' }] }),
+    jsonResponse(200, { settings: [{ ...fold, value: 'opened' }] })], { canvas });
+  await r.handle.refresh(); await tick();
+  const crease = r.wrap.querySelector('.foldCrease');
+  assert.ok(crease, 'the crease is in the box');
+  assert.equal(crease.classList.contains('on'), true);
+  r.btn.dispatch('click');
+  r.menu.children[2].dispatch('click');
+  await tick(3);
+  assert.equal(crease.classList.contains('on'), false);
 });
 
 for (const [name, fn] of tests) {

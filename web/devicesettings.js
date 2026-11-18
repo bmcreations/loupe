@@ -358,7 +358,20 @@ export function mount(container, deps = {}) {
     return ids;
   }
 
+  // write sends one setting. `deps.beforeWrite(id, value)` hears of it first
+  // and may return a function to call with whether it went through: the fold
+  // button draws a posture change the same whichever control asked for it.
   async function write(id, value, revert) {
+    const after = deps.beforeWrite ? deps.beforeWrite(id, value) : null;
+    let ok = false;
+    try {
+      ok = (await send(id, value, revert)) === true;
+    } finally {
+      if (after) after(ok);
+    }
+  }
+
+  async function send(id, value, revert) {
     const f = fetchImpl();
     if (!f || !deps.targetId) {
       revert();
@@ -418,7 +431,7 @@ export function mount(container, deps = {}) {
         pending.delete(key);
         render(applyResponse(currentFor(myTarget), body && body.settings, pendingIdsFor(myTarget)), myTarget);
         if (deps.onAvailable) deps.onAvailable();
-        return;
+        return true;
       }
       const parsed = parseSettingsError(res.status, body);
       put('error', res.status);
