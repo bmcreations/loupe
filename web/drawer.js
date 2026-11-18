@@ -154,6 +154,7 @@ const TRANSPORT_WORDS = {
   wifi: 'Wi-Fi',
   emulator: 'Emulator',
   simulator: 'Simulator',
+  cloud: 'Cloud',
 };
 
 const KNOWN_ICONS = new Set(['phone', 'foldable', 'tablet', 'pattern']);

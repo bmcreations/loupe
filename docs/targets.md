@@ -1,7 +1,7 @@
 # Targets
 
-AVDs, the Android phone keyboard, the clipboard and device frames. iOS
-simulators and physical iPhones are in `docs/ios.md`.
+AVDs, Revyl cloud devices, the Android phone keyboard, the clipboard and
+device frames. iOS simulators and physical iPhones are in `docs/ios.md`.
 
 ## AVD targets
 
@@ -242,6 +242,91 @@ The restart has only run under unit tests, not against a wedged server.
 ### No devices
 
 With no targets at all, the picker shows New device and How to connect a phone.
+
+## Revyl cloud devices
+
+A cloud Android emulator or iOS simulator on the user's own Revyl
+(revyl.com) account is a target with the id `revyl:<sessionId>` and kind
+`revyl`. loupe drives it through Revyl's `revyl` CLI, never its REST API.
+The flags and `--json` shapes come from revyl-cli v0.2.18 (commit
+`381c4fcf`). None of this has run against a live account; it is tested
+against a fake CLI and a local WHEP server.
+
+### CLI and account
+
+- The CLI is found by `-revyl-cli`, then `~/.revyl/bin/revyl` (where Revyl's
+  install script puts it), `/opt/homebrew/bin`, `/usr/local/bin`, PATH, then
+  loupe's own copy at `~/Library/Application Support/loupe/bin/revyl`. It is
+  looked up on every request, so one installed later needs no restart.
+- With none, `POST /api/revyl/cli` downloads the v0.2.18 release binary for
+  the Mac's architecture into loupe's path and checks its SHA-256 against
+  the value pinned in loupe. No Homebrew and no admin.
+- Sign-in is the user's: `revyl auth login` stores `~/.revyl/credentials.json`,
+  or `REVYL_API_KEY` is in loupe's environment. `POST /api/revyl/account`
+  runs the login and answers with its approval URL and code once the CLI
+  prints them. The CLI also opens the URL in the Mac's browser, and has no
+  flag to stop it. loupe never reads the key, and the URL and code stay out
+  of the trace.
+- Every run sets `REVYL_TELEMETRY_DISABLED=1` and `REVYL_NO_UPDATE_NOTIFIER=1`,
+  and runs in `~/Library/Application Support/loupe/revyl`, so a project's
+  `.revyl/config.yaml` in loupe's start directory is not read.
+
+### Sessions
+
+- `POST /api/revyl` starts one device at a time; another start answers 409.
+  While it starts, `/api/targets` has a `revyl-starting:<key>` row with state
+  `starting` and transport `cloud`. The start waits for Revyl's queue, up to
+  6 minutes.
+- Revyl bills from the start until the device stops or goes 900 seconds
+  without a command (`--timeout`, the CLI's default). Whether a WHEP viewer
+  alone keeps it alive is unknown.
+- At startup, and every minute while loupe holds a device, loupe reads the
+  account's sessions from `revyl device list`. A session it did not start is
+  adopted as a target and left running when loupe exits. One loupe started
+  is stopped at exit. A session that leaves the list leaves the picker.
+- The WHEP, viewer and worker URLs Revyl returns are kept out of
+  `/api/targets`, `/api/revyl` and the trace, and any URL in the CLI's
+  error output is cut before it reaches either.
+- For 2 minutes after loupe starts or stops a session, `revyl device list`
+  is not trusted over loupe, in case it lags.
+
+### Video
+
+`revyl device info` gives the session's `whep_url`. loupe is a WHEP client:
+it offers a receive-only H.264 track, assembles RTP into access units on the
+marker bit, and hands them to the normal session, so viewers, recording and
+the agent stream work unchanged. `Meta` takes the size from the SPS, and
+`Open` returns only once the first SPS has arrived. A keyframe request is an
+RTCP PLI. No header is sent with the offer; whether Revyl needs one is
+unknown.
+
+### Input
+
+Revyl takes whole gestures, not touch events.
+
+- A press is buffered from down to up and sent when the finger lifts: a tap,
+  a long-press when held 500 ms or more, otherwise `revyl device drag` from
+  where it started to where it ended. A drag shows on the device only after
+  the lift.
+- Only the first finger is tracked. Multi-touch, pinch, scroll and live drag
+  tracking are not supported.
+- Android takes pixels and iOS points. Stream pixels are scaled by the
+  session's `screen_width` and `screen_height`. An iOS session that reports
+  no size refuses input rather than guess the scale.
+- Keys: Home, Back (Android only), Enter and Backspace. Revyl's phones take
+  no other key.
+- Text goes through `revyl device type` at the last tap, so tap the field
+  first. It does not clear the field.
+- Gestures run one at a time in order, each a CLI process and a round trip
+  to Revyl, so input lags the finger by at least that.
+
+### What it does not do
+
+`/api/input` and `/api/sequence` answer 501, since a Revyl target has no
+`Actuator`. `/api/ui`, `/api/screenshot`, `/api/install`, logcat, crashes,
+settings and the clipboard answer 501. The lifecycle routes under
+`/api/devices` answer 422 `notSupported`; stop a device with `DELETE
+/api/revyl`.
 
 ## Phone keyboard on Android
 
