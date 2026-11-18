@@ -60,7 +60,8 @@ loupe's maintainer is `feedbackRelay`, off by default. With it on, an agent's
 `submit_feedback` report goes to `loupe-feedback-relay.brandon-92b.workers.dev`
 as its title, problem, repro, proposed fix, tool and loupe's version. The target,
 screenshots, the agent's session and local paths stay on the Mac, but the
-report's text is the agent's, and it can name anything the agent saw.
+report's text is the agent's, and it can name anything the agent saw. The
+relay files it as a public issue on `bmcreations/loupe`, so anyone can read it.
 
 ## Pairing and sessions
 

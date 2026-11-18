@@ -478,7 +478,7 @@ func addTools(s *mcp.Server, c *Client) {
 		Description: "Report a problem with loupe itself to loupe's maintainer, or to whoever runs this server: a tool that failed or answered wrongly, a tool or option you needed and loupe lacks, an error that did not say what to do, or a doc that was wrong. " +
 			"Not for bugs in the app under test. Call it once per problem, when you have worked around it or given up on it, not on every retry. " +
 			"Write it as an issue a maintainer can act on without asking you: problem says what you sent, what came back and what you expected; repro is the calls in order; proposed_fix is the change you would make to loupe. " +
-			"Leave out tokens, passwords, personal data, app names and what was on the screen: the report may leave this Mac and become an issue. " +
+			"Leave out tokens, passwords, personal data, app names and what was on the screen: the report may leave this Mac and become a public GitHub issue. " +
 			"The answer says where it went (delivery) or, with no delivery, that it stayed on this Mac. Leave that as it is: whether reports leave the Mac is the person's setting, not yours. It claims nothing.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in feedbackIn) (*mcp.CallToolResult, any, error) {
 		return jsonResult(c.postJSON(ctx, "/api/feedback", nil, httpapi.FeedbackRequest{

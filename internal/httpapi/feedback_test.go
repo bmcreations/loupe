@@ -261,7 +261,7 @@ func TestFeedbackRelaySendsTheWordsAndNotTheDevice(t *testing.T) {
 	var body []byte
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ = io.ReadAll(r.Body)
-		w.Write([]byte(`{"issue":"https://github.com/bmcreations/loupe-private/issues/12"}`))
+		w.Write([]byte(`{"issue":"https://github.com/bmcreations/loupe/issues/12"}`))
 	}))
 	defer relay.Close()
 	s, dir := feedbackServer(t, nil)
@@ -275,7 +275,7 @@ func TestFeedbackRelaySendsTheWordsAndNotTheDevice(t *testing.T) {
 	}
 	s.feedback.sending.Wait()
 	got, _ := readFeedback(fb.Dir)
-	if got.Delivery == nil || got.Delivery.State != "sent" || got.Delivery.Output != "https://github.com/bmcreations/loupe-private/issues/12" {
+	if got.Delivery == nil || got.Delivery.State != "sent" || got.Delivery.Output != "https://github.com/bmcreations/loupe/issues/12" {
 		t.Fatalf("delivery = %+v", got.Delivery)
 	}
 	var sent map[string]any
