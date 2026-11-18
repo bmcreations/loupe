@@ -135,6 +135,11 @@ var endpoints = []endpoint{
 	{"POST /api/flags/end 200", dirResponse, httpapi.Flag{}},
 	{"GET /api/flags/listeners", dirResponse, httpapi.FlagListenersResponse{}},
 	{"GET /api/flags/destinations", dirResponse, httpapi.FlagDestinationsResponse{}},
+	{"POST /api/feedback request", dirRequest, httpapi.FeedbackRequest{}},
+	{"POST /api/feedback 200", dirResponse, httpapi.Feedback{}},
+	{"GET /api/feedback", dirResponse, httpapi.FeedbackResponse{}},
+	// ?id= answers one report.
+	{"GET /api/feedback one", dirResponse, httpapi.Feedback{}},
 	{"GET /api/avds/profiles", dirResponse, httpapi.AVDProfilesResponse{}},
 	{"POST /api/avds request", dirRequest, httpapi.CreateAVDRequest{}},
 	{"POST /api/avds 202", dirResponse, httpapi.CreateAVDResponse{}},

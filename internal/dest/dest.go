@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -29,7 +30,20 @@ import (
 type File struct {
 	Commands []Command `json:"commands,omitempty"`
 	Webhooks []Webhook `json:"webhooks,omitempty"`
+	// Feedback names the entry an agent's report goes to (POST
+	// /api/feedback). Without it reports stay on this Mac.
+	Feedback *FeedbackTo `json:"feedback,omitempty"`
 }
+
+// FeedbackTo names one command or one webhook of the same file.
+type FeedbackTo struct {
+	Command string `json:"command,omitempty"`
+	Webhook string `json:"webhook,omitempty"`
+}
+
+// FeedbackVars are the placeholders a feedback command may use. A report has
+// no screenshots, UI tree or events, so the flag-only ones would be empty.
+var FeedbackVars = []string{"id", "target", "dir", "message", "text"}
 
 // Command runs a program with the flag's message on stdin.
 type Command struct {
@@ -170,6 +184,34 @@ func (f File) Validate() error {
 		seen["w:"+w.Name] = true
 		if err := checkURL(w.URL); err != nil {
 			return fmt.Errorf("webhook %q: %w", w.Name, err)
+		}
+	}
+	return f.validateFeedback()
+}
+
+func (f File) validateFeedback() error {
+	fb := f.Feedback
+	if fb == nil {
+		return nil
+	}
+	if (fb.Command == "") == (fb.Webhook == "") {
+		return fmt.Errorf("feedback: name one command or one webhook")
+	}
+	if fb.Webhook != "" {
+		if _, ok := f.Webhook(fb.Webhook); !ok {
+			return fmt.Errorf("feedback: no webhook %q", fb.Webhook)
+		}
+		return nil
+	}
+	c, ok := f.Command(fb.Command)
+	if !ok {
+		return fmt.Errorf("feedback: no command %q", fb.Command)
+	}
+	for _, a := range c.Args {
+		for _, m := range placeholder.FindAllStringSubmatch(a, -1) {
+			if !slices.Contains(FeedbackVars, m[1]) {
+				return fmt.Errorf("feedback: command %q uses {%s}, which a report does not have; it may use %s", c.Name, m[1], strings.Join(FeedbackVars, ", "))
+			}
 		}
 	}
 	return nil

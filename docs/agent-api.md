@@ -55,6 +55,7 @@ Common refusals on routes that change a device:
 | `GET /api/handoff` | Link that moves a session to another browser |
 | `GET /api/lan` | Addresses on the local network, and the key to check there |
 | `GET /api/version` | The running server's version |
+| `GET`, `POST /api/feedback` | An agent's report on loupe itself |
 | `GET`, `POST`, `DELETE /api/overlays` | Images and boxes over the video |
 | `GET`, `POST /api/extensions` | Extension registry and proxy |
 | `GET`, `POST`, `DELETE /api/claims` | Claims |
@@ -802,6 +803,25 @@ Returns `{"version"}`: what `loupe version` prints, the release tag or `dev`
 for a plain `go build`. A supervisor that ships loupe beside itself compares it
 with the binary it bundles, to tell an old server still running after an update
 from the new one.
+
+### `POST /api/feedback`, `GET /api/feedback`
+
+An agent reports a problem with loupe itself here, not with the app it is
+testing. The body is `{title, problem, repro, proposedFix, tool, target}`;
+`title`, `problem` and `proposedFix` are required, `title` is one line of at
+most 200 characters, and each field is at most 8000. Unknown fields are
+refused.
+
+The server stamps the report with an `id`, the time `t`, `X-Loupe-Agent`,
+`X-Loupe-Session` and its own version, and writes `report.json` and
+`message.md` to `~/Library/Caches/loupe/feedback/<id>/`, keeping the newest
+64. When `destinations.json` names a `feedback` entry
+([flags.md](flags.md#sending-to-a-program-or-a-webhook)), the report goes
+there too, and `delivery` moves from `sending` to `sent` or `failed`. With
+no such entry, `delivery` is absent and the report stays on this Mac.
+
+`GET /api/feedback` lists the kept reports, oldest first; `?id=` reads one.
+No report is acted on by the server.
 
 ### `/api/overlays?target=<id>`
 

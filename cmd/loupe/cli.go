@@ -57,6 +57,7 @@ var cliCommands = []cliCommand{
 	{"release", "release", []string{"target"}},
 	{"flags", "flags", nil},
 	{"flag", "flag", []string{"id"}},
+	{"feedback", "submit_feedback", []string{"title"}},
 }
 
 func findCLICommand(name string) (cliCommand, bool) {

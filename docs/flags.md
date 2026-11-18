@@ -122,9 +122,14 @@ others may write it, or another user owns it.
   "webhooks": [
     {"name": "triage", "url": "https://hooks.example.com/flag",
      "headers": {"Authorization": "Bearer …"}}
-  ]
+  ],
+  "feedback": {"webhook": "triage"}
 }
 ```
+
+`feedback` names the one command or webhook that agents' reports from
+`submit_feedback` go to ([mcp.md](mcp.md#feedback)). A loupe older than this
+key refuses the whole file, flags' entries included.
 
 **Commands**
 
@@ -139,6 +144,10 @@ others may write it, or another user owns it.
   so the person can watch and answer it, and `Opened in <app>` is recorded as
   delivered. The program then has the window's input, so pass the message with
   `{text}`.
+- A command named as `feedback` gets the report on stdin and may use only
+  `{id}`, `{target}`, `{dir}`, `{message}` and `{text}`: a report has no
+  screenshots, UI tree or events. `{text}` opens with the server's words, as
+  it does for a flag.
 - `timeoutSec` defaults to 600, at most 3600. `delivery` stays `sending` until
   the program exits, then carries the end of its output as `output`.
 
@@ -147,6 +156,8 @@ others may write it, or another user owns it.
 - POSTed `{flag, message, start, end}` with the screenshots as base64, since the
   receiver usually can't reach this server.
 - `https` only, or plain `http` to localhost. Redirects are not followed.
+- A feedback webhook is POSTed `{text, feedback}`: the report as Markdown and
+  as its record.
 
 A command or webhook counts as a T3 thread does for interrupts and for
 `loupe mcp`.

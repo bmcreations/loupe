@@ -516,6 +516,35 @@ func TestBootStatusReadsWithoutClaiming(t *testing.T) {
 	}
 }
 
+// submit_feedback posts the report as the server names its fields, and
+// takes no claim even when it names a target.
+func TestSubmitFeedbackPostsWithoutClaiming(t *testing.T) {
+	var body string
+	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/feedback" {
+			return false
+		}
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		io.WriteString(w, `{"id":"1-1"}`)
+		return true
+	}}
+	cs, stop := connect(t, fake)
+	res := call(t, cs, "submit_feedback", map[string]any{
+		"title": "t", "problem": "p", "proposed_fix": "f", "target": "avd:Pixel_10",
+	})
+	stop()
+	if res.IsError || !strings.Contains(text(res), `"id":"1-1"`) {
+		t.Fatalf("result %+v", res)
+	}
+	if got := fake.requests(); strings.Join(got, "\n") != "POST /api/feedback" {
+		t.Errorf("requests %v", got)
+	}
+	if !strings.Contains(body, `"proposedFix":"f"`) || !strings.Contains(body, `"target":"avd:Pixel_10"`) {
+		t.Errorf("body %s", body)
+	}
+}
+
 func TestApplyPresetPostsUnderAClaim(t *testing.T) {
 	fake := &fakeLoupe{}
 	cs, stop := connect(t, fake)

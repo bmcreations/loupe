@@ -96,6 +96,12 @@
     "GET /api/extensions": {
       "$ref": "#/$defs/httpapi.ExtensionsResponse"
     },
+    "GET /api/feedback": {
+      "$ref": "#/$defs/httpapi.FeedbackResponse"
+    },
+    "GET /api/feedback one": {
+      "$ref": "#/$defs/httpapi.Feedback"
+    },
     "GET /api/flags": {
       "$ref": "#/$defs/httpapi.FlagsResponse"
     },
@@ -251,6 +257,12 @@
     },
     "POST /api/extensions request": {
       "$ref": "#/$defs/httpapi.ExtensionRequest"
+    },
+    "POST /api/feedback 200": {
+      "$ref": "#/$defs/httpapi.Feedback"
+    },
+    "POST /api/feedback request": {
+      "$ref": "#/$defs/httpapi.FeedbackRequest"
     },
     "POST /api/flags 200": {
       "$ref": "#/$defs/httpapi.Flag"
@@ -1094,6 +1106,106 @@
       },
       "required": [
         "extensions"
+      ],
+      "type": "object"
+    },
+    "httpapi.Feedback": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.FlagDelivery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dir": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "problem": {
+          "type": "string"
+        },
+        "proposedFix": {
+          "type": "string"
+        },
+        "repro": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "t": {
+          "type": "integer"
+        },
+        "target": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "problem",
+        "proposedFix",
+        "id",
+        "t"
+      ],
+      "type": "object"
+    },
+    "httpapi.FeedbackRequest": {
+      "properties": {
+        "problem": {
+          "type": "string"
+        },
+        "proposedFix": {
+          "type": "string"
+        },
+        "repro": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "problem",
+        "proposedFix"
+      ],
+      "type": "object"
+    },
+    "httpapi.FeedbackResponse": {
+      "properties": {
+        "feedback": {
+          "items": {
+            "$ref": "#/$defs/httpapi.Feedback"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "feedback"
       ],
       "type": "object"
     },

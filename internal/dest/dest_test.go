@@ -53,6 +53,11 @@ func TestValidate(t *testing.T) {
 		{"loupe env", File{Commands: []Command{{Name: "a", Program: "/bin/cat", Env: map[string]string{"LOUPE_TOKEN": "x"}}}}, "LOUPE_"},
 		{"plain http", File{Webhooks: []Webhook{{Name: "a", URL: "http://example.com/x"}}}, "https"},
 		{"ftp", File{Webhooks: []Webhook{{Name: "a", URL: "ftp://example.com/x"}}}, "https"},
+		{"feedback names nothing", File{Feedback: &FeedbackTo{}}, "one command or one webhook"},
+		{"feedback names both", File{Commands: []Command{{Name: "a", Program: "/bin/cat"}}, Webhooks: []Webhook{{Name: "a", URL: "https://example.com/x"}}, Feedback: &FeedbackTo{Command: "a", Webhook: "a"}}, "one command or one webhook"},
+		{"feedback to a missing webhook", File{Feedback: &FeedbackTo{Webhook: "slack"}}, `no webhook "slack"`},
+		{"feedback to a missing command", File{Feedback: &FeedbackTo{Command: "gh"}}, `no command "gh"`},
+		{"feedback command takes a screenshot", File{Commands: []Command{{Name: "a", Program: "/bin/cat", Args: []string{"{start}"}}}, Feedback: &FeedbackTo{Command: "a"}}, "a report does not have"},
 	}
 	for _, c := range cases {
 		err := c.f.Validate()
@@ -66,6 +71,13 @@ func TestValidate(t *testing.T) {
 	}
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("valid file refused: %v", err)
+	}
+	ok.Commands = append(ok.Commands, Command{Name: "gh", Program: "/bin/cat", Args: []string{"--body-file", "{message}", "{text}"}})
+	for _, fb := range []FeedbackTo{{Command: "gh"}, {Webhook: "hook"}} {
+		ok.Feedback = &fb
+		if err := ok.Validate(); err != nil {
+			t.Fatalf("feedback %+v refused: %v", fb, err)
+		}
 	}
 }
 
