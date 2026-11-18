@@ -37,14 +37,14 @@ done
 	return bin
 }
 
-func TestDuoOffersClosedAndOpenedAndFolds(t *testing.T) {
+func TestDuoOffersThreePosturesAndFolds(t *testing.T) {
 	s := NewSimulator(SimInfo{UDID: "u", Name: "loupe-duo", State: "Booted"}, fakeFoldingSimcap(t, "2"))
 	defer s.input().close()
 	ctx := t.Context()
 
 	got, err := s.Settings(ctx)
 	if err != nil || len(got) != 2 || got[0].ID != "posture" || got[0].Value != "opened" ||
-		!slices.Equal(got[0].Options, []string{"closed", "opened"}) || !got[0].Supported {
+		!slices.Equal(got[0].Options, []string{"closed", "halfOpened", "opened"}) || !got[0].Supported {
 		t.Fatalf("Settings = %+v, %v", got, err)
 	}
 	// Before any write the angle is the one the lit panel's posture sends.
@@ -56,6 +56,18 @@ func TestDuoOffersClosedAndOpenedAndFolds(t *testing.T) {
 	}
 	if got, _ := s.Settings(ctx); got[0].Value != "closed" || got[1].Value != 0.0 {
 		t.Fatalf("after folding, posture = %v, hingeAngle = %v", got[0].Value, got[1].Value)
+	}
+	if failed, _, err := s.ApplySettings(ctx, map[string]any{"posture": "halfOpened"}); err != nil || failed != nil {
+		t.Fatalf("half open: failed %v, %v", failed, err)
+	}
+	if got, _ := s.Settings(ctx); got[0].Value != "halfOpened" || got[1].Value != 120.0 {
+		t.Fatalf("after half opening, posture = %v, hingeAngle = %v", got[0].Value, got[1].Value)
+	}
+	if failed, _, err := s.ApplySettings(ctx, map[string]any{"posture": "opened"}); err != nil || failed != nil {
+		t.Fatalf("open: failed %v, %v", failed, err)
+	}
+	if got, _ := s.Settings(ctx); got[0].Value != "opened" || got[1].Value != 180.0 {
+		t.Fatalf("after opening, posture = %v, hingeAngle = %v", got[0].Value, got[1].Value)
 	}
 }
 
@@ -73,7 +85,7 @@ func TestDuoHingeAngleSendsTheAngleAndReadsItBack(t *testing.T) {
 		}
 	}
 	got, _ := s.Settings(ctx)
-	if got[0].Value != "opened" || got[1].Value != 120.0 {
+	if got[0].Value != "halfOpened" || got[1].Value != 120.0 {
 		t.Fatalf("posture %v, hingeAngle %v", got[0].Value, got[1].Value)
 	}
 	sent, err := os.ReadFile(filepath.Join(filepath.Dir(bin), "hinges"))
@@ -150,10 +162,10 @@ func TestOnePanelSimulatorHasNoSettings(t *testing.T) {
 	}
 }
 
-func TestDuoRefusesHalfOpenBeforeSendingAnything(t *testing.T) {
+func TestDuoRefusesABadPostureBeforeSendingAnything(t *testing.T) {
 	s := NewSimulator(SimInfo{UDID: "u", Name: "loupe-duo", State: "Booted"}, fakeFoldingSimcap(t, "2"))
 	defer s.input().close()
-	for _, v := range []any{"halfOpened", 180, "darkMode"} {
+	for _, v := range []any{"halfOpen", 180, "darkMode"} {
 		if _, _, err := s.ApplySettings(t.Context(), map[string]any{"posture": v}); !errors.Is(err, ErrInvalidSetting) {
 			t.Errorf("posture %v = %v, want ErrInvalidSetting", v, err)
 		}
@@ -223,7 +235,7 @@ done
 	if b, _ := os.ReadFile(hinges); string(b) != "0\n120\n" {
 		t.Fatalf("simcap was sent %q", b)
 	}
-	if got, _ := s.Settings(ctx); got[0].Value != "opened" || got[1].Value != 120.0 {
+	if got, _ := s.Settings(ctx); got[0].Value != "halfOpened" || got[1].Value != 120.0 {
 		t.Fatalf("posture %v, hingeAngle %v", got[0].Value, got[1].Value)
 	}
 }
@@ -322,4 +334,56 @@ func TestDuoForgetsAStaleHingeAngle(t *testing.T) {
 			t.Fatal("the contradicted angle is still kept")
 		}
 	})
+}
+
+// The lit panel says closed or open; an open one is halfOpened while the
+// hinge angle is short of flat.
+func TestSimReportedPosture(t *testing.T) {
+	for _, c := range []struct {
+		lit   string
+		deg   float64
+		known bool
+		want  string
+	}{
+		{"opened", 180, true, "opened"},
+		{"opened", 160, true, "opened"},
+		{"opened", 159, true, "halfOpened"},
+		{"opened", 120, true, "halfOpened"},
+		{"opened", 30, true, "halfOpened"},
+		{"opened", 120, false, "opened"},
+		{"closed", 60, true, "closed"},
+		{"", 120, true, ""},
+	} {
+		if got := simReportedPosture(c.lit, c.deg, c.known); got != c.want {
+			t.Errorf("simReportedPosture(%q, %v, %v) = %q, want %q", c.lit, c.deg, c.known, got, c.want)
+		}
+	}
+}
+
+// Taking the hinge off flat lit the Duo's cover for about a second before
+// the inner panel came back, even for a sweep to 120. While a write of 90 or
+// more settles, a cover reading is that blip, not a fold; once settled, or
+// for a smaller angle, the panel stands.
+func TestSimSettlingPanel(t *testing.T) {
+	at := time.Unix(1000, 0)
+	for _, c := range []struct {
+		lit   string
+		deg   int
+		sent  bool
+		after time.Duration
+		want  string
+	}{
+		{"closed", 120, true, time.Second, "opened"},
+		{"closed", 90, true, time.Second, "opened"},
+		{"closed", 180, true, time.Second, "opened"},
+		{"closed", 120, true, simPostureSettle, "closed"},
+		{"closed", 60, true, time.Second, "closed"},
+		{"closed", 120, false, time.Second, "closed"},
+		{"opened", 0, true, time.Second, "opened"},
+		{"", 120, true, time.Second, ""},
+	} {
+		if got := simSettlingPanel(c.lit, c.deg, at, c.sent, at.Add(c.after)); got != c.want {
+			t.Errorf("simSettlingPanel(%q, %d, sent %v, +%v) = %q, want %q", c.lit, c.deg, c.sent, c.after, got, c.want)
+		}
+	}
 }

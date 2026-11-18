@@ -655,7 +655,7 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
 
 | `id` | Type | Values |
 |---|---|---|
-| `posture` | `enum` | `closed`, `halfOpened`, `opened` on an emulator; `closed`, `opened` on a Duo |
+| `posture` | `enum` | `closed`, `halfOpened`, `opened` |
 | `hingeAngle` | `range` | `0` (shut) to `180` (flat), `step` 1 |
 
 - A `hingeAngle` write must be a whole number of degrees in range. 90.5 and
@@ -664,7 +664,10 @@ more of closed, half-opened and opened) and the iPhone Duo simulator have two ro
   second would win.
 - A write to one shows on a read of the other. A `posture` write moves the
   hinge to that posture's angle (emulator: closed 0, halfOpened 90, opened
-  180; Duo: closed 0, opened 180).
+  180; Duo: closed 0, halfOpened 120, opened 180).
+- A Duo reads its posture from the lit panel and the last angle this server
+  sent: the inner panel lit below 160 degrees is `halfOpened`. Until this
+  server has sent an angle, a half-open Duo reads `opened`.
 - A `hingeAngle` write does not wait for the posture to follow, so a slider can
   send one per tick. Writes to one target are coalesced: while one is going to
   the device, only the newest write queued behind it is sent. A superseded

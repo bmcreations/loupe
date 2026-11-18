@@ -14,9 +14,11 @@ import (
 // slider does, through CoreDevice, and reads the posture back from which
 // panel is lit: the outer one is closed, the inner one opened.
 //
-// There is no halfOpened. The hinge takes any angle, but the lit panel only
-// says folded or not, so a half-open Duo would read back as opened and the
-// control would disagree with what it was just told.
+// The lit panel only says folded or not: the inner one is lit from about
+// 90 degrees up, and at 120 from either end. So halfOpened is read back from
+// the angle as well: an inner panel lit with the hinge short of flat
+// (simReportedPosture). Before this server has sent an angle it cannot tell
+// half open from open, and reads opened.
 //
 // hingeAngle sends any angle, 0-180, for a slider. simcap's hinge is a
 // one-way HID report with nothing to read back, so the angle a GET reports
@@ -37,9 +39,31 @@ type SettingsGate interface {
 
 // simPostureOptions are the postures a Duo can be put in, and the hinge
 // angle each sends.
-var simPostureOptions = []string{"closed", "opened"}
+var simPostureOptions = []string{"closed", "halfOpened", "opened"}
 
-var simHingeDegrees = map[string]int{"closed": 0, "opened": 180}
+var simHingeDegrees = map[string]int{"closed": 0, "halfOpened": 120, "opened": 180}
+
+// simFlatFrom is the angle from which an open Duo reads opened, not
+// halfOpened.
+const simFlatFrom = 160
+
+// simReportedPosture is the posture a GET reports for the lit panel's
+// posture and the hinge angle, when the angle is known.
+func simReportedPosture(lit string, deg float64, known bool) string {
+	if lit == "opened" && known && deg < simFlatFrom {
+		return "halfOpened"
+	}
+	return lit
+}
+
+// simLitPosture is the posture the lit panel reads once the hinge is at
+// want's angle.
+func simLitPosture(want string) string {
+	if want == "halfOpened" {
+		return "opened"
+	}
+	return want
+}
 
 // simPostureSettle bounds the wait for the lit panel to follow the hinge.
 // A fold and an unfold each took about a second on loupe-duo.
@@ -144,6 +168,24 @@ const (
 	simClosedBelow = 5
 )
 
+// simSettlingPanel is the lit panel's posture as a GET counts it. Taking the
+// Duo's hinge off flat lit the cover for about a second before the inner
+// panel came back, for a jump or a sweep, to 150 or to 120. So while a write
+// of simInnerLitFrom or more is settling, a cover reading is that blip and
+// counts as the inner panel. Once settled, or for a smaller angle, which can
+// leave the cover lit for good, the panel stands.
+func simSettlingPanel(lit string, deg int, at time.Time, sent bool, now time.Time) string {
+	if lit == "closed" && sent && deg >= simInnerLitFrom && now.Sub(at) < simPostureSettle {
+		return "opened"
+	}
+	return lit
+}
+
+// simInnerLitFrom is the smallest angle that lit the inner panel whichever
+// way the hinge came from (90 and 120 did, from shut and from flat; 60 from
+// shut left the cover lit).
+const simInnerLitFrom = 90
+
 // hingeReadback is the angle a GET reports, given the posture the lit panel
 // reads. The last angle sent stands unless the panel contradicts it
 // (simPanelContradicts) once simPostureSettle has passed since it was sent,
@@ -172,13 +214,15 @@ func (s *Simulator) Settings(ctx context.Context) ([]Setting, error) {
 	if p == "none" {
 		p = ""
 	}
-	out := []Setting{{
-		ID: "posture", Type: SettingEnum, Value: p, Options: simPostureOptions,
-		Supported: true, Applies: "immediately",
-	}}
 	deg, at, sent := s.hingeSent.last()
 	now := time.Now()
-	if d, ok := hingeReadback(p, deg, at, sent, now); ok {
+	p = simSettlingPanel(p, deg, at, sent, now)
+	d, known := hingeReadback(p, deg, at, sent, now)
+	out := []Setting{{
+		ID: "posture", Type: SettingEnum, Value: simReportedPosture(p, d, known), Options: simPostureOptions,
+		Supported: true, Applies: "immediately",
+	}}
+	if known {
 		out = append(out, hingeSetting(d))
 	}
 	// Once the panel has said the hinge moved elsewhere, the stored angle
@@ -259,6 +303,7 @@ func (s *Simulator) setPosture(ctx context.Context, want string, deg int) error 
 	if err := s.sendHinge(ctx, deg); err != nil {
 		return err
 	}
+	want = simLitPosture(want)
 	deadline := time.Now().Add(simPostureSettle)
 	for {
 		got, err := s.readPosture(ctx)
