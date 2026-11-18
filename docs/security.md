@@ -57,8 +57,8 @@ supervisor issues its certificate with `tailscale cert`. See
 Nothing, unless you set it up: a flag or report goes to a command, webhook
 or T3 thread only when `destinations.json` names one. The one route out to
 loupe's maintainer is `feedbackRelay`, off by default. With it on, an agent's
-`submit_feedback` report goes to `feedback.loupe.bmcreations.dev` as its
-title, problem, repro, proposed fix, tool and loupe's version. The target,
+`submit_feedback` report goes to `loupe-feedback-relay.brandon-92b.workers.dev`
+as its title, problem, repro, proposed fix, tool and loupe's version. The target,
 screenshots, the agent's session and local paths stay on the Mac, but the
 report's text is the agent's, and it can name anything the agent saw.
 
