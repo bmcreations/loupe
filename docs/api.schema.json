@@ -396,6 +396,9 @@
         "emulatorWindow": {
           "type": "boolean"
         },
+        "feedbackRelay": {
+          "type": "boolean"
+        },
         "humanHoldMs": {
           "type": "integer"
         },

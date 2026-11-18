@@ -246,6 +246,7 @@ func main() {
 		emuWindowFlag = flag.Bool("emulator-window", def.EmulatorWindow, "open the emulator's window when booting an AVD; off runs it headless with no audio")
 		tracePath     = flag.String("trace", "", "write a JSON-lines trace of per-second stream metrics to this file")
 		t3Projects    = flag.String("t3-projects", "", "comma-separated T3 Code project paths whose threads a flag can be sent to")
+		feedbackRelay = flag.Bool("feedback-relay", def.FeedbackRelay, "send agents' loupe feedback reports to loupe's maintainer")
 		tlsCert       = flag.String("tls-cert", "", "TLS certificate; serve HTTPS directly instead of behind a proxy")
 		tlsKey        = flag.String("tls-key", "", "TLS private key, required with -tls-cert")
 		insecureHTTP  = flag.Bool("insecure-http", false, "serve plain HTTP on an address other machines can reach; without it, plain HTTP is loopback only")
@@ -327,6 +328,9 @@ func main() {
 	}
 	if !pinned["t3Projects"] {
 		*t3Projects = cfg.T3Projects
+	}
+	if !pinned["feedbackRelay"] {
+		*feedbackRelay = cfg.FeedbackRelay
 	}
 
 	useTLS := *tlsCert != "" && *tlsKey != ""
@@ -621,6 +625,7 @@ func main() {
 		TLSKey:              *tlsKey,
 		TracePath:           *tracePath,
 		T3Projects:          *t3Projects,
+		FeedbackRelay:       *feedbackRelay,
 	}
 
 	api := httpapi.NewServer(mgr, web.FS, tracer)

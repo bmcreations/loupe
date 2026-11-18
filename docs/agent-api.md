@@ -815,13 +815,19 @@ refused.
 The server stamps the report with an `id`, the time `t`, `X-Loupe-Agent`,
 `X-Loupe-Session` and its own version, and writes `report.json` and
 `message.md` to `~/Library/Caches/loupe/feedback/<id>/`, keeping the newest
-64. When `destinations.json` names a `feedback` entry
-([flags.md](flags.md#sending-to-a-program-or-a-webhook)), the report goes
-there too, and `delivery` moves from `sending` to `sent` or `failed`. With
-no such entry, `delivery` is absent and the report stays on this Mac.
+64. It then goes to the first of these that applies, and `delivery` moves
+from `sending` to `sent` or `failed`:
+
+1. The `feedback` entry in `destinations.json`
+   ([flags.md](flags.md#sending-to-a-program-or-a-webhook)): a command, a
+   webhook, or a T3 Code thread (`delivery.thread`).
+2. With no entry and the `feedbackRelay` setting on, loupe's maintainer's
+   relay, which files it as an issue (`delivery.output` is the issue's URL).
+   It gets `{title, problem, repro, proposedFix, tool, version}` only.
+3. Neither: `delivery` is absent and the report stays on this Mac.
 
 `GET /api/feedback` lists the kept reports, oldest first; `?id=` reads one.
-No report is acted on by the server.
+The server itself acts on nothing a report says.
 
 ### `/api/overlays?target=<id>`
 

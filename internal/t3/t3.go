@@ -119,6 +119,16 @@ func (c CLI) Start(ctx context.Context, project, title, msg string) (string, err
 	return startedID(out)
 }
 
+// StartInWorktree opens a thread as Start does, in a new git worktree of
+// project based on base rather than in the project folder.
+func (c CLI) StartInWorktree(ctx context.Context, project, base, title, msg string) (string, error) {
+	out, err := c.run(ctx, msg, "thread", "start", "--json", "--title", title, "--worktree", base, project, "-")
+	if err != nil {
+		return "", err
+	}
+	return startedID(out)
+}
+
 // startedID reads the new thread's id from thread start's output: a JSON
 // object carrying threadId, or failing that the bare id.
 func startedID(out []byte) (string, error) {

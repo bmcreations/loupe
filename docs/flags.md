@@ -127,9 +127,21 @@ others may write it, or another user owns it.
 }
 ```
 
-`feedback` names the one command or webhook that agents' reports from
-`submit_feedback` go to ([mcp.md](mcp.md#feedback)). A loupe older than this
-key refuses the whole file, flags' entries included.
+`feedback` names where agents' reports from `submit_feedback` go
+([mcp.md](mcp.md#feedback)): one command, one webhook, or a T3 Code project.
+
+```json
+"feedback": {"t3Project": "/Users/me/dev/loupe", "worktree": "main"}
+```
+
+- `t3Project` starts a thread in that project, which must also be in the
+  `t3Projects` setting. The thread runs in a new worktree off `worktree`
+  (default `main`), never in the project folder, and is asked to check the
+  report against the code, fix it with a test and open a pull request.
+- Reports start at most 3 threads an hour. A fix thread that drives loupe
+  can file a report of its own, and past the cap a report stays on the Mac.
+- A loupe older than this key refuses the whole file, flags' entries
+  included.
 
 **Commands**
 
