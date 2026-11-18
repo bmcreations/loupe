@@ -52,6 +52,16 @@ Run it over TLS on a network you control. A tailnet works well: the
 supervisor issues its certificate with `tailscale cert`. See
 [getting-started.md](getting-started.md).
 
+## What leaves the Mac
+
+Nothing, unless you set it up: a flag or report goes to a command, webhook
+or T3 thread only when `destinations.json` names one. The one route out to
+loupe's maintainer is `feedbackRelay`, off by default. With it on, an agent's
+`submit_feedback` report goes to `feedback.loupe.bmcreations.dev` as its
+title, problem, repro, proposed fix, tool and loupe's version. The target,
+screenshots, the agent's session and local paths stay on the Mac, but the
+report's text is the agent's, and it can name anything the agent saw.
+
 ## Pairing and sessions
 
 A paired device holds a session instead of the master token, so one device

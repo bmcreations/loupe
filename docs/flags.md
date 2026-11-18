@@ -122,9 +122,26 @@ others may write it, or another user owns it.
   "webhooks": [
     {"name": "triage", "url": "https://hooks.example.com/flag",
      "headers": {"Authorization": "Bearer …"}}
-  ]
+  ],
+  "feedback": {"webhook": "triage"}
 }
 ```
+
+`feedback` names where agents' reports from `submit_feedback` go
+([mcp.md](mcp.md#feedback)): one command, one webhook, or a T3 Code project.
+
+```json
+"feedback": {"t3Project": "/Users/me/dev/loupe", "worktree": "main"}
+```
+
+- `t3Project` starts a thread in that project, which must also be in the
+  `t3Projects` setting. The thread runs in a new worktree off `worktree`
+  (default `main`), never in the project folder, and is asked to check the
+  report against the code, fix it with a test and open a pull request.
+- Reports start at most 3 threads an hour. A fix thread that drives loupe
+  can file a report of its own, and past the cap a report stays on the Mac.
+- A loupe older than this key refuses the whole file, flags' entries
+  included.
 
 **Commands**
 
@@ -139,6 +156,10 @@ others may write it, or another user owns it.
   so the person can watch and answer it, and `Opened in <app>` is recorded as
   delivered. The program then has the window's input, so pass the message with
   `{text}`.
+- A command named as `feedback` gets the report on stdin and may use only
+  `{id}`, `{target}`, `{dir}`, `{message}` and `{text}`: a report has no
+  screenshots, UI tree or events. `{text}` opens with the server's words, as
+  it does for a flag.
 - `timeoutSec` defaults to 600, at most 3600. `delivery` stays `sending` until
   the program exits, then carries the end of its output as `output`.
 
@@ -147,6 +168,8 @@ others may write it, or another user owns it.
 - POSTed `{flag, message, start, end}` with the screenshots as base64, since the
   receiver usually can't reach this server.
 - `https` only, or plain `http` to localhost. Redirects are not followed.
+- A feedback webhook is POSTed `{text, feedback}`: the report as Markdown and
+  as its record.
 
 A command or webhook counts as a T3 thread does for interrupts and for
 `loupe mcp`.

@@ -20,6 +20,7 @@ the file beats the default.** The file is described under Configuration below.
 | `-no-auth` | `false` | Serve with no token at all; anyone who can reach the port can drive any device |
 | `-trace` | | Write per-second JSON-lines metrics here |
 | `-t3-projects` | | Comma-separated T3 Code project paths a flag can be sent to (setting `t3Projects`, applies at once) |
+| `-feedback-relay` | `false` | Send agents' `submit_feedback` reports to loupe's maintainer when `destinations.json` names no `feedback` entry (setting `feedbackRelay`, applies at once) |
 | `-max-size` | `1080` | Longest video edge. The biggest lever on both encode cost and bandwidth |
 | `-max-fps` | `60` | Capture rate cap |
 | `-bitrate` | `4000000` | Bits per second; a ceiling, not a fixed rate |

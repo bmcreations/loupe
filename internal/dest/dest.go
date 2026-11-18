@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -29,7 +30,27 @@ import (
 type File struct {
 	Commands []Command `json:"commands,omitempty"`
 	Webhooks []Webhook `json:"webhooks,omitempty"`
+	// Feedback names the entry an agent's report goes to (POST
+	// /api/feedback). Without it reports stay on this Mac.
+	Feedback *FeedbackTo `json:"feedback,omitempty"`
 }
+
+// FeedbackTo names one command or one webhook of the same file, or a T3 Code
+// project to start a thread in.
+type FeedbackTo struct {
+	Command string `json:"command,omitempty"`
+	Webhook string `json:"webhook,omitempty"`
+	// T3Project starts a thread in that project, which must also be in the
+	// t3Projects setting, to check the report and fix it.
+	T3Project string `json:"t3Project,omitempty"`
+	// Worktree is the branch the thread's new worktree starts from; empty
+	// is main. The thread never runs in the project folder itself.
+	Worktree string `json:"worktree,omitempty"`
+}
+
+// FeedbackVars are the placeholders a feedback command may use. A report has
+// no screenshots, UI tree or events, so the flag-only ones would be empty.
+var FeedbackVars = []string{"id", "target", "dir", "message", "text"}
 
 // Command runs a program with the flag's message on stdin.
 type Command struct {
@@ -172,8 +193,58 @@ func (f File) Validate() error {
 			return fmt.Errorf("webhook %q: %w", w.Name, err)
 		}
 	}
+	return f.validateFeedback()
+}
+
+func (f File) validateFeedback() error {
+	fb := f.Feedback
+	if fb == nil {
+		return nil
+	}
+	n := 0
+	for _, v := range []string{fb.Command, fb.Webhook, fb.T3Project} {
+		if v != "" {
+			n++
+		}
+	}
+	if n != 1 {
+		return fmt.Errorf("feedback: name one command, one webhook or one t3Project")
+	}
+	if fb.Worktree != "" && fb.T3Project == "" {
+		return fmt.Errorf("feedback: worktree goes with t3Project")
+	}
+	if fb.T3Project != "" {
+		if !filepath.IsAbs(fb.T3Project) {
+			return fmt.Errorf("feedback: t3Project %q: want an absolute path", fb.T3Project)
+		}
+		if fb.Worktree != "" && !branchName.MatchString(fb.Worktree) {
+			return fmt.Errorf("feedback: worktree %q: want a branch, tag or commit", fb.Worktree)
+		}
+		return nil
+	}
+	if fb.Webhook != "" {
+		if _, ok := f.Webhook(fb.Webhook); !ok {
+			return fmt.Errorf("feedback: no webhook %q", fb.Webhook)
+		}
+		return nil
+	}
+	c, ok := f.Command(fb.Command)
+	if !ok {
+		return fmt.Errorf("feedback: no command %q", fb.Command)
+	}
+	for _, a := range c.Args {
+		for _, m := range placeholder.FindAllStringSubmatch(a, -1) {
+			if !slices.Contains(FeedbackVars, m[1]) {
+				return fmt.Errorf("feedback: command %q uses {%s}, which a report does not have; it may use %s", c.Name, m[1], strings.Join(FeedbackVars, ", "))
+			}
+		}
+	}
 	return nil
 }
+
+// branchName bounds a feedback worktree base, which reaches t3 as an
+// argument: it must not pass for an option.
+var branchName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 
 func known(v string) bool {
 	for _, k := range Vars {

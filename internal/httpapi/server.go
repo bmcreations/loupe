@@ -54,6 +54,8 @@ type Server struct {
 	// destPath is destinations.json; empty offers no commands or webhooks.
 	destPath string
 	t3cache  t3Cache
+	// feedback holds agents' reports on loupe itself (feedback.go).
+	feedback feedbackStore
 
 	// version is what /api/version reports (version.go).
 	version string
@@ -316,6 +318,7 @@ var routes = []route{
 	{"/api/flags/listeners", []string{http.MethodGet}, (*Server).handleFlagListeners, ""},
 	{"/api/flags/destinations", []string{http.MethodGet}, (*Server).handleFlagDestinations, ""},
 	{"/api/flags/shot", []string{http.MethodGet}, (*Server).handleFlagShot, ""},
+	{"/api/feedback", []string{http.MethodGet, http.MethodPost}, (*Server).handleFeedback, ""},
 	{"/api/avds", []string{http.MethodPost}, (*Server).handleCreateAVD, ""},
 	{"/api/avds/profiles", []string{http.MethodGet}, (*Server).handleAVDProfiles, ""},
 	{"/api/remote", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRemote, ""},

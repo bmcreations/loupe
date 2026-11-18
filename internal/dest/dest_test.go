@@ -53,6 +53,14 @@ func TestValidate(t *testing.T) {
 		{"loupe env", File{Commands: []Command{{Name: "a", Program: "/bin/cat", Env: map[string]string{"LOUPE_TOKEN": "x"}}}}, "LOUPE_"},
 		{"plain http", File{Webhooks: []Webhook{{Name: "a", URL: "http://example.com/x"}}}, "https"},
 		{"ftp", File{Webhooks: []Webhook{{Name: "a", URL: "ftp://example.com/x"}}}, "https"},
+		{"feedback names nothing", File{Feedback: &FeedbackTo{}}, "one command, one webhook or one t3Project"},
+		{"feedback names both", File{Commands: []Command{{Name: "a", Program: "/bin/cat"}}, Webhooks: []Webhook{{Name: "a", URL: "https://example.com/x"}}, Feedback: &FeedbackTo{Command: "a", Webhook: "a"}}, "one command, one webhook or one t3Project"},
+		{"feedback t3Project is relative", File{Feedback: &FeedbackTo{T3Project: "dev/loupe"}}, "want an absolute path"},
+		{"feedback worktree passes for an option", File{Feedback: &FeedbackTo{T3Project: "/dev/loupe", Worktree: "--help"}}, "want a branch"},
+		{"feedback worktree without t3Project", File{Webhooks: []Webhook{{Name: "a", URL: "https://example.com/x"}}, Feedback: &FeedbackTo{Webhook: "a", Worktree: "main"}}, "goes with t3Project"},
+		{"feedback to a missing webhook", File{Feedback: &FeedbackTo{Webhook: "slack"}}, `no webhook "slack"`},
+		{"feedback to a missing command", File{Feedback: &FeedbackTo{Command: "gh"}}, `no command "gh"`},
+		{"feedback command takes a screenshot", File{Commands: []Command{{Name: "a", Program: "/bin/cat", Args: []string{"{start}"}}}, Feedback: &FeedbackTo{Command: "a"}}, "a report does not have"},
 	}
 	for _, c := range cases {
 		err := c.f.Validate()
@@ -66,6 +74,13 @@ func TestValidate(t *testing.T) {
 	}
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("valid file refused: %v", err)
+	}
+	ok.Commands = append(ok.Commands, Command{Name: "gh", Program: "/bin/cat", Args: []string{"--body-file", "{message}", "{text}"}})
+	for _, fb := range []FeedbackTo{{Command: "gh"}, {Webhook: "hook"}, {T3Project: "/dev/loupe"}, {T3Project: "/dev/loupe", Worktree: "release/3.4"}} {
+		ok.Feedback = &fb
+		if err := ok.Validate(); err != nil {
+			t.Fatalf("feedback %+v refused: %v", fb, err)
+		}
 	}
 }
 

@@ -207,6 +207,13 @@ func TestApplyClassesAreWhatTheServerCanActuallyDo(t *testing.T) {
 
 // The Mac's pasteboard can hold passwords, so nothing shares it until a
 // person turns it on.
+// Reports leave the Mac for the maintainer's relay only when the person says.
+func TestFeedbackRelayIsOffByDefault(t *testing.T) {
+	if Default().FeedbackRelay {
+		t.Fatal("feedbackRelay is on by default")
+	}
+}
+
 func TestSharedClipboardIsOffByDefault(t *testing.T) {
 	if Default().SharedClipboard {
 		t.Fatal("sharedClipboard is on by default")

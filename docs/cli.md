@@ -48,6 +48,7 @@ claim before input, and requests. Routes, parameters and errors are in
 | `preset` | `apply_preset` | target name |
 | `flags` | `flags` | |
 | `flag` | `flag` | id |
+| `feedback` | `submit_feedback` | title |
 
 Any other field is a flag: `-ms 300` on `swipe`, `-until edge` on `scroll`, `--interactive` on `ui`,
 `-launch` on `install`. Values are converted by the type in the tool's

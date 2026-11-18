@@ -72,6 +72,7 @@ type Config struct {
 	TLSKey              string `json:"tlsKey"`
 	TracePath           string `json:"tracePath"`
 	T3Projects          string `json:"t3Projects"`
+	FeedbackRelay       bool   `json:"feedbackRelay"`
 }
 
 // Default is the configuration a first run gets. These match the flag defaults
@@ -150,6 +151,7 @@ func Fields() []Field {
 		{"tlsKey", AppliesRestart, "TLS private key. Required with tlsCert.", "tls-key"},
 		{"tracePath", AppliesRestart, "Where to write the per-second NDJSON metrics trace. Empty disables it.", "trace"},
 		{"t3Projects", AppliesNow, "T3 Code projects a flag can be sent to, as comma-separated paths. The flag card lists each one's open threads and offers a new thread in it. Empty offers none.", "t3-projects"},
+		{"feedbackRelay", AppliesNow, "Send agents' loupe feedback reports to loupe's maintainer, who gets them as issues and in Slack. A report carries its title, problem, repro, proposed fix, tool and loupe's version; never the device, screenshots or local paths. Off by default. A feedback entry in destinations.json takes precedence.", "feedback-relay"},
 	}
 }
 

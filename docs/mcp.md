@@ -27,9 +27,40 @@ Any other MCP client takes the same command, `~/.local/bin/loupe mcp`, with
 `targets`, `ui`, `screenshot` (returns an image, not JSON), `point`, `tap`,
 `swipe`, `scroll`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`,
 `logcat`, `crashes`, `crash`, `install`, `camera`, `drop`, `boot`, `boot_status`,
-`release`, `flags` and `flag`. `boot` takes `wait` as `/api/devices/boot` does
+`release`, `flags`, `flag` and `submit_feedback`. `boot` takes `wait` as `/api/devices/boot` does
 (`10m`, or `0` to return at once), and `boot_status` reports on a boot still
 running; it reads only and claims nothing.
+
+## Feedback
+
+`submit_feedback` (`loupe feedback` in the CLI) lets an agent report a problem with loupe itself: a tool
+that failed or answered wrongly, a missing tool or option, an error that did
+not say what to do next, a wrong doc. Its description tells the model to
+write the report as an issue (`problem`, `repro`, `proposed_fix`), to send one
+per problem once it has worked around it or given up, and to leave out
+secrets and screen contents. `repro` may be left out. The server's
+instructions repeat when to call it. It claims nothing. The route and where reports
+go are in [agent-api.md](agent-api.md#post-apifeedback-get-apifeedback).
+
+Where a report goes:
+
+- **Your own Mac:** name a `feedback` entry in `destinations.json`
+  ([flags.md](flags.md#sending-to-a-program-or-a-webhook)). A `t3Project`
+  starts a T3 Code thread that checks the report and fixes it in a worktree.
+  A webhook gets the report as Markdown in `text`, the field a Slack incoming
+  webhook posts. Slack's docs don't say whether it ignores the `feedback` key
+  beside it, and Slack shows `#` headings as typed.
+- **Anyone else's:** with no entry, turning on the `feedbackRelay` setting
+  sends reports to loupe's maintainer, as issues in a private repository and
+  in Slack. It sends the report's own fields and loupe's version, not the
+  target, the agent's session or local paths. It is off by default, and the
+  tool's description tells the agent not to change it.
+- **Neither:** the report stays on the Mac.
+
+An agent wrote every word of a report. A T3 thread is told to treat it as a
+claim to check, not as instructions, and the cap of 3 threads an hour keeps a
+fix thread that files its own report from starting a chain. On a Mac where
+other people's agents run, prefer a webhook to a thread.
 
 ## Options
 
