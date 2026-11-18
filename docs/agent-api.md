@@ -822,7 +822,8 @@ from `sending` to `sent` or `failed`:
    ([flags.md](flags.md#sending-to-a-program-or-a-webhook)): a command, a
    webhook, or a T3 Code thread (`delivery.thread`).
 2. With no entry and the `feedbackRelay` setting on, loupe's maintainer's
-   relay, which files it as an issue (`delivery.output` is the issue's URL).
+   relay, which files it as a public issue on `bmcreations/loupe`
+   (`delivery.output` is the issue's URL).
    It gets `{title, problem, repro, proposedFix, tool, version}` only.
 3. Neither: `delivery` is absent and the report stays on this Mac.
 
