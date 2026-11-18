@@ -194,7 +194,9 @@ func (c *AVDCreator) listProfiles(ctx context.Context, cli string) ([]string, er
 	if cached != nil && from == cli {
 		return cached, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// A CLI's first-ever run spends about 12s setting itself up before it
+	// answers, so a 10s limit failed the first New Device sheet on a new Mac.
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	out, stderr, err := c.exec(ctx, cli, "emulator", "create", "--list-profiles")
 	if err != nil {
