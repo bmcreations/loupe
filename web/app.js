@@ -1441,7 +1441,17 @@ function applyFrame(p, frame) {
 
 const frameShape = (t, w, h) => `${t}@${orientationOf(w, h)}`;
 
-async function refreshFrame(p) {
+// How often, and how many times, a skin frame that does not suit the stream
+// is asked for again. A fold reshapes the stream before the server reports
+// the other panel: opening an iPhone Duo, /api/frame went on answering with
+// the cover's frame until 840 to 970 ms after the PUT, and the stream had
+// reshaped by about 400. Asked once, the page kept the cover's frame, which
+// the gate in fitScreen drops, and the inner panel had no bezel.
+const FRAME_RETRY_MS = 150;
+const FRAME_RETRIES = 10;
+
+async function refreshFrame(p, tries = 0) {
+  clearTimeout(p.frameRetry);
   if (!state.frameWanted || !p.targetId) { clearFrame(p); return; }
   // The server answers for the orientation the device is in, so a rotation
   // needs a fresh frame and not just a fresh fit. Keying the cache on the
@@ -1461,6 +1471,10 @@ async function refreshFrame(p) {
     p.frameFor = shape(want, frame.display.width, frame.display.height);
     applyFrame(p, frame);
     report({ event: 'frame', source: frame.source, w: frame.width, h: frame.height, rotation: frame.rotation || 0 });
+    // Not on the derived path: that one answers portrait whatever is asked.
+    if (frame.source === 'skin' && tries < FRAME_RETRIES && !frameSuitsStream(frame, e.canvas.width, e.canvas.height)) {
+      p.frameRetry = setTimeout(() => refreshFrame(p, tries + 1), FRAME_RETRY_MS);
+    }
   } catch (err) {
     // Synthetic has no device behind it and answers 501, which is the ordinary
     // case rather than a failure worth an overlay.
@@ -1490,6 +1504,12 @@ function toggleFrame() {
 async function recheckFrame(p) {
   if (p.frameRecheckBusy || document.hidden || !state.frameWanted) return;
   const e = p.els;
+  // A skin turns with the stream, so one that does not suit it is stale, and
+  // nothing else would ask again: refreshFrame runs once per reshape.
+  if (p.frame && p.frame.source === 'skin' && !frameSuitsStream(p.frame, e.canvas.width, e.canvas.height)) {
+    refreshFrame(p);
+    return;
+  }
   if (!frameNeedsRecheck(p.frame, e.canvas.width, e.canvas.height)) return;
   const want = p.targetId;
   const had = p.frame;
@@ -1498,6 +1518,10 @@ async function recheckFrame(p) {
     const frame = await loadFrame(want);
     if (!state.frameWanted || p.targetId !== want || p.frame !== had) return;
     if ((frame.rotation || 0) === (had.rotation || 0)) return;
+    // Mid-fold an iPhone Duo answers for its other panel for a moment. Taking
+    // that answer here left the inner panel with no bezel, for good: an
+    // unsuited frame is not rechecked.
+    if (!frameSuitsStream(frame, e.canvas.width, e.canvas.height)) return;
     p.frameFor = frameShape(want, frame.display.width, frame.display.height);
     applyFrame(p, frame);
     report({ event: 'frame', source: frame.source, w: frame.width, h: frame.height, rotation: frame.rotation || 0, via: 'recheck' });
@@ -2026,6 +2050,8 @@ const deviceSettings = mountDeviceSettings(el.deviceSettingsBox, {
   targetId: () => focused().targetId,
   onUnavailable: () => { el.deviceSettingsBox.hidden = true; },
   onAvailable: () => { el.deviceSettingsBox.hidden = false; },
+  // A posture set from the sheet folds the same as one set from the button.
+  beforeWrite: (id, value) => (id === 'posture' ? fold.begin(value) : null),
   report,
   // The element itself, not a wrapper closure -- every module that shows a
   // toast takes the same shape (review round 3, finding 1: this used to

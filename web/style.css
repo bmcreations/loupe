@@ -74,6 +74,12 @@
   --device-bezel-lo: #232326;
   --device-bezel-rim: rgba(255, 255, 255, .18);
   --device-bezel-edge: rgba(255, 255, 255, .06);
+  /* The crease a half-open foldable is drawn with, over the video. */
+  --fold-crease-line: rgba(0, 0, 0, .34);
+  --fold-crease-glint: rgba(255, 255, 255, .16);
+  --fold-shade: rgba(0, 0, 0, .3);
+  --fold-shade-far: rgba(0, 0, 0, .1);
+  --fold-lift: rgba(255, 255, 255, .12);
   --overlay-handle: rgba(255, 255, 255, .45);
   --overlay-handle-edge: rgba(0, 0, 0, .35);
 
@@ -2797,33 +2803,39 @@ html.immersive .controlBanner { top: calc(env(safe-area-inset-top) + 28px + 8px)
   [data-agent="driving"] .screenWrap::after { animation: none; }
 }
 
-/* Fold motion (web/fold.js). The stream has nothing between postures, so
-   the page draws the fold itself. A flip hides the box and hands the picture
-   to .foldBook, two halves of the panel split at the hinge, one swinging
-   shut over the other; the box comes back once the other panel's picture
-   is in it. A tilt only leans the box. Input is off throughout, since the
-   canvas rect is not where the picture is. */
+/* Fold motion (web/fold.js). The stream has no fold in it, so the page
+   draws one. A flip hides the box and hands the picture to .foldBook, two
+   halves of the panel split at the hinge, one swinging shut over the other;
+   the box comes back once the other panel's picture is in it and lit. A
+   move to half open keeps the box and lays .foldSlab, its picture, over what
+   the stream does meanwhile. Input is off throughout, since the canvas rect
+   is not where the picture is. */
 .screenWrap.fold-away,
 .screenWrap.fold-back { pointer-events: none; }
 .screenWrap.fold-flip.fold-away { opacity: 0; }
-.screenWrap.fold-flip.fold-back { animation: foldShow 240ms ease-out; }
-.screenWrap.fold-tilt.fold-away { animation: var(--fold-away) 260ms ease-in forwards; }
-.screenWrap.fold-tilt.fold-back { animation: var(--fold-back) 320ms ease-out; }
-.screenWrap.fold-tilt[data-fold="closing"] { --fold-away: tiltAwayL; --fold-back: tiltBackL; }
-.screenWrap.fold-tilt[data-fold="opening"] { --fold-away: tiltAwayR; --fold-back: tiltBackR; }
-@keyframes tiltAwayL { to { transform: perspective(1400px) rotateY(28deg); } }
-@keyframes tiltAwayR { to { transform: perspective(1400px) rotateY(-28deg); } }
-@keyframes tiltBackL { from { transform: perspective(1400px) rotateY(28deg); } }
-@keyframes tiltBackR { from { transform: perspective(1400px) rotateY(-28deg); } }
-@keyframes foldShow { from { opacity: 0; } }
+/* With no hinge drawn (reduced motion, or nothing to draw on) the box dims
+   and lifts: still a change of state to see, and an animationend to clear
+   it. */
+.screenWrap.fold-dim.fold-away { opacity: 1; animation: foldDim 260ms ease-in forwards; }
+.screenWrap.fold-dim.fold-back { animation: foldLift 320ms ease-out; }
 @keyframes foldDim { to { opacity: .3; } }
 @keyframes foldLift { from { opacity: .3; } }
-/* Still a change of state to see, and still an animationend to clear it.
-   fold.js draws no book here, so the flip has to show something itself. */
+
+/* Half open at rest: a crease down the hinge, over the canvas (fold.js
+   places it). The left leaf falls into shadow toward the hinge and the
+   right one catches the light. */
+.foldCrease {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 420ms ease-out;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 1px), var(--fold-crease-line) 50%, var(--fold-crease-glint) calc(50% + 1px), transparent calc(50% + 2px)),
+    linear-gradient(90deg, transparent 0%, var(--fold-shade-far) 30%, var(--fold-shade) 50%, var(--fold-lift) 50%, transparent 100%);
+}
+.foldCrease.on { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
-  .screenWrap.fold-flip.fold-away { opacity: 1; animation: foldDim 260ms ease-in forwards; }
-  .screenWrap.fold-flip.fold-back { animation: foldLift 320ms ease-out; }
-  .screenWrap.fold-tilt { --fold-away: foldDim; --fold-back: foldLift; }
+  .foldCrease { transition: none; }
 }
 
 /* The book: placed over the panel's canvas rect by fold.js, which also
@@ -2871,7 +2883,11 @@ html.immersive .controlBanner { top: calc(env(safe-area-inset-top) + 28px + 8px)
   background: linear-gradient(135deg, var(--device-bezel-hi), var(--device-bezel-lo));
   box-shadow: inset 0 0 0 1px var(--device-bezel-rim);
 }
+/* With its picture on, the back is that picture alone: the shell showed
+   as a pale block behind the bezel art's clear corners. */
+.foldBook.framed .foldFace.back.pictured { background: transparent; box-shadow: none; border-radius: 0; }
 .foldSlab { border-radius: var(--r); }
+.foldSlab.framed { background: transparent; border-radius: 0; }
 .foldFace > canvas, .foldSlab > canvas { display: block; }
 .foldSlab > canvas { width: 100%; height: 100%; }
 .foldShade {
