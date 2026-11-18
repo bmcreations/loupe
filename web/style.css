@@ -67,6 +67,20 @@
   --text-subhead: 15px;
   --text-callout: 16px;
   --text-body: 17px;
+  /* Each size's line height and tracking, from the same iOS text styles.
+     Every rule that takes a size takes these two with it. */
+  --leading-caption2: 13px;
+  --leading-caption1: 16px;
+  --leading-footnote: 18px;
+  --leading-subhead: 20px;
+  --leading-callout: 21px;
+  --leading-body: 22px;
+  --tracking-caption2: .06px;
+  --tracking-caption1: 0px;
+  --tracking-footnote: -.08px;
+  --tracking-subhead: -.23px;
+  --tracking-callout: -.31px;
+  --tracking-body: -.43px;
 
   --device-screen: #000;
   --device-bezel: #0a0a0c;
@@ -105,6 +119,7 @@
   --fill-selected: rgba(10, 132, 255, .14);
   --menu-gap: rgba(40, 35, 25, .08);
   --menu-shadow: rgba(40, 35, 25, .18);
+  --panel-shadow: rgba(0, 0, 0, .35);
   --scrim: rgba(27, 26, 24, .30);
   /* The picker's device tiles. The same in both themes, as an app icon is. */
   --platform-android: #2e9d57;
@@ -133,6 +148,7 @@
     --fill-selected: rgba(10, 132, 255, .14);
     --menu-gap: rgba(0, 0, 0, .35);
     --menu-shadow: rgba(0, 0, 0, .45);
+    --panel-shadow: rgba(0, 0, 0, .35);
     --scrim: rgba(0, 0, 0, .50);
     --platform-android: #2e9d57;
     --platform-ios: #3a7bf0;
@@ -159,6 +175,7 @@
   --fill-selected: rgba(10, 132, 255, .14);
   --menu-gap: rgba(0, 0, 0, .35);
   --menu-shadow: rgba(0, 0, 0, .45);
+  --panel-shadow: rgba(0, 0, 0, .35);
   --scrim: rgba(0, 0, 0, .50);
   --platform-android: #2e9d57;
   --platform-ios: #3a7bf0;
@@ -183,7 +200,9 @@ html, body {
   overflow: hidden;
   background: var(--background-primary);
   color: var(--label-primary);
-  font: 13px/1.4 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  /* Footnote, the smallest style rows fall back to: 13/18, tracked as iOS does. */
+  font: 13px/1.3846 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  letter-spacing: var(--tracking-footnote);
   /* Stop Safari's rubber-band scroll from fighting drag gestures on the canvas. */
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
@@ -258,7 +277,7 @@ body {
   gap: 5px;
   color: var(--status-danger);
   font-variant-numeric: tabular-nums;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
 }
 .pillRec::after { content: ''; position: absolute; inset: -10px -6px; }
 .recDot {
@@ -292,7 +311,7 @@ body {
   flex: none;
   padding: 1px 6px;
   border-radius: 6px;
-  font-size: var(--text-caption2);
+  font-size: var(--text-caption2); line-height: var(--leading-caption2); letter-spacing: var(--tracking-caption2);
   font-weight: 600;
   color: var(--label-secondary);
   background: color-mix(in srgb, var(--label-secondary) 14%, transparent);
@@ -315,6 +334,9 @@ button {
   cursor: pointer;
   border-radius: 8px;
 }
+/* A control takes its text's tracking from where it sits: the browser's own
+   sheet resets letter-spacing on controls, and font: inherit leaves it out. */
+button, input, select, textarea { letter-spacing: inherit; }
 
 .ghost {
   background: transparent;
@@ -404,13 +426,13 @@ html.multi .pane.focused {
   gap: 8px;
   padding: 0 6px 0 10px;
   border-radius: 12px 12px 0 0;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   line-height: 1;
   white-space: nowrap;
 }
 .paneHeader.focused { background: color-mix(in srgb, var(--tint) 14%, transparent); }
 .paneBadge {
-  font-size: var(--text-caption2);
+  font-size: var(--text-caption2); line-height: var(--leading-caption2); letter-spacing: var(--tracking-caption2);
   font-variant-numeric: tabular-nums;
   padding: 3px 5px;
   border-radius: 5px;
@@ -429,7 +451,7 @@ html.multi .pane.focused {
   border-radius: 6px;
   background: transparent;
   color: inherit;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   cursor: pointer;
   opacity: .7;
 }
@@ -510,7 +532,7 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   background: var(--background-secondary);
   border: 1px solid var(--separator);
   color: var(--label-primary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   font-weight: 500;
   line-height: 1.3;
   white-space: nowrap;
@@ -532,9 +554,9 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   border: 1px solid var(--separator);
   border-radius: var(--radius);
   color: var(--label-primary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
 }
-.flagTitle { color: var(--status-danger); font-weight: 600; font-size: var(--text-body); }
+.flagTitle { color: var(--status-danger); font-weight: 600; font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body); }
 .flagNote {
   box-sizing: border-box;
   width: 100%;
@@ -546,10 +568,10 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   color: inherit;
   /* 16px keeps iOS from zooming the page when the field takes focus. */
   font: inherit;
-  font-size: var(--text-callout);
+  font-size: var(--text-callout); line-height: var(--leading-callout); letter-spacing: var(--tracking-callout);
 }
 .flagWatchRow { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.flagError { margin: 0; color: var(--status-danger); font-size: var(--text-caption1); }
+.flagError { margin: 0; color: var(--status-danger); font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1); }
 .flagActions { display: flex; align-items: center; gap: 12px; }
 .flagSpacer { flex: 1; }
 .flagBtn {
@@ -578,7 +600,7 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   border: 1px solid var(--separator);
   border-radius: 999px;
   color: var(--label-primary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -648,7 +670,7 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   border-radius: 4px 4px 0 0;
   background: var(--status-warning);
   color: var(--label-on-tint);
-  font-size: var(--text-caption2);
+  font-size: var(--text-caption2); line-height: var(--leading-caption2); letter-spacing: var(--tracking-caption2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -670,7 +692,7 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   border-radius: var(--radius);
   background: var(--material-chrome);
   color: var(--label-primary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   pointer-events: auto;
@@ -831,7 +853,7 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   border-radius: 6px;
   background: var(--material-chrome);
   color: var(--status-warning);
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   /* The notice itself is inert, but .inspectRefresh inside it is a real
      button (review MEDIUM-6) -- .inspectLayer's own pointer-events:auto
      only applies while it isn't hidden, and this element must not block
@@ -846,7 +868,7 @@ html.multi .pane .controlBanner { top: calc(var(--pane-header-h) + 8px); }
   border-radius: 4px;
   background: transparent;
   color: var(--status-warning);
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   cursor: pointer;
 }
 
@@ -891,7 +913,7 @@ html.inspecting #cornerMore { display: none; }
 }
 .inspectTitle {
   margin: 0;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   font-weight: 600;
   color: var(--label-primary);
 }
@@ -901,7 +923,7 @@ html.inspecting #cornerMore { display: none; }
   border: none;
   padding: 6px 0;
   color: var(--tint);
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
 }
 .inspectDone { justify-self: end; font-weight: 600; }
 
@@ -922,7 +944,7 @@ html.inspecting #cornerMore { display: none; }
   padding: 6px 0;
   background: transparent;
   color: var(--label-primary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   font-weight: 500;
 }
 .inspectTab[aria-selected="true"] { background: var(--background-secondary); font-weight: 600; }
@@ -944,13 +966,13 @@ html.inspecting #cornerMore { display: none; }
   padding: 4px 10px;
   background: transparent;
   color: var(--label-primary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
 }
 .inspectCompose[aria-pressed="true"] { background: var(--background-tertiary); font-weight: 600; }
 .inspectComposeError {
   margin: 0;
   color: var(--label-secondary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
 }
 .inspectComposeError[hidden] { display: none; }
 
@@ -972,7 +994,7 @@ html.inspecting #cornerMore { display: none; }
   min-height: 32px;
   padding: 0 16px 0 calc(8px + var(--depth, 0) * 14px);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   color: var(--label-primary);
   white-space: nowrap;
   cursor: pointer;
@@ -1006,7 +1028,7 @@ html.inspecting #cornerMore { display: none; }
   border-top: 1px solid var(--separator);
   background: var(--background-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   color: var(--label-primary);
 }
 .inspectDetailTop { display: flex; justify-content: space-between; gap: 8px; }
@@ -1022,7 +1044,7 @@ html.inspecting #cornerMore { display: none; }
   background: var(--background-tertiary);
   color: var(--tint);
   font-family: -apple-system, system-ui, sans-serif;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   font-weight: 600;
 }
 .inspectTapIt { background: var(--tint); color: var(--label-on-tint); }
@@ -1079,7 +1101,7 @@ html.inspecting #cornerMore { display: none; }
   margin: 8px 0 4px;
   text-align: center;
   color: var(--label-secondary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
 }
 .inspect3dSpacing {
   flex: none;
@@ -1088,7 +1110,7 @@ html.inspecting #cornerMore { display: none; }
   gap: 4px;
   padding: 0 20px;
   color: var(--label-secondary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
 }
 .inspect3dSliderLine { display: flex; align-items: center; gap: 12px; }
 .inspect3dSliderLine input { flex: 1; min-width: 0; accent-color: var(--tint); }
@@ -1102,14 +1124,14 @@ html.inspecting #cornerMore { display: none; }
   cursor: pointer;
 }
 
-.inspectHint { margin: 8px 0; color: var(--label-secondary); font-size: var(--text-footnote); }
+.inspectHint { margin: 8px 0; color: var(--label-secondary); font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote); }
 .inspectFacts {
   margin: 0;
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 3px 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
 }
 .inspectFacts dt { color: var(--label-secondary); }
 .inspectFacts dd { margin: 0; color: var(--label-primary); word-break: break-word; }
@@ -1140,18 +1162,18 @@ html.inspecting #cornerMore { display: none; }
   align-items: center;
   justify-content: center;
   font-weight: 600;
-  font-size: var(--text-subhead);
+  font-size: var(--text-subhead); line-height: var(--leading-subhead); letter-spacing: var(--tracking-subhead);
 }
 .appTitle {
   font-weight: 600;
-  font-size: var(--text-subhead);
+  font-size: var(--text-subhead); line-height: var(--leading-subhead); letter-spacing: var(--tracking-subhead);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .appSubtitle {
   color: var(--label-secondary);
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1159,7 +1181,7 @@ html.inspecting #cornerMore { display: none; }
 .appDetails > summary {
   cursor: pointer;
   color: var(--label-secondary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   padding: 4px 0;
 }
 .appDetails[open] > summary { margin-bottom: 6px; }
@@ -1256,7 +1278,7 @@ html.inspecting #cornerMore { display: none; }
   background: var(--background-primary);
   color: inherit;
   font: inherit;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
 }
 .settingSegment + .settingSegment { border-left: 1px solid var(--separator); }
 .settingSegment[aria-checked="true"] {
@@ -1270,7 +1292,12 @@ html.inspecting #cornerMore { display: none; }
 .settingSegment:disabled { opacity: .5; cursor: default; }
 /* The New device form's Platform control: the full width, with room to tap. */
 .settingSegments--wide { width: 100%; }
-.settingSegments--wide .settingSegment { flex: 1; padding: 10px 12px; font-size: var(--text-callout); }
+.settingSegments--wide .settingSegment { flex: 1; padding: 10px 12px; font-size: var(--text-callout); line-height: var(--leading-callout); letter-spacing: var(--tracking-callout); }
+/* New device's Platform control: a 44px rounded box with the chosen segment
+   inset in it, and no divider. */
+.settingSegments--platform { padding: 1px; border-radius: 10px; }
+.settingSegments--platform .settingSegment { padding: 9.5px 12px; border-radius: 8px; }
+.settingSegments--platform .settingSegment + .settingSegment { border-left: 0; }
 .settingRangeWrap {
   display: flex;
   align-items: center;
@@ -1465,8 +1492,8 @@ html.hand-right #cornerNav .foldMenu {
   background: var(--menu-gap);
   border-radius: 13px;
   box-shadow: 0 10px 40px var(--menu-shadow), 0 0 0 .5px var(--separator);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px);
+  backdrop-filter: blur(40px);
   pointer-events: auto;
   transform-origin: bottom right;
   animation: menu-open .32s cubic-bezier(.32, 1.25, .5, 1);
@@ -1485,7 +1512,7 @@ html.hand-right #cornerNav .foldMenu {
 .moreMenuGroup {
   display: flex;
   flex-direction: column;
-  background: var(--material-sheet);
+  background: var(--background-secondary);
 }
 .moreMenuGroup[hidden] { display: none; }
 #cornerNav .foldMenu { gap: 0; }
@@ -1514,7 +1541,7 @@ html.hand-right .moreMenu {
   border: 0;
   border-radius: 0;
   color: var(--label-primary);
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   text-align: left;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -1526,7 +1553,7 @@ html.hand-right .moreMenu {
 .moreMenuItem:active { background: var(--fill-pressed); }
 .moreMenuItem span { flex: 1; }
 .moreMenuItem svg {
-  width: 20px; height: 20px;
+  width: 18px; height: 18px;
   flex: none;
   fill: none;
   stroke: currentColor;
@@ -1609,7 +1636,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   .ovSpinner { animation: none; }
 }
 .overlay h1 {
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   font-weight: 600;
   color: var(--label-primary);
   margin: 0 0 6px;
@@ -1617,8 +1644,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .overlay p {
   margin: 0;
   color: var(--label-secondary);
-  font-size: var(--text-subhead);
-  line-height: 1.4;
+  font-size: var(--text-subhead); line-height: var(--leading-subhead); letter-spacing: var(--tracking-subhead);
 }
 .ovDetail {
   align-self: stretch;
@@ -1648,7 +1674,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border: 0;
   border-radius: 12px;
   font: inherit;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   font-weight: 600;
   background: var(--background-tertiary);
   color: var(--tint);
@@ -1690,13 +1716,13 @@ html.multi .pane .overlay .card { max-width: 100%; }
 }
 .actionSheet__title {
   margin: 0;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   font-weight: 600;
   color: var(--label-secondary);
 }
 .actionSheet__message {
   margin: 4px 0 0;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   color: var(--label-secondary);
 }
 .actionSheet__button {
@@ -1706,7 +1732,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border: 0;
   background: transparent;
   font: inherit;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   color: var(--tint);
   cursor: pointer;
 }
@@ -1759,7 +1785,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
 }
 .pickerTitle {
   margin: 0;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   font-weight: 600;
   color: var(--label-primary);
 }
@@ -1769,7 +1795,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border: none;
   padding: 6px 0;
   font: inherit;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   font-weight: 600;
   color: var(--tint);
 }
@@ -1784,9 +1810,11 @@ html.multi .pane .overlay .card { max-width: 100%; }
   padding: 8px 12px;
   color: var(--label-primary);
   font: inherit;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
 }
 .pickerSearch::placeholder { color: var(--label-secondary); }
+/* No ring: the picker focuses this field itself on open, and the caret shows it. */
+.pickerSearch:focus-visible { outline: none; }
 
 .pickerList {
   flex: 1;
@@ -1797,7 +1825,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .pickerGroup + .pickerGroup { margin-top: 22px; }
 .pickerGroupTitle {
   padding: 0 16px 6px;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   text-transform: uppercase;
   color: var(--label-secondary);
 }
@@ -1806,7 +1834,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   background: var(--background-secondary);
   overflow: hidden;
 }
-.pickerEmpty { padding: 16px; color: var(--label-secondary); font-size: var(--text-footnote); }
+.pickerEmpty { padding: 16px; color: var(--label-secondary); font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote); }
 
 .pickerRow {
   display: flex;
@@ -1817,7 +1845,11 @@ html.multi .pane .overlay .card { max-width: 100%; }
   box-sizing: border-box;
   background: transparent;
   border: none;
-  padding: 8px 16px;
+  /* 10 above and below body's 22 and footnote's 18 makes the 60px row. */
+  padding: 10px 16px;
+  /* Square: the group rounds its corners, and a rounded row lets the swipe
+     actions behind it show at each one. */
+  border-radius: 0;
   text-align: left;
   font: inherit;
   color: var(--label-primary);
@@ -1854,7 +1886,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   padding: 0 16px;
   min-width: 76px;
   font: inherit;
-  font-size: var(--text-subhead);
+  font-size: var(--text-subhead); line-height: var(--leading-subhead); letter-spacing: var(--tracking-subhead);
   color: var(--label-on-platform);
 }
 .pickerAction--shutdown { background: var(--platform-other); }
@@ -1885,10 +1917,13 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .pickerRow:not(:disabled):active,
 .pickerRow:not(:disabled):focus-visible { background: var(--fill-pressed); }
 .pickerRow:disabled { cursor: default; }
+/* Dimmed: a row that cannot open, and one that is shut down. The detail line
+   stays at full strength, since it is what says why. */
 .pickerRow:disabled .pickerTile,
 .pickerRow:disabled .pickerRowLabel,
-.pickerRow:disabled .pickerRowDetail,
-.pickerRow:disabled .pickerCheck { opacity: .45; }
+.pickerRow:disabled .pickerCheck,
+.pickerRow--off .pickerTile,
+.pickerRow--off .pickerRowLabel { opacity: .45; }
 
 /* White glyph on a platform-coloured tile. */
 .pickerTile {
@@ -1905,18 +1940,19 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .pickerTile--ios { background: var(--platform-ios); }
 .pickerTile--other { background: var(--platform-other); }
 
-.pickerRowMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pickerRowMain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pickerRowMain > .pickerRowAgent { margin-top: 2px; }
 .pickerRowLabel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
 }
 .pickerRowDetail {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   color: var(--label-secondary);
 }
 .pickerRowDetail--live { color: var(--status-success); }
@@ -1941,7 +1977,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   color: var(--label-secondary);
 }
 .pickerRow:disabled .pickerRowServer { opacity: .45; }
@@ -1958,12 +1994,12 @@ html.multi .pane .overlay .card { max-width: 100%; }
   background: var(--background-secondary);
   color: var(--label-primary);
   font: inherit;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
 }
 .pickerChip[aria-checked="true"] { background: var(--tint); color: var(--label-on-tint); }
 .pickerRowAgent {
   display: block;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   color: var(--label-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1973,10 +2009,16 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .pickerRowAgent--claimed { color: var(--label-secondary); }
 .pickerRowAgent--waiting { color: var(--status-warning, var(--status-danger)); }
 .pickerRowAgent--handsoff { color: var(--status-warning, var(--status-danger)); }
+/* The session link reads as the claimed row's last line: no hairline above
+   it, and the row gives up its bottom padding to it. */
+.pickerGroupRows > .pickerAgentLink::before { content: none; }
+.pickerRow:has(+ .pickerAgentLink),
+.pickerSwipe:has(+ .pickerAgentLink) > .pickerRow,
+.pickerRowWrap:has(+ .pickerAgentLink) > .pickerRow { padding-bottom: 2px; }
 .pickerAgentLink {
   display: block;
-  padding: 0 16px 8px 64px;
-  font-size: var(--text-caption1);
+  padding: 0 16px 10px 64px;
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   color: var(--tint);
 }
 
@@ -2019,9 +2061,9 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .pickerCancel { justify-self: start; font-weight: 400; }
 .pickerFootnote {
   margin: 0;
-  padding: 8px 32px 24px;
+  padding: 8px 16px 24px;
   color: var(--label-secondary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
 }
 
 /* How to connect a phone and Switch server (helpsheets.js). */
@@ -2036,8 +2078,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .helpStepBody {
   margin: 4px 0 0;
   color: var(--label-secondary);
-  font-size: var(--text-subhead);
-  line-height: 1.4;
+  font-size: var(--text-subhead); line-height: var(--leading-subhead); letter-spacing: var(--tracking-subhead);
 }
 .helpStepBody code, .pickerFootnote code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -2059,13 +2100,14 @@ html.multi .pane .overlay .card { max-width: 100%; }
   background: var(--background-secondary);
   color: var(--label-primary);
   font: inherit;
-  font-size: var(--text-callout); /* 16px or more, or iOS zooms the page on focus */
+  font-size: var(--text-callout); line-height: var(--leading-callout); letter-spacing: var(--tracking-callout); /* 16px or more, or iOS zooms the page on focus */
 }
-.switchError { margin: 0; padding: 0 16px; color: var(--status-danger); font-size: var(--text-footnote); }
+.switchInput::placeholder { color: var(--label-secondary); }
+.switchError { margin: 0; padding: 0 16px; color: var(--status-danger); font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote); }
 .switchError[hidden] { display: none; }
-.serverWarning { margin: 0; padding: 0 16px; color: var(--status-warning); font-size: var(--text-footnote); }
+.serverWarning { margin: 0; padding: 0 16px; color: var(--status-warning); font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote); }
 .serverWarning[hidden] { display: none; }
-.serverConfirm { margin: 0; padding: 0 16px; font-size: var(--text-footnote); }
+.serverConfirm { margin: 0; padding: 0 16px; font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote); }
 .serverConfirm p { margin: 0 0 6px; }
 .serverConfirm[hidden] { display: none; }
 .serverFingerprint { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; user-select: all; }
@@ -2083,7 +2125,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   background: none;
   color: var(--status-danger);
   font: inherit;
-  font-size: var(--text-callout);
+  font-size: var(--text-callout); line-height: var(--leading-callout); letter-spacing: var(--tracking-callout);
 }
 .serverRemove:disabled { opacity: .5; }
 #serverListGroup { margin-bottom: 22px; }
@@ -2091,7 +2133,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
 /* An open pane's index, as its ⌘ shortcut (node 59:178's OPEN group). */
 .pickerBadge {
   flex: none;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   font-weight: 600;
   color: var(--label-secondary);
   font-variant-numeric: tabular-nums;
@@ -2112,7 +2154,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   background: linear-gradient(var(--fill-pressed), var(--fill-pressed)), var(--background-secondary);
   color: var(--tint);
   font: inherit;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   font-weight: 600;
   line-height: 1.3;
   opacity: 0;
@@ -2122,7 +2164,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .pickerBeside:focus-visible { opacity: 1; pointer-events: auto; }
 .pickerCheck {
   flex: none;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   font-weight: 600;
   color: var(--tint);
 }
@@ -2201,12 +2243,12 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border: none;
   padding: 6px 0;
   color: var(--tint);
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
 }
-.sheetBack::before { content: '\2039\00a0'; font-size: var(--text-body); }
+.sheetBack::before { content: '\2039\00a0'; font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body); }
 .sheetPageTitle {
   margin: 0;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   font-weight: 600;
 }
 .sheetPageContent {
@@ -2220,6 +2262,10 @@ html.multi .pane .overlay .card { max-width: 100%; }
 
 /* A page made of groups (Connection) is the groups' background, not a card
    around them: each .sheetSection brings its own card and margins. */
+/* A page of check rows (Max size): the rows touch, 54px each, so each
+   hairline sits on its row's edge. */
+.sheetPageContent:has(> .sheetCheckRow) { gap: 0; padding: 8px 16px 4px; }
+
 .sheetPageContent.grouped {
   margin: 0;
   padding: 0;
@@ -2228,13 +2274,15 @@ html.multi .pane .overlay .card { max-width: 100%; }
 }
 
 .sheetSection { margin: 0 12px 22px; }
+/* A footnote already sets its group apart, so the gap below it is shorter. */
+.sheetSection:has(.sheetSectionFooter) { margin-bottom: 18px; }
 
 /* Group label above the card, iOS's footnote caps. Not a button: groups no
    longer collapse. */
 .sheetSectionHeader {
   margin: 0;
   padding: 0 16px 6px;
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   font-weight: 400;
   text-transform: uppercase;
   color: var(--label-secondary);
@@ -2250,7 +2298,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
      ran 44px past a docked panel at 900px. */
   grid-template-columns: minmax(0, 1fr);
   /* Row labels are iOS body, the size the Stream group's links use. */
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
 }
 .sheetSectionContent:empty { display: none; }
 /* Rows sit 44px tall with a hairline between them, inset to the text. */
@@ -2261,6 +2309,8 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .sheetSectionContent > :first-child { border-top: none; }
 .sheetSectionContent > .sheetRows,
 .sheetSectionContent > div:not([class]) { padding: 10px 0; }
+/* The first value sits 8 under the card's edge; the last keeps its 10. */
+.sheetSectionContent > .sheetRows { padding-top: 8px; }
 
 .sheetLinkRow {
   display: flex;
@@ -2272,26 +2322,27 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border-top: 1px solid var(--separator);
   padding: 0;
   text-align: left;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   color: var(--label-primary);
 }
 .sheetLinkRow:active { background: var(--fill-pressed); }
 .sheetLinkLabel { flex: 1; }
 .sheetLinkDetail { color: var(--label-secondary); }
-.sheetLinkRow::after { content: '\203a'; color: var(--label-secondary); font-size: var(--text-body); }
+.sheetLinkRow::after { content: '\203a'; color: var(--label-secondary); font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body); }
 
 .sheetCheckRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 44px;
+  min-height: 54px;
   background: transparent;
   border: none;
   border-top: 1px solid var(--separator);
+  border-radius: 0;
   padding: 0;
   text-align: left;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   color: var(--label-primary);
 }
 .sheetCheckRow:first-of-type { border-top: none; }
@@ -2302,8 +2353,8 @@ html.multi .pane .overlay .card { max-width: 100%; }
 
 .sheetSectionFooter {
   margin: 0;
-  padding: 6px 16px 0;
-  font-size: var(--text-footnote);
+  padding: 4px 16px 0;
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
   color: var(--label-secondary);
 }
 
@@ -2321,7 +2372,8 @@ html.multi .pane .overlay .card { max-width: 100%; }
      gives the column an explicit zero minimum, so it is the value's own
      wrapping (see .appRows below) that has to make room, not the grid. */
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px 10px;
+  /* 7.5 with body's 22 line makes the 29.5 row pitch. */
+  gap: 7.5px 10px;
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -2355,7 +2407,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .appRows--stacked dd {
   margin-bottom: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
 }
 
 .logList {
@@ -2369,7 +2421,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   grid-template-columns: auto 1fr auto;
   gap: 8px;
   padding: 4px 0;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   border-bottom: 1px solid var(--separator);
 }
 .logTime { color: var(--label-secondary); }
@@ -2380,7 +2432,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   display: block;
   color: var(--label-secondary);
   font-style: italic;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   padding: 4px 0;
   border-bottom: 1px solid var(--separator);
 }
@@ -2391,10 +2443,10 @@ html.multi .pane .overlay .card { max-width: 100%; }
   margin: 0 8px 8px 0;
   background: var(--background-secondary);
   color: var(--label-primary);
-  font-size: var(--text-callout);
+  font-size: var(--text-callout); line-height: var(--leading-callout); letter-spacing: var(--tracking-callout);
 }
 .sheetAction:active { opacity: 0.6; }
-.sheetNote { margin: 0 0 8px; color: var(--label-secondary); font-size: var(--text-footnote); }
+.sheetNote { margin: 0 0 8px; color: var(--label-secondary); font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote); }
 /* Camera feed: a front/back segmented selector above the start/stop action. */
 .camFacing { display: flex; margin-bottom: 8px; }
 .camFacingBtn { margin: 0; border-radius: 0; }
@@ -2410,7 +2462,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   padding: 4px 10px;
   background: transparent;
   color: var(--label-primary);
-  font-size: var(--text-footnote);
+  font-size: var(--text-footnote); line-height: var(--leading-footnote); letter-spacing: var(--tracking-footnote);
 }
 .logcatText {
   margin: 0;
@@ -2420,7 +2472,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--label-primary);
 }
-.logEmpty { color: var(--label-secondary); font-size: var(--text-caption1); }
+.logEmpty { color: var(--label-secondary); font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1); }
 .logBadge {
   display: inline-block;
   margin: 0;
@@ -2428,7 +2480,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border-radius: 999px;
   background: var(--separator);
   color: var(--label-secondary);
-  font-size: var(--text-caption2);
+  font-size: var(--text-caption2); line-height: var(--leading-caption2); letter-spacing: var(--tracking-caption2);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2491,7 +2543,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border: 1px solid var(--separator);
   border-radius: 8px;
   padding: 8px 14px;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
 }
 .toast[hidden] { display: none; }
 
@@ -2517,7 +2569,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border-radius: 8px;
   padding: 0 14px;
   font: inherit;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
 }
 /* record.js: the finished recording, in .clipOffer's place and shape, one
    layer above it. The message, then Share and Save. */
@@ -2538,7 +2590,7 @@ html.multi .pane .overlay .card { max-width: 100%; }
   border: 1px solid var(--separator);
   border-radius: 8px;
   padding: 0 14px;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
 }
 .recMsg {
   min-width: 0;
@@ -2708,7 +2760,7 @@ html.immersive .controlBanner { top: calc(env(safe-area-inset-top) + 28px + 8px)
   padding: 0;
   border: 0;
   opacity: 0;
-  font-size: var(--text-callout);
+  font-size: var(--text-callout); line-height: var(--leading-callout); letter-spacing: var(--tracking-callout);
   resize: none;
   caret-color: transparent;
   pointer-events: none;
@@ -2737,7 +2789,7 @@ html.immersive .controlBanner { top: calc(env(safe-area-inset-top) + 28px + 8px)
   border: 1px solid var(--separator);
   border-radius: 999px;
   padding: 0 12px;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
 }
 .controlBanner[hidden] { display: none; }
 .controlText {
@@ -2756,7 +2808,7 @@ html.immersive .controlBanner { top: calc(env(safe-area-inset-top) + 28px + 8px)
   margin: -8px -6px;
   color: var(--tint);
   font-weight: 600;
-  font-size: var(--text-caption1);
+  font-size: var(--text-caption1); line-height: var(--leading-caption1); letter-spacing: var(--tracking-caption1);
   line-height: inherit;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -2928,7 +2980,7 @@ html.immersive .controlBanner { top: calc(env(safe-area-inset-top) + 28px + 8px)
   background: var(--background-secondary);
   color: var(--label-primary);
   font: inherit;
-  font-size: var(--text-subhead);
+  font-size: var(--text-subhead); line-height: var(--leading-subhead); letter-spacing: var(--tracking-subhead);
 }
 .stripKey:active { background: var(--fill-pressed); }
 .stripKey[data-key="done"] { font-weight: 600; color: var(--tint); }
@@ -2960,36 +3012,43 @@ html.docked.right-collapsed:not(.inspecting) { --panel-r: 0px; }
 html.docked.left-collapsed .drawer,
 html.docked.right-collapsed .sheet { display: none; }
 
+/* Each panel is a card floating over the stage (node 176:286): 12px in from
+   the viewport's edge, 8px under the bar, chrome material with a border all
+   round and a shadow. The stage keeps --panel-w, so the card may reach 12px
+   into the stage's own padding at the narrowest docked width. */
 html.docked .sheet,
 html.docked .drawer,
 html.docked .inspectSheet {
-  top: calc(var(--bar-h) + env(safe-area-inset-top));
-  bottom: 0;
-  width: var(--panel-w);
+  top: calc(var(--bar-h) + 8px + env(safe-area-inset-top));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  width: min(340px, var(--panel-w));
   max-width: none;
   max-height: none;
   /* !important because sheet.js writes the detent height inline. */
   height: auto !important;
   margin: 0;
-  border-top: 1px solid var(--separator);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-top: 8px;
+  border: 1px solid var(--separator);
+  border-radius: 24px;
+  background: var(--material-chrome);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 16px 48px var(--panel-shadow);
   transform: none !important;
 }
 html.docked .sheet,
 html.docked .inspectSheet {
-  right: 0;
+  right: calc(12px + env(safe-area-inset-right));
   left: auto;
-  border-left: 1px solid var(--separator);
-  border-right: 0;
-  border-radius: 0;
 }
 html.docked .drawer {
-  left: 0;
+  left: calc(12px + env(safe-area-inset-left));
   right: auto;
-  border-right: 1px solid var(--separator);
-  border-left: 0;
-  border-radius: 0;
 }
+/* A sheet over the picker takes the picker's place. Both are translucent, so
+   the picker would otherwise show through the one on top of it. */
+html.docked #drawer:has(~ .drawer--over:not([hidden])) { visibility: hidden; }
 html.docked .sheetHandle,
 html.docked .pickerTop .grabber,
 html.docked .pickerDone { display: none; }
@@ -3092,7 +3151,7 @@ html.docked .sheetRootTitle {
   margin: 0;
   padding: 0 16px 8px;
   text-align: center;
-  font-size: var(--text-body);
+  font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: var(--tracking-body);
   font-weight: 600;
 }
 html.docked .sheetBody { padding: 0 0 calc(12px + env(safe-area-inset-bottom)); }
@@ -3145,7 +3204,8 @@ html.zoomed #stage { touch-action: none; }
   border-radius: 22px;
   background: var(--material-sheet);
   color: var(--label-primary);
-  font: 600 var(--text-callout, 16px) system-ui, sans-serif;
+  font: 600 var(--text-callout, 16px)/var(--leading-callout) system-ui, sans-serif;
+  letter-spacing: var(--tracking-callout);
   font-variant-numeric: tabular-nums;
   box-shadow: 0 2px 10px var(--menu-shadow);
   cursor: pointer;

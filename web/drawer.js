@@ -210,7 +210,10 @@ export function rowModel(t, currentId, fps) {
   const saved = disabled ? '' : startSavedLine(t);
   if (saved) parts.push(saved);
 
-  return { id: t.id, label: t.label, icon, tile, detail: parts.join(' · '), tone, current, disabled, progress, ...(t.server ? { server: String(t.server) } : {}), actions: rowActions(t).concat(agentActions(t)), ...agentLine(t) };
+  // off is a device that is shut down and boots when opened: it opens, so it
+  // is not disabled, but it draws dimmed as one that is not there yet.
+  const off = !disabled && !!t.bootsOnOpen && t.state !== 'creating';
+  return { id: t.id, label: t.label, icon, tile, detail: parts.join(' · '), tone, current, disabled, ...(off ? { off } : {}), progress, ...(t.server ? { server: String(t.server) } : {}), actions: rowActions(t).concat(agentActions(t)), ...agentLine(t) };
 }
 
 // agentLine is the row's second status line, about agents: {agent, agentTone,
@@ -353,7 +356,7 @@ export function rowHTML(row, { paneKey = '⌃' } = {}) {
   // VoiceOver has no other route to a gesture-only action.
   const hint = actions.length ? ' aria-description="Swipe left for actions"' : '';
   const button = `
-    <button type="button" class="pickerRow" data-id="${escapeHTML(row.id)}" role="option"
+    <button type="button" class="pickerRow${row.off ? ' pickerRow--off' : ''}" data-id="${escapeHTML(row.id)}" role="option"
       aria-selected="${String(!!row.current)}"${hint} ${disabledAttrs}>
       <span class="pickerTile pickerTile--${escapeHTML(row.tile || 'other')}" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
