@@ -524,7 +524,7 @@ func TestRevylRESTFallsBackToTheCLI(t *testing.T) {
 		}
 	})
 
-	t.Run("5xx falls back for a tap but not for text", func(t *testing.T) {
+	t.Run("5xx is reported, not retried through the CLI", func(t *testing.T) {
 		f := newFakeRevyl(t)
 		p := newFakeProxy(t)
 		p.set(func(string) (int, string) { return http.StatusBadGateway, `bad gateway` }, nil)
@@ -534,8 +534,8 @@ func TestRevylRESTFallsBackToTheCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 		recs := g.log.wait(t, 2)
-		if calls := f.calls(); len(calls) != 1 || calls[0][1] != "tap" {
-			t.Fatalf("CLI calls %q, want the tap alone", calls)
+		if calls := f.calls(); len(calls) != 0 {
+			t.Fatalf("CLI calls %q, want none", calls)
 		}
 		if n := len(p.requests()); n != 2 {
 			t.Fatalf("%d proxy requests, want 2", n)
@@ -636,8 +636,8 @@ func TestRevylRESTFallbackRules(t *testing.T) {
 		{"tap", 404, true, true},
 		{"tap", 426, true, true},
 		{"input", 426, true, true},
-		{"tap", 500, true, true},
-		{"key", 503, true, true},
+		{"tap", 500, true, false},
+		{"key", 503, true, false},
 		{"input", 502, true, false},
 		{"input", 504, true, false},
 		{"tap", 400, true, false},

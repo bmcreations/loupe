@@ -347,11 +347,8 @@ for `revyl device tap`. The device's own part was about 6 ms.
   sent, or the backend refused it with 401, 403, 404 or 426. After a 426 the
   stream stops trying the proxy; after a 401 or 403 it stops until the key
   changes.
-- After a 5xx the CLI sends the gesture once more, except text. A gateway
-  can answer 5xx after the device has acted, so a tap retried then can land
-  twice, and typing twice would repeat the text.
-- A gesture is not resent after a timeout or a dropped connection once the
-  request went out, or when the device answers `success: false`. The device
+- A gesture is not resent after a 5xx, a timeout or a dropped connection
+  once the request went out, or when the device answers `success: false`. The device
   may already have acted, and a tap sent twice lands twice.
 - The trace has one `input` record per gesture: the gesture, `via` (`rest`
   or `cli`), `ms`, and why the proxy was skipped or failed. The key, the URL

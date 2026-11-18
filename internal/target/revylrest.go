@@ -138,14 +138,12 @@ func (e *revylRESTError) Error() string { return "revyl " + e.action + " over RE
 
 // fallback reports whether the CLI may send the same action after this
 // failure. It may when Revyl did not act on the request: it never left,
-// or the backend refused it with 401, 403, 404 or 426. It may also after
-// a 5xx, except for input. A gateway can answer 5xx after the device got
-// the request, so a tap retried then can land twice; the CLI never
-// retries input at all (internal/api/client.go:6364 proxyNoRetryActions,
-// internal/mcp/device_session.go:3729 nonIdempotentPaths).
+// or the backend refused it with 401, 403, 404 or 426.
 //
-// Every other failure is reported, not retried. After a timeout or a
-// dropped connection the device may already have acted.
+// Every other failure is reported, not retried, a 5xx included: the
+// proxy can answer 5xx after the device acted, and a second tap or Back
+// does more harm than a lost one. After a timeout or a dropped
+// connection the device may already have acted too.
 func (e *revylRESTError) fallback() bool {
 	switch {
 	case e.status == 0:
@@ -153,8 +151,6 @@ func (e *revylRESTError) fallback() bool {
 	case e.status == http.StatusUnauthorized, e.status == http.StatusForbidden,
 		e.status == http.StatusNotFound, e.status == http.StatusUpgradeRequired:
 		return true
-	case e.status >= 500:
-		return e.action != "input"
 	}
 	return false
 }
