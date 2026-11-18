@@ -573,7 +573,7 @@ export function mount(root, { fetchImpl = fetch, onCreated, onResolved, onClose,
     const platforms = platformsOf(opts);
     parts.push('<div class="pickerGroup"><div class="pickerGroupTitle">Platform</div>');
     if (platforms.length > 1) {
-      parts.push(`<div class="settingSegments settingSegments--wide" role="radiogroup" aria-label="Platform" id="newDevicePlatform">${platforms.map((p) =>
+      parts.push(`<div class="settingSegments settingSegments--wide settingSegments--platform" role="radiogroup" aria-label="Platform" id="newDevicePlatform">${platforms.map((p) =>
         `<button type="button" class="settingSegment" role="radio" data-platform="${escapeHTML(p.id)}" aria-checked="${p.id === sel.platform ? 'true' : 'false'}"${creating ? ' disabled' : ''}>${escapeHTML(p.label || p.id)}</button>`).join('')}</div>`);
     } else {
       parts.push(`<div class="pickerGroupRows"><div class="pickerRow"><span class="pickerRowLabel">${escapeHTML(platform ? (platform.label || platform.id) : '')}</span></div></div>`);

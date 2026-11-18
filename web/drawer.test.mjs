@@ -153,6 +153,13 @@ test('rowHTML leaves a row with no actions bare', () => {
   assert.ok(!html.includes('pickerSwipe') && !html.includes('data-act'));
 });
 
+test('rowHTML marks a shut-down row off without disabling it', () => {
+  const off = rowHTML({ id: 'avd:a', label: 'a', icon: 'phone', tile: 'android', off: true });
+  assert.match(off, /class="pickerRow pickerRow--off"/);
+  assert.ok(!off.includes('disabled'));
+  assert.ok(!rowHTML({ id: 'avd:a', label: 'a', icon: 'phone', tile: 'android' }).includes('pickerRow--off'));
+});
+
 test('shouldDefer holds a refresh under a finger or an open row', () => {
   assert.equal(shouldDefer({ pointerDown: true }), true);
   assert.equal(shouldDefer({ openId: 'avd:a' }), true);

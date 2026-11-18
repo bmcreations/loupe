@@ -617,13 +617,21 @@ async function onPickerAction(id, action) {
     return;
   }
   if (action === 'delete') {
+    // The sheet names the device without the kind its label ends in, and
+    // offers shutting down in place of deleting while there is something
+    // running to shut down (node 153:1025).
     const running = !!t && !t.bootsOnOpen;
+    const noun = id.startsWith('sim:') ? 'simulator' : 'emulator';
+    const actions = [{ id: 'delete', label: 'Delete', destructive: true }];
+    if (running) actions.push({ id: 'shutdown', label: 'Shut down' });
     const answer = await ask({
-      title: `Delete ${label}?`,
-      message: running ? 'It is running and shuts down first. This cannot be undone.' : 'This cannot be undone.',
-      actions: [{ id: 'delete', label: 'Delete', destructive: true }],
+      title: `Delete ${label.replace(/ \((?:emulator|simulator)\)$/, '')}?`,
+      message: `This removes the ${noun} and its data.`,
+      actions,
     });
-    if (answer !== 'delete') {
+    if (answer === 'shutdown') {
+      action = 'shutdown';
+    } else if (answer !== 'delete') {
       report({ event: 'picker-delete', kind: t && t.kind, target: id, outcome: 'cancelled' });
       return;
     }
