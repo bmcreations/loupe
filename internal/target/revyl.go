@@ -27,8 +27,9 @@ const KindRevyl Kind = "revyl"
 
 // The shapes and flags below are read from revyl-cli v0.2.18
 // (github.com/RevylAI/revyl-cli, tag v0.2.18, commit 381c4fcf). Paths in the
-// comments are into that tree. None of it is checked against a live
-// account yet.
+// comments are into that tree. The device-proxy input in revylrest.go, the
+// workflow_run_id it needs from `device start` and `device info`, and
+// `device tap` were checked against a live account on 2026-11-18.
 
 // RevylCLI runs the revyl binary.
 type RevylCLI struct {
@@ -100,7 +101,11 @@ func revylVerb(args []string) string {
 // --json` print it: mcp.DeviceSession, internal/mcp/device_session.go:107.
 // Only the fields loupe reads are kept.
 type RevylSession struct {
-	SessionID     string `json:"session_id"`
+	SessionID string `json:"session_id"`
+	// WorkflowRunID names the session to Revyl's device proxy
+	// (internal/mcp/device_session.go:123), which input goes through. It
+	// is not the session ID.
+	WorkflowRunID string `json:"workflow_run_id"`
 	WorkerBaseURL string `json:"worker_base_url"`
 	ViewerURL     string `json:"viewer_url"`
 	// WHEPURL is the raw WebRTC playback URL. It is absent until the device
@@ -272,6 +277,12 @@ type RevylTarget struct {
 	// WHEPHeader is sent with the WHEP offer. Revyl does not document
 	// whether its whep_url needs one; nil sends none.
 	WHEPHeader http.Header
+	// REST sends input over Revyl's device proxy. Nil sends every gesture
+	// through the CLI.
+	REST *RevylREST
+	// Trace gets one record per gesture: which way it went and how long it
+	// took. Nil drops them.
+	Trace func(map[string]any)
 
 	settings *webrtc.SettingEngine // tests: loopback candidates
 	poll     time.Duration         // tests: how often Open re-reads info
@@ -316,7 +327,18 @@ func (t *RevylTarget) Open(ctx context.Context, _ Options) (Stream, error) {
 	}
 	// t.Session is not updated: listing reads it from other goroutines, and
 	// the stream keeps s itself.
-	return &revylStream{whepReceiver: rcv, in: newRevylInput(t.CLI, s)}, nil
+	return &revylStream{whepReceiver: rcv, in: newRevylInput(t.CLI, t.REST, s, t.inputTrace())}, nil
+}
+
+func (t *RevylTarget) inputTrace() func(map[string]any) {
+	if t.Trace == nil {
+		return nil
+	}
+	id := t.ID()
+	return func(rec map[string]any) {
+		rec["target"] = id
+		t.Trace(rec)
+	}
 }
 
 // readySession re-reads the session until it has a WHEP URL. A device
@@ -346,7 +368,7 @@ func (t *RevylTarget) readySession(ctx context.Context) (RevylSession, error) {
 	}
 }
 
-// revylStream is a WHEP video stream with Revyl CLI gestures for input.
+// revylStream is a WHEP video stream with Revyl gestures for input.
 type revylStream struct {
 	*whepReceiver
 	in *revylInput
@@ -367,9 +389,8 @@ const (
 	keycodeDel   = 67
 )
 
-// revylTextEnv carries typed text to the CLI in the environment, so it is
-// never in argv where ps shows it: `device type --text-env`
-// (cmd/revyl/device.go:3960, internal/mcp/device_tools.go:1539).
+// revylTextEnv carries typed text to the CLI in the environment (see
+// revylJob.argv).
 const revylTextEnv = "LOUPE_REVYL_TEXT"
 
 // Gesture thresholds, in stream pixels and time. A press that moves less
@@ -387,20 +408,29 @@ const (
 // drag shows on the device only after the finger lifts. Only the first
 // pointer is tracked; a second finger is ignored.
 //
-// Each gesture is one CLI process and a network round trip, so commands go
-// to one worker that runs them in order, and the input methods return at
-// once instead of holding up the viewer that sent them.
+// Each gesture is a network round trip, so gestures queue for one worker
+// that sends them one at a time, in order, and the input methods return at
+// once instead of holding up the viewer that sent them. The worker sends
+// over the device proxy when it can and through the CLI otherwise.
 type revylInput struct {
 	cli      RevylCLI
+	rest     *RevylREST // nil: the CLI sends everything
+	runID    string     // the session's workflow_run_id; "" leaves REST out
 	session  string
 	platform string
 	screenW  int // device units; 0 when Revyl did not say
 	screenH  int
-	jobs     chan revylJob
-	done     chan struct{}
+	trace    func(map[string]any)
+	ctx      context.Context // cancelled at close, ending the gesture in flight
+	cancel   context.CancelFunc
+	wake     chan struct{}
 	stopped  chan struct{}
 	once     sync.Once
 	now      func() time.Time
+
+	qmu    sync.Mutex // after mu when both are held
+	queue  []*revylJob
+	closed bool
 
 	mu      sync.Mutex
 	press   *revylPress
@@ -408,6 +438,13 @@ type revylInput struct {
 	tapY    int
 	haveTap bool
 	lastErr error
+
+	// Set by the worker alone. A 426 turns REST off for the stream, since
+	// Revyl will refuse every request the same way. A 401 or 403 does for
+	// as long as the key is the one refused.
+	restOff     bool
+	refusedKey  [32]byte
+	haveRefused bool
 }
 
 type revylPress struct {
@@ -417,16 +454,80 @@ type revylPress struct {
 	at     time.Time
 }
 
+// revylJob is one gesture. It holds what the gesture is rather than a
+// request, so the device proxy and the CLI fallback send the same thing.
 type revylJob struct {
-	env  []string
-	args []string
+	// action is the device-proxy action: tap, drag, longpress, go_home,
+	// back, key or input.
+	action string
+	x, y   int
+	x1, y1 int    // drag's end
+	ms     int    // longpress's hold
+	key    string // ENTER or BACKSPACE
+	text   string // input's text; never in argv, an error or the trace
 }
 
-func newRevylInput(cli RevylCLI, s RevylSession) *revylInput {
+// body is the device-proxy request body, as the CLI's MCP tools build it
+// (internal/mcp/device_tools.go): tap :1440, longpress :1509, input :1590,
+// drag :1690, and key in internal/mcp/device_web_actions.go:84. go_home
+// (:2554) and back (:1854) send none.
+func (j *revylJob) body() any {
+	switch j.action {
+	case "tap":
+		return map[string]int{"x": j.x, "y": j.y}
+	case "drag":
+		return map[string]int{"start_x": j.x, "start_y": j.y, "end_x": j.x1, "end_y": j.y1}
+	case "longpress":
+		return map[string]int{"x": j.x, "y": j.y, "duration_ms": j.ms}
+	case "key":
+		return map[string]string{"key": j.key}
+	case "input":
+		// clear_first is always sent: the worker's default is true, which
+		// would wipe the field on every burst of typing.
+		return struct {
+			X          int    `json:"x"`
+			Y          int    `json:"y"`
+			Text       string `json:"text"`
+			ClearFirst bool   `json:"clear_first"`
+		}{j.x, j.y, j.text, false}
+	}
+	return nil
+}
+
+// argv is the same gesture as a CLI command, without --session-id. Typed
+// text goes in the environment, so it is never in argv where ps shows it:
+// `device type --text-env` (cmd/revyl/device.go:3960,
+// internal/mcp/device_tools.go:1539). `device type` needs a point to focus
+// first (cmd/revyl/device.go:1824), and its --clear-first defaults to true.
+func (j *revylJob) argv() (env, args []string) {
+	x, y := strconv.Itoa(j.x), strconv.Itoa(j.y)
+	switch j.action {
+	case "tap":
+		return nil, []string{"device", "tap", "--x", x, "--y", y}
+	case "drag":
+		return nil, []string{"device", "drag", "--start-x", x, "--start-y", y,
+			"--end-x", strconv.Itoa(j.x1), "--end-y", strconv.Itoa(j.y1)}
+	case "longpress":
+		return nil, []string{"device", "long-press", "--x", x, "--y", y, "--duration", strconv.Itoa(j.ms)}
+	case "go_home":
+		return nil, []string{"device", "home"}
+	case "back":
+		return nil, []string{"device", "back"}
+	case "key":
+		return nil, []string{"device", "key", "--key", j.key}
+	case "input":
+		return []string{revylTextEnv + "=" + j.text},
+			[]string{"device", "type", "--text-env", revylTextEnv, "--clear-first=false", "--x", x, "--y", y}
+	}
+	return nil, nil
+}
+
+func newRevylInput(cli RevylCLI, rest *RevylREST, s RevylSession, trace func(map[string]any)) *revylInput {
+	ctx, cancel := context.WithCancel(context.Background())
 	in := &revylInput{
-		cli: cli, session: s.SessionID, platform: s.Platform,
-		screenW: s.ScreenWidth, screenH: s.ScreenHeight,
-		jobs: make(chan revylJob, revylQueue), done: make(chan struct{}), stopped: make(chan struct{}),
+		cli: cli, rest: rest, runID: s.WorkflowRunID, session: s.SessionID, platform: s.Platform,
+		screenW: s.ScreenWidth, screenH: s.ScreenHeight, trace: trace,
+		ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), stopped: make(chan struct{}),
 		now: time.Now,
 	}
 	go in.work()
@@ -436,36 +537,155 @@ func newRevylInput(cli RevylCLI, s RevylSession) *revylInput {
 func (in *revylInput) work() {
 	defer close(in.stopped)
 	for {
-		select {
-		case <-in.done:
+		j := in.next()
+		if j == nil {
 			return
-		case j := <-in.jobs:
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_, err := in.cli.Run(ctx, j.env, j.args...)
-			cancel()
-			in.mu.Lock()
-			in.lastErr = err
-			in.mu.Unlock()
+		}
+		in.run(j)
+	}
+}
+
+// next takes the oldest gesture, waiting for one. It returns nil once the
+// input is closed.
+func (in *revylInput) next() *revylJob {
+	for {
+		in.qmu.Lock()
+		if in.closed {
+			in.qmu.Unlock()
+			return nil
+		}
+		if len(in.queue) > 0 {
+			j := in.queue[0]
+			in.queue[0] = nil
+			in.queue = in.queue[1:]
+			in.qmu.Unlock()
+			return j
+		}
+		in.qmu.Unlock()
+		select {
+		case <-in.wake:
+		case <-in.ctx.Done():
+			return nil
 		}
 	}
 }
 
+// run sends one gesture and records how it went.
+func (in *revylInput) run(j *revylJob) {
+	rec := map[string]any{"action": "input", "gesture": j.action}
+	done, err := in.sendREST(j, rec)
+	if !done {
+		env, args := j.argv()
+		t0 := time.Now()
+		ctx, cancel := context.WithTimeout(in.ctx, 30*time.Second)
+		_, err = in.cli.Run(ctx, env, append(args, "--session-id", in.session)...)
+		cancel()
+		rec["via"], rec["ms"] = "cli", time.Since(t0).Milliseconds()
+	}
+	if err != nil {
+		err = revylHideText(err, j.text)
+		rec["error"] = err.Error()
+	}
+	in.mu.Lock()
+	in.lastErr = err
+	in.mu.Unlock()
+	if in.trace != nil {
+		in.trace(rec)
+	}
+}
+
+// sendREST sends j over the device proxy. done is false when the CLI
+// should send it instead: the proxy is not set up for this session, or the
+// request failed in a way that shows Revyl did not act on it.
+func (in *revylInput) sendREST(j *revylJob, rec map[string]any) (done bool, err error) {
+	if in.rest == nil || in.runID == "" {
+		return false, nil
+	}
+	key := in.rest.key()
+	switch {
+	case key == "":
+		rec["rest"] = "no key"
+		return false, nil
+	case in.restOff:
+		rec["rest"] = "refused earlier"
+		return false, nil
+	case in.haveRefused && in.refusedKey == revylKeyID(key):
+		rec["rest"] = "key refused earlier"
+		return false, nil
+	}
+	t0 := time.Now()
+	res, err := in.rest.do(in.ctx, key, in.runID, j.action, j.body())
+	ms := time.Since(t0).Milliseconds()
+	if err == nil {
+		rec["via"], rec["ms"] = "rest", ms
+		if res.DeviceMs > 0 {
+			rec["deviceMs"] = res.DeviceMs
+		}
+		return true, nil
+	}
+	var re *revylRESTError
+	if in.ctx.Err() == nil && errors.As(err, &re) && re.fallback() {
+		rec["restError"], rec["restMs"] = revylHideText(err, j.text).Error(), ms
+		switch re.status {
+		case http.StatusUpgradeRequired:
+			in.restOff = true
+		case http.StatusUnauthorized, http.StatusForbidden:
+			in.refusedKey, in.haveRefused = revylKeyID(key), true
+		}
+		return false, nil
+	}
+	rec["via"], rec["ms"] = "rest", ms
+	return true, err
+}
+
+// revylHideText keeps typed text out of an error that might echo it.
+// Text this short is left alone: replacing it would garble the message
+// more than repeating it reveals.
+func revylHideText(err error, text string) error {
+	if len(text) < 4 || !strings.Contains(err.Error(), text) {
+		return err
+	}
+	return errors.New(strings.ReplaceAll(err.Error(), text, "<text>"))
+}
+
 func (in *revylInput) close() {
-	in.once.Do(func() { close(in.done) })
+	in.once.Do(func() {
+		in.qmu.Lock()
+		in.closed, in.queue = true, nil
+		in.qmu.Unlock()
+		in.cancel()
+	})
 	<-in.stopped
 }
 
-// enqueue queues a command against this session.
-func (in *revylInput) enqueue(env []string, args ...string) error {
-	args = append(args, "--session-id", in.session)
-	select {
-	case in.jobs <- revylJob{env: env, args: args}:
-		return nil
-	case <-in.done:
+// enqueue queues a gesture against this session. Typing joins text still
+// waiting at the same point, so a burst of keystrokes is one input call.
+// Text is never refused for a full queue: a dropped character is a wrong
+// word nobody is told about, while a dropped tap is visible. Past the
+// limit nothing else is queued, so later text joins the last job and the
+// queue grows by one at most.
+func (in *revylInput) enqueue(j *revylJob) error {
+	in.qmu.Lock()
+	defer in.qmu.Unlock()
+	if in.closed {
 		return errors.New("revyl: stream closed")
-	default:
+	}
+	if j.action == "input" {
+		if n := len(in.queue); n > 0 {
+			if t := in.queue[n-1]; t.action == "input" && t.x == j.x && t.y == j.y {
+				t.text += j.text
+				return nil
+			}
+		}
+	} else if len(in.queue) >= revylQueue {
 		return errors.New("revyl: input queue full; the device is answering slowly")
 	}
+	in.queue = append(in.queue, j)
+	select {
+	case in.wake <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // errRevylNoPoints is returned for iOS input when Revyl reported no screen
@@ -539,46 +759,41 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 		if err != nil {
 			return err
 		}
-		return in.enqueue(nil, "device", "drag",
-			"--start-x", strconv.Itoa(x0), "--start-y", strconv.Itoa(y0),
-			"--end-x", strconv.Itoa(x1), "--end-y", strconv.Itoa(y1))
+		return in.enqueue(&revylJob{action: "drag", x: x0, y: y0, x1: x1, y1: y1})
 	}
 	in.tapX, in.tapY, in.haveTap = x0, y0, true
 	if held := in.now().Sub(p.at); held >= revylLongPress {
-		return in.enqueue(nil, "device", "long-press",
-			"--x", strconv.Itoa(x0), "--y", strconv.Itoa(y0),
-			"--duration", strconv.Itoa(int(held/time.Millisecond)))
+		return in.enqueue(&revylJob{action: "longpress", x: x0, y: y0, ms: int(held / time.Millisecond)})
 	}
-	return in.enqueue(nil, "device", "tap", "--x", strconv.Itoa(x0), "--y", strconv.Itoa(y0))
+	return in.enqueue(&revylJob{action: "tap", x: x0, y: y0})
 }
 
 // key sends a key on its down event; the up is ignored, since Revyl takes
-// a whole press. Phones take ENTER and BACKSPACE only (cmd/revyl/device.go,
-// deviceKeyCmd --key), and back is Android's.
+// a whole press. Phones take the keys ENTER and BACKSPACE only
+// (internal/mcp/device_web_actions.go:15 ParseDeviceKey, the same names
+// on Android and iOS), and back is Android's.
 func (in *revylInput) key(k Key) error {
 	if k.Action != KeyDown {
 		return nil
 	}
 	switch k.Keycode {
 	case KeycodeHome:
-		return in.enqueue(nil, "device", "home")
+		return in.enqueue(&revylJob{action: "go_home"})
 	case KeycodeBack:
 		if in.platform != "android" {
 			return ErrNoControl
 		}
-		return in.enqueue(nil, "device", "back")
+		return in.enqueue(&revylJob{action: "back"})
 	case keycodeEnter:
-		return in.enqueue(nil, "device", "key", "--key", "ENTER")
+		return in.enqueue(&revylJob{action: "key", key: "ENTER"})
 	case keycodeDel:
-		return in.enqueue(nil, "device", "key", "--key", "BACKSPACE")
+		return in.enqueue(&revylJob{action: "key", key: "BACKSPACE"})
 	}
 	return ErrNoControl
 }
 
-// text types at the last tap. `device type` needs a point or an element
-// description to focus first (cmd/revyl/device.go:1824), and the last tap
-// is the field the user picked. --clear-first defaults to true, which would
-// wipe the field on every burst of typing.
+// text types at the last tap, the field the user picked: Revyl types at a
+// point.
 func (in *revylInput) text(s string) error {
 	if s == "" {
 		return nil
@@ -589,9 +804,7 @@ func (in *revylInput) text(s string) error {
 	if !ok {
 		return errors.New("revyl: tap a text field first; Revyl types at a point")
 	}
-	return in.enqueue([]string{revylTextEnv + "=" + s}, "device", "type",
-		"--text-env", revylTextEnv, "--clear-first=false",
-		"--x", strconv.Itoa(x), "--y", strconv.Itoa(y))
+	return in.enqueue(&revylJob{action: "input", x: x, y: y, text: s})
 }
 
 // Err returns the last gesture's error, for tests and diagnostics.

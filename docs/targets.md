@@ -247,10 +247,13 @@ With no targets at all, the picker shows New device and How to connect a phone.
 
 A cloud Android emulator or iOS simulator on the user's own Revyl
 (revyl.com) account is a target with the id `revyl:<sessionId>` and kind
-`revyl`. loupe drives it through Revyl's `revyl` CLI, never its REST API.
-The flags and `--json` shapes come from revyl-cli v0.2.18 (commit
-`381c4fcf`). None of this has run against a live account; it is tested
-against a fake CLI and a local WHEP server.
+`revyl`. loupe drives it through Revyl's `revyl` CLI, except input, which
+goes over the device-proxy endpoint the CLI itself uses (see
+[Input](#input)). The flags and `--json` shapes come from revyl-cli v0.2.18
+(commit `381c4fcf`). It is all tested against a fake CLI, a fake device
+proxy and a local WHEP server. On 2026-11-18 the device-proxy input,
+`revyl device tap`, and the `workflow_run_id` that `device start` and
+`device info` report were checked against a live account.
 
 ### CLI and account
 
@@ -265,8 +268,11 @@ against a fake CLI and a local WHEP server.
   or `REVYL_API_KEY` is in loupe's environment. `POST /api/revyl/account`
   runs the login and answers with its approval URL and code once the CLI
   prints them. The CLI also opens the URL in the Mac's browser, and has no
-  flag to stop it. loupe never reads the key, and the URL and code stay out
-  of the trace.
+  flag to stop it. The URL and code stay out of the trace.
+- loupe reads the key for input over the device proxy: `REVYL_API_KEY`
+  first, else `api_key` in `~/.revyl/credentials.json`, read again for every
+  gesture so a new sign-in needs no restart. The key stays out of errors,
+  the trace and every API response.
 - Every run sets `REVYL_TELEMETRY_DISABLED=1` and `REVYL_NO_UPDATE_NOTIFIER=1`,
   and runs in `~/Library/Application Support/loupe/revyl`, so a project's
   `.revyl/config.yaml` in loupe's start directory is not read.
@@ -305,9 +311,8 @@ unknown.
 Revyl takes whole gestures, not touch events.
 
 - A press is buffered from down to up and sent when the finger lifts: a tap,
-  a long-press when held 500 ms or more, otherwise `revyl device drag` from
-  where it started to where it ended. A drag shows on the device only after
-  the lift.
+  a long-press when held 500 ms or more, otherwise a drag from where it
+  started to where it ended. A drag shows on the device only after the lift.
 - Only the first finger is tracked. Multi-touch, pinch, scroll and live drag
   tracking are not supported.
 - Android takes pixels and iOS points. Stream pixels are scaled by the
@@ -315,10 +320,44 @@ Revyl takes whole gestures, not touch events.
   no size refuses input rather than guess the scale.
 - Keys: Home, Back (Android only), Enter and Backspace. Revyl's phones take
   no other key.
-- Text goes through `revyl device type` at the last tap, so tap the field
-  first. It does not clear the field.
-- Gestures run one at a time in order, each a CLI process and a round trip
-  to Revyl, so input lags the finger by at least that.
+- Text is typed at the last tap, so tap the field first. It does not clear
+  the field.
+- Gestures go one at a time, in order, each a round trip to Revyl, so input
+  lags the finger by at least that. The input methods return at once. Up to
+  32 gestures wait, and past that a gesture is refused, but text never is:
+  typing that waits at the same point joins into one call, so a burst of
+  keystrokes is one request.
+
+Each gesture is a `POST` to
+`https://backend.revyl.ai/api/v1/execution/device-proxy/<workflow_run_id>/<action>`
+(revyl-cli `internal/api/client.go:6438`), with the session's
+`workflow_run_id` from `revyl device info`. Revyl does not document this
+endpoint. The actions are `tap`, `drag`, `longpress`, `go_home`, `back`,
+`key` (`ENTER` or `BACKSPACE`) and `input`, with the bodies the CLI's MCP
+tools send. On 2026-11-18, against revyl-cli v0.2.18, a tap took a median of
+500 to 640 ms over one kept-alive HTTPS connection, against 860 to 1100 ms
+for `revyl device tap`. The device's own part was about 6 ms.
+
+- The request sends `Authorization: Bearer <key>` and `User-Agent:
+  loupe/<version>`. A request that claimed to be the CLI, with
+  `X-Revyl-Client: cli` and no CLI version, was refused with 426
+  `cli_upgrade_required`.
+- The CLI sends the gesture instead when there is no key or no
+  `workflow_run_id`, or when Revyl did not act on the request: it was never
+  sent, or the backend refused it with 401, 403, 404 or 426. After a 426 the
+  stream stops trying the proxy; after a 401 or 403 it stops until the key
+  changes.
+- After a 5xx the CLI sends the gesture once more, except text. A gateway
+  can answer 5xx after the device has acted, so a tap retried then can land
+  twice, and typing twice would repeat the text.
+- A gesture is not resent after a timeout or a dropped connection once the
+  request went out, or when the device answers `success: false`. The device
+  may already have acted, and a tap sent twice lands twice.
+- The trace has one `input` record per gesture: the gesture, `via` (`rest`
+  or `cli`), `ms`, and why the proxy was skipped or failed. The key, the URL
+  and typed text stay out of it.
+- The proxy URL is fixed. The CLI's own overrides, such as
+  `REVYL_BACKEND_URL`, move the CLI fallback but not the proxy.
 
 ### What it does not do
 

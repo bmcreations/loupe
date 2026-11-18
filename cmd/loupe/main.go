@@ -174,6 +174,10 @@ func (a *avdList) Set(v string) error { *a = append(*a, v); return nil }
 // build says dev.
 var version = "dev"
 
+// loupeVersion is version, for main, where the scrcpy server's version
+// takes the name.
+func loupeVersion() string { return version }
+
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "-version" || os.Args[1] == "--version") {
 		fmt.Println(version)
@@ -741,6 +745,7 @@ func main() {
 	revylDevs := httpapi.NewRevylDevices(func() string { return target.FindRevylCLI(*revylCLI) }, target.RevylWorkDir(),
 		mgr.Register, mgr.UnregisterAs, tracer.Record)
 	revylDevs.SetInstaller(httpapi.NewRevylInstaller(target.PrivateRevylCLI()))
+	revylDevs.SetREST(target.NewRevylREST(loupeVersion()))
 	api.SetRevylDevices(revylDevs)
 	go revylDevs.Watch(ctx)
 	// New device… from installed images. It does not depend on device

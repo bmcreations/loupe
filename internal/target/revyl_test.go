@@ -188,7 +188,7 @@ func (c *fixedClock) now() time.Time { return c.t }
 
 func gestures(t *testing.T, f *fakeRevyl, platform string, screenW, screenH int) (*revylInput, *fixedClock) {
 	t.Helper()
-	in := newRevylInput(f.cli, RevylSession{SessionID: testSession, Platform: platform, ScreenWidth: screenW, ScreenHeight: screenH})
+	in := newRevylInput(f.cli, nil, RevylSession{SessionID: testSession, Platform: platform, ScreenWidth: screenW, ScreenHeight: screenH}, nil)
 	t.Cleanup(in.close)
 	clk := &fixedClock{t: time.Unix(1_700_000_000, 0)}
 	in.now = clk.now

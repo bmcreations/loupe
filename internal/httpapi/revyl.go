@@ -18,9 +18,9 @@ import (
 )
 
 // Revyl cloud devices: a session started through the user's own revyl CLI
-// and account becomes a target.RevylTarget. Nothing here has run against a
-// live Revyl account; the CLI's shapes are read from revyl-cli v0.2.18 (see
-// internal/target/revyl.go).
+// and account becomes a target.RevylTarget. The CLI's shapes are read from
+// revyl-cli v0.2.18; internal/target/revyl.go says which were checked
+// against a live account.
 
 const (
 	revylStarting = "starting"
@@ -162,6 +162,10 @@ type RevylDevices struct {
 	installer  *RevylInstaller
 	installing bool
 	installErr string
+
+	// rest sends targets' input over Revyl's device proxy; nil leaves it
+	// to the CLI. Set before Watch, read by newTarget.
+	rest *target.RevylREST
 }
 
 type revylLogin struct {
@@ -174,11 +178,12 @@ type revylLogin struct {
 // installed later needs no restart. dir is where the CLI runs
 // (target.RevylWorkDir).
 func NewRevylDevices(find func() string, dir string, register func(target.Target), unregister func(id, reason string), trace func(map[string]any)) *RevylDevices {
-	return &RevylDevices{find: find, dir: dir, register: register, unregister: unregister, trace: trace,
-		listGrace: revylListGrace, stopped: map[string]time.Time{},
-		newTarget: func(cli target.RevylCLI, s target.RevylSession, model, os string) target.Target {
-			return &target.RevylTarget{CLI: cli, Session: s, Model: model, OSVersion: os}
-		}}
+	r := &RevylDevices{find: find, dir: dir, register: register, unregister: unregister, trace: trace,
+		listGrace: revylListGrace, stopped: map[string]time.Time{}}
+	r.newTarget = func(cli target.RevylCLI, s target.RevylSession, model, os string) target.Target {
+		return &target.RevylTarget{CLI: cli, Session: s, Model: model, OSVersion: os, REST: r.rest, Trace: r.record}
+	}
+	return r
 }
 
 // SetRevylDevices enables /api/revyl*. Without it those routes answer 404.
@@ -186,6 +191,11 @@ func (s *Server) SetRevylDevices(r *RevylDevices) { s.revyl = r }
 
 // SetInstaller lets POST /api/revyl/cli download the CLI.
 func (r *RevylDevices) SetInstaller(in *RevylInstaller) { r.installer = in }
+
+// SetREST sends targets' gestures over Revyl's device proxy, with the CLI
+// as the fallback. Without it every gesture is a CLI process. Call it
+// before Watch.
+func (r *RevylDevices) SetREST(rest *target.RevylREST) { r.rest = rest }
 
 func (r *RevylDevices) cli() (target.RevylCLI, bool) {
 	path := ""
