@@ -120,10 +120,9 @@ type RemoteDevices struct {
 	creating sync.WaitGroup
 	// signingIn is true while `android auth login` waits on the browser.
 	signingIn bool
-	// installer installs the CLI on request; nil means it cannot.
-	installer  *CLIInstaller
-	installing bool
-	installErr string
+	// tools installs the CLI on request, sharing one install at a time with
+	// /api/android/cli; nil means it cannot.
+	tools *AndroidTools
 }
 
 // NewRemoteDevices takes the CLI lookup, not a path: the CLI may be installed
@@ -141,6 +140,11 @@ var errNoCLI = errors.New("the android CLI is not installed")
 func (r *RemoteDevices) Installed() bool {
 	return r.run != nil || (r.find != nil && r.find() != "")
 }
+
+// SetAndroidTools lets POST /api/remote/cli install the CLI. Without it the
+// route answers 501. Pass the Server's own, so the two routes share one
+// install.
+func (r *RemoteDevices) SetAndroidTools(t *AndroidTools) { r.tools = t }
 
 // SetRemoteDevices enables /api/remote. Nil leaves its routes answering 404.
 func (s *Server) SetRemoteDevices(r *RemoteDevices) { s.remote = r }
@@ -798,9 +802,9 @@ type RemoteAccountResponse struct {
 
 func (r *RemoteDevices) account(ctx context.Context) RemoteAccountResponse {
 	r.mu.Lock()
-	acct := RemoteAccountResponse{SigningIn: r.signingIn, Projects: []string{},
-		CanInstallCLI: r.installer != nil, CLIInstalling: r.installing, CLIInstallError: r.installErr}
+	acct := RemoteAccountResponse{SigningIn: r.signingIn, Projects: []string{}, CanInstallCLI: r.tools.canInstallCLI()}
 	r.mu.Unlock()
+	acct.CLIInstalling, acct.CLIInstallError = r.tools.cliState()
 	if acct.CLIInstalled = r.Installed(); !acct.CLIInstalled {
 		return acct
 	}

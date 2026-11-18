@@ -75,45 +75,104 @@ type CreateAVDResponse struct {
 // case with underscores. Anything else never reaches exec.
 var validProfile = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
-// AVDCreator runs `android emulator create <profile>` in the background and
-// reports it as a target row until it ends. Only one runs at a time.
-type AVDCreator struct {
-	cli     string
-	sdk     string
-	avdHome string
-	// registered is called with every installed AVD after a creation ends,
+// AVDCreatorConfig says where an AVDCreator finds the CLI and its AVDs.
+// FindCLI, SDK and CLIAVDHome run on every request, so a CLI or SDK installed
+// while loupe runs needs no restart.
+type AVDCreatorConfig struct {
+	// FindCLI locates the android CLI. "" means it is not installed, and
+	// /api/avds answers 404.
+	FindCLI func() string
+	// SDK is the SDK root passed as --sdk. Nil or "" lets the CLI choose,
+	// which is ~/Library/Android/sdk on a Mac with none.
+	SDK func() string
+	// AVDHome is where loupe reads AVDs. CLIAVDHome, when set, is where the
+	// CLI writes them; it ignores ANDROID_AVD_HOME, so when the two differ a
+	// created AVD would never appear, and /api/avds answers 404 saying so.
+	AVDHome    string
+	CLIAVDHome func() string
+	// Registered is called with every installed AVD after a creation ends,
 	// and when that scan began, so the new one becomes a target without a
 	// restart. It must skip names already registered, and names Unregister
 	// forgot after the scan began (Manager.RegisterScanned).
-	registered func(scannedAt time.Time, installed []target.AVD)
-	trace      func(map[string]any)
+	Registered func(scannedAt time.Time, installed []target.AVD)
+	Trace      func(map[string]any)
+}
 
-	// run executes the CLI; tests replace it.
+// AVDCreator runs `android emulator create <profile>` in the background and
+// reports it as a target row until it ends. Only one runs at a time.
+type AVDCreator struct {
+	cfg AVDCreatorConfig
+
+	// run, when set, executes the CLI in place of the one FindCLI found;
+	// tests set it.
 	run func(ctx context.Context, args ...string) (stdout, stderr []byte, err error)
 
 	slot *createSlot
 
-	mu       sync.Mutex
-	profiles []string
+	mu sync.Mutex
+	// profiles is the last successful listing, and profilesFrom the CLI
+	// that gave it. A failed listing is never kept.
+	profiles     []string
+	profilesFrom string
 }
 
-// NewAVDCreator returns a creator for the CLI at cli, or nil when cli is ""
-// and there is nothing to run.
-func NewAVDCreator(cli, sdk, avdHome string, registered func(time.Time, []target.AVD), trace func(map[string]any)) *AVDCreator {
-	if cli == "" {
+// NewAVDCreator returns a creator, or nil when cfg.FindCLI is nil and there
+// is nothing to look up.
+func NewAVDCreator(cfg AVDCreatorConfig) *AVDCreator {
+	if cfg.FindCLI == nil {
 		return nil
 	}
-	return &AVDCreator{cli: cli, sdk: sdk, avdHome: avdHome, registered: registered, trace: trace, slot: &createSlot{}}
+	return &AVDCreator{cfg: cfg, slot: &createSlot{}}
 }
 
-// SetAVDCreator enables /api/avds. Nil leaves both routes answering 404. The
-// creator shares its one-at-a-time slot with the DeviceCreator, whichever is
-// set first.
+// errNoAndroidCLI is the 404 of /api/avds while no CLI is found.
+const errNoAndroidCLI = "creating devices needs the android CLI, which this server did not find"
+
+// offered is the CLI to run, or "" and why /api/avds answers 404. It is
+// asked on every request.
+func (c *AVDCreator) offered() (cli, why string) {
+	if c == nil {
+		return "", errNoAndroidCLI
+	}
+	cli = c.cfg.FindCLI()
+	if cli == "" {
+		return "", errNoAndroidCLI
+	}
+	if c.cfg.CLIAVDHome != nil {
+		if home := c.cfg.CLIAVDHome(); filepath.Clean(home) != filepath.Clean(c.cfg.AVDHome) {
+			return "", AVDHomeMismatch(c.cfg.AVDHome, home)
+		}
+	}
+	return cli, ""
+}
+
+// AVDHomeMismatch says why the CLI's profiles are not offered when AVDs are
+// read from avdHome and the CLI creates them in cliHome.
+func AVDHomeMismatch(avdHome, cliHome string) string {
+	return fmt.Sprintf("not offering the android CLI's New device profiles: AVDs are read from %s and the android CLI creates them in %s", avdHome, cliHome)
+}
+
+// SetAVDCreator enables /api/avds. Nil leaves both routes answering 404, as
+// does a creator whose CLI is not found. The creator shares its one-at-a-time
+// slot with the DeviceCreator, whichever is set first.
 func (s *Server) SetAVDCreator(c *AVDCreator) {
 	s.avds = c
 	if c != nil {
 		c.slot = s.sharedSlot(c.slot)
 	}
+}
+
+// available reports whether /api/avds is offered right now.
+func (c *AVDCreator) available() bool {
+	cli, _ := c.offered()
+	return cli != ""
+}
+
+func (c *AVDCreator) exec(ctx context.Context, cli string, args ...string) ([]byte, []byte, error) {
+	if c.run != nil {
+		return c.run(ctx, args...)
+	}
+	return runCLI(ctx, cli, args...)
 }
 
 func runCLI(ctx context.Context, cli string, args ...string) ([]byte, []byte, error) {
@@ -124,25 +183,20 @@ func runCLI(ctx context.Context, cli string, args ...string) ([]byte, []byte, er
 	return out.Bytes(), errb.Bytes(), err
 }
 
-func (c *AVDCreator) exec(ctx context.Context, args ...string) ([]byte, []byte, error) {
-	if c.run != nil {
-		return c.run(ctx, args...)
-	}
-	return runCLI(ctx, c.cli, args...)
-}
-
 // listProfiles asks the CLI once per process: the list ships with the CLI,
-// and asking takes about 0.4s.
-func (c *AVDCreator) listProfiles(ctx context.Context) ([]string, error) {
+// and asking takes about 0.4s. Only a listing that named profiles is kept,
+// and only for the CLI that gave it, so a failure, or a CLI installed or
+// moved since, asks again.
+func (c *AVDCreator) listProfiles(ctx context.Context, cli string) ([]string, error) {
 	c.mu.Lock()
-	cached := c.profiles
+	cached, from := c.profiles, c.profilesFrom
 	c.mu.Unlock()
-	if cached != nil {
+	if cached != nil && from == cli {
 		return cached, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, stderr, err := c.exec(ctx, "emulator", "create", "--list-profiles")
+	out, stderr, err := c.exec(ctx, cli, "emulator", "create", "--list-profiles")
 	if err != nil {
 		return nil, fmt.Errorf("android emulator create --list-profiles: %v: %s", err, strings.TrimSpace(string(stderr)))
 	}
@@ -157,13 +211,13 @@ func (c *AVDCreator) listProfiles(ctx context.Context) ([]string, error) {
 		return nil, errors.New("android emulator create --list-profiles listed nothing")
 	}
 	c.mu.Lock()
-	c.profiles = names
+	c.profiles, c.profilesFrom = names, cli
 	c.mu.Unlock()
 	return names, nil
 }
 
 func (c *AVDCreator) avdExists(name string) bool {
-	_, err := os.Stat(filepath.Join(c.avdHome, name+".avd", "config.ini"))
+	_, err := os.Stat(filepath.Join(c.cfg.AVDHome, name+".avd", "config.ini"))
 	return err == nil
 }
 
@@ -181,8 +235,8 @@ func profileLabel(name string) string {
 
 var errCreating = errors.New("a device is already being created")
 
-// start begins a creation, or says why it cannot.
-func (c *AVDCreator) start(profile string) error {
+// start begins a creation with the CLI at cli, or says why it cannot.
+func (c *AVDCreator) start(cli, profile string) error {
 	job := &createJob{
 		id: "avd:" + profile, label: profileLabel(profile), platform: "android", name: profile,
 		started:  time.Now(),
@@ -191,30 +245,19 @@ func (c *AVDCreator) start(profile string) error {
 	if err := c.slot.begin(job); err != nil {
 		return err
 	}
-	go c.create(job)
+	go c.create(job, cli)
 	return nil
 }
 
 // create runs the CLI and settles the job. The verdict is the AVD's
 // config.ini appearing with no "Error:" line, never the exit status: the CLI
 // exits 0 after "Error: AVD small_phone already exists".
-func (c *AVDCreator) create(job *createJob) {
+func (c *AVDCreator) create(job *createJob, cli string) {
 	ctx, cancel := context.WithTimeout(context.Background(), createTimeout)
 	defer cancel()
-	// --sdk is one of the CLI's own options, so it goes before the command.
-	var args []string
-	if c.sdk != "" {
-		args = append(args, "--sdk="+c.sdk)
-	}
-	args = append(args, "emulator", "create", job.name)
-	out, stderr, runErr := c.exec(ctx, args...)
-	var failure string
-	for _, line := range strings.Split(string(out)+"\n"+string(stderr), "\n") {
-		if l := strings.TrimSpace(line); strings.HasPrefix(l, "Error:") {
-			failure = strings.TrimSpace(strings.TrimPrefix(l, "Error:"))
-			break
-		}
-	}
+	args := append(sdkArgs(c.cfg.SDK), "emulator", "create", job.name)
+	out, stderr, runErr := c.exec(ctx, cli, args...)
+	failure := cliErrorLine(out, stderr)
 	if failure == "" && !c.avdExists(job.name) {
 		failure = strings.TrimSpace(string(stderr))
 		if failure == "" && runErr != nil {
@@ -226,11 +269,11 @@ func (c *AVDCreator) create(job *createJob) {
 	}
 	if failure == "" {
 		scannedAt := time.Now()
-		installed, err := target.ScanAVDs(c.avdHome)
+		installed, err := target.ScanAVDs(c.cfg.AVDHome)
 		if err != nil {
 			failure = "listing AVDs: " + err.Error()
-		} else if c.registered != nil {
-			c.registered(scannedAt, installed)
+		} else if c.cfg.Registered != nil {
+			c.cfg.Registered(scannedAt, installed)
 		}
 	}
 	took := time.Since(job.started)
@@ -244,9 +287,32 @@ func (c *AVDCreator) create(job *createJob) {
 	if failure != "" {
 		rec["error"] = failure
 	}
-	if c.trace != nil {
-		c.trace(rec)
+	if c.cfg.Trace != nil {
+		c.cfg.Trace(rec)
 	}
+}
+
+// sdkArgs is --sdk=<root> when sdk names one. It is one of the CLI's own
+// options, so it goes before the command.
+func sdkArgs(sdk func() string) []string {
+	if sdk == nil {
+		return nil
+	}
+	if root := sdk(); root != "" {
+		return []string{"--sdk=" + root}
+	}
+	return nil
+}
+
+// cliErrorLine is the text of the CLI's first "Error:" line, or "". The CLI
+// can exit 0 after one, so this is read before the exit status.
+func cliErrorLine(out, stderr []byte) string {
+	for _, line := range strings.Split(string(out)+"\n"+string(stderr), "\n") {
+		if l := strings.TrimSpace(line); strings.HasPrefix(l, "Error:") {
+			return strings.TrimSpace(strings.TrimPrefix(l, "Error:"))
+		}
+	}
+	return ""
 }
 
 // downloadAfter is how long a create runs without its .avd before the row
@@ -276,11 +342,12 @@ func roundElapsed(d time.Duration) string {
 }
 
 func (s *Server) handleAVDProfiles(w http.ResponseWriter, r *http.Request) {
-	if s.avds == nil {
-		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "creating devices needs the android CLI, which this server did not find"})
+	cli, why := s.avds.offered()
+	if cli == "" {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: why})
 		return
 	}
-	names, err := s.avds.listProfiles(r.Context())
+	names, err := s.avds.listProfiles(r.Context(), cli)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 		return
@@ -296,8 +363,9 @@ func (s *Server) handleAVDProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateAVD(w http.ResponseWriter, r *http.Request) {
-	if s.avds == nil {
-		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "creating devices needs the android CLI, which this server did not find"})
+	cli, why := s.avds.offered()
+	if cli == "" {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: why})
 		return
 	}
 	var req CreateAVDRequest
@@ -305,7 +373,7 @@ func (s *Server) handleCreateAVD(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "body must be {\"profile\": ...}"})
 		return
 	}
-	names, err := s.avds.listProfiles(r.Context())
+	names, err := s.avds.listProfiles(r.Context(), cli)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 		return
@@ -322,7 +390,7 @@ func (s *Server) handleCreateAVD(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, ErrorResponse{Error: "an AVD named " + req.Profile + " already exists", Code: ErrCodeAVDExists})
 		return
 	}
-	if err := s.avds.start(req.Profile); err != nil {
+	if err := s.avds.start(cli, req.Profile); err != nil {
 		writeJSON(w, http.StatusConflict, ErrorResponse{Error: err.Error(), Code: ErrCodeCreating})
 		return
 	}

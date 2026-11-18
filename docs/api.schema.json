@@ -51,6 +51,9 @@
     "ErrorResponse": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
+    "GET /api/android/cli": {
+      "$ref": "#/$defs/httpapi.AndroidCLIResponse"
+    },
     "GET /api/app": {
       "$ref": "#/$defs/target.App"
     },
@@ -182,6 +185,15 @@
     },
     "OKResponse": {
       "$ref": "#/$defs/httpapi.OKResponse"
+    },
+    "POST /api/android/cli 200": {
+      "$ref": "#/$defs/httpapi.AndroidCLIResponse"
+    },
+    "POST /api/android/cli 202": {
+      "$ref": "#/$defs/httpapi.AndroidCLIResponse"
+    },
+    "POST /api/android/cli 409": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
     },
     "POST /api/avds 202": {
       "$ref": "#/$defs/httpapi.CreateAVDResponse"
@@ -555,6 +567,41 @@
       },
       "required": [
         "profiles"
+      ],
+      "type": "object"
+    },
+    "httpapi.AndroidCLIResponse": {
+      "properties": {
+        "adbInstalled": {
+          "type": "boolean"
+        },
+        "adbPath": {
+          "type": "string"
+        },
+        "canInstall": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "installing": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "installed",
+        "canInstall",
+        "installing",
+        "adbInstalled"
       ],
       "type": "object"
     },

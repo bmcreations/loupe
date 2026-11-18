@@ -90,9 +90,13 @@ type Server struct {
 	// 404, which is what a build with no config file selects.
 	cfg *ConfigStore
 
-	// avds creates AVDs through the android CLI. Nil when the CLI is not
-	// installed, and /api/avds then answers 404.
+	// avds creates AVDs through the android CLI, which it looks up per
+	// request: /api/avds answers 404 while there is none, or while it would
+	// create AVDs where loupe does not read them.
 	avds *AVDCreator
+	// android installs the android CLI and adb (androidtools.go), one install
+	// at a time shared with remote. Nil leaves /api/android/cli answering 404.
+	android *AndroidTools
 	// remote reserves Firebase remote devices through the same CLI
 	// (remote.go). Set even without the CLI, which is looked up per call:
 	// /api/remote/account then reports cliInstalled false and the routes
@@ -321,6 +325,7 @@ var routes = []route{
 	{"/api/feedback", []string{http.MethodGet, http.MethodPost}, (*Server).handleFeedback, ""},
 	{"/api/avds", []string{http.MethodPost}, (*Server).handleCreateAVD, ""},
 	{"/api/avds/profiles", []string{http.MethodGet}, (*Server).handleAVDProfiles, ""},
+	{"/api/android/cli", []string{http.MethodGet, http.MethodPost}, (*Server).handleAndroidCLI, ""},
 	{"/api/remote", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRemote, ""},
 	{"/api/remote/extend", []string{http.MethodPost}, (*Server).handleRemoteExtend, ""},
 	{"/api/remote/account", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRemoteAccount, ""},

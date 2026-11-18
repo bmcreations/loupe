@@ -46,6 +46,7 @@ Common refusals on routes that change a device:
 | `GET /api/camera/sources` | The Mac cameras an AVD can use as its back camera |
 | `DELETE /api/camera/feed` | Blank Handset Camera's live feed and keep it as the AVD's camera |
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
+| `GET`, `POST /api/android/cli` | Install the android CLI and adb on a Mac with no SDK ([targets](targets.md#without-an-sdk)) |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
 | `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture, hinge angle, app language, location |

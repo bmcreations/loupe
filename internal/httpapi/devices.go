@@ -336,7 +336,9 @@ func (c *DeviceCreator) nameTaken(platform, name string) bool {
 }
 
 func (s *Server) handleDeviceOptions(w http.ResponseWriter, r *http.Request) {
-	fallback := s.avds != nil && (s.devs == nil || !s.devs.androidOffered())
+	// Asked per request: an android CLI installed after startup turns the
+	// fallback on without a restart.
+	fallback := s.avds.available() && (s.devs == nil || !s.devs.androidOffered())
 	if s.devs == nil && !fallback {
 		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "creating devices needs avdmanager, the android CLI, or simctl with simcap built, and this server found none"})
 		return
