@@ -1147,18 +1147,21 @@ func (in *revylInput) goLive(p *revylPress, m Meta) {
 	if lc == nil {
 		return
 	}
-	pt, err := in.livePoint(lc.w, lc.h, p.x0, p.y0, m)
+	// The press keeps this size to its lift, whatever the socket reports
+	// meanwhile.
+	w, h := lc.size()
+	pt, err := in.livePoint(w, h, p.x0, p.y0, m)
 	if err != nil {
 		return
 	}
-	if lc.w > 0 && lc.h > 0 && !revylSameShape(m, lc.w, lc.h) {
+	if w > 0 && h > 0 && !revylSameShape(m, w, h) {
 		// A stream of another shape may be cropped or padded, and a touch
 		// scaled onto the screen would land off where the viewer pressed.
 		p.notLive = fmt.Sprintf("revyl live touch: the stream is %dx%d, not the shape of the %dx%d screen the worker reports",
-			m.Width, m.Height, lc.w, lc.h)
+			m.Width, m.Height, w, h)
 		return
 	}
-	lp := &revylLivePress{w: lc.w, h: lc.h, p0: pt, p: pt, start: p.at, heard: time.Now(), nudge: make(chan struct{}, 1)}
+	lp := &revylLivePress{w: w, h: h, p0: pt, p: pt, start: p.at, heard: time.Now(), nudge: make(chan struct{}, 1)}
 	if in.enqueue(&revylJob{action: "live", live: lp}) == nil {
 		p.live = lp
 	}

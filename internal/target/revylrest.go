@@ -305,10 +305,17 @@ func (r *RevylREST) workerSocket(ctx context.Context, key, runID string) (revylW
 		H float64 `json:"device_height"`
 	}
 	_ = json.Unmarshal(data, &size)
-	if size.W >= 1 && size.H >= 1 && size.W < 1<<16 && size.H < 1<<16 {
-		ws.w, ws.h = int(math.Round(size.W)), int(math.Round(size.H))
-	}
+	ws.w, ws.h, _ = revylScreenSize(size.W, size.H)
 	return ws, nil
+}
+
+// revylScreenSize is a screen size Revyl reports, rounded. ok is false for
+// a side under 1 or from 65536 up, which is taken as no size.
+func revylScreenSize(w, h float64) (int, int, bool) {
+	if w >= 1 && h >= 1 && w < 1<<16 && h < 1<<16 {
+		return int(math.Round(w)), int(math.Round(h)), true
+	}
+	return 0, 0, false
 }
 
 // revylWorkerSocket is worker-connection's answer: the socket's URL, and

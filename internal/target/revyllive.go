@@ -27,8 +27,11 @@ import (
 // (2026-11-19) it answered each frame with an ACTION_RECEIVED frame and the
 // UP with an ACTION_ACK frame carrying the same action_id and success; it
 // opened with a CONNECTION frame and a DEVICE_INIT_STATUS frame whose
-// manual_input_ready says whether it takes touches yet. Nothing about it is
-// documented, so every failure falls back to the device proxy.
+// manual_input_ready says whether it takes touches yet. That frame also had
+// device_width and device_height on Android, and Revyl's viewer takes a new
+// size from "elements" frames, so any frame's size replaces the one touches
+// are mapped onto. Nothing about it is documented, so every failure falls
+// back to the device proxy.
 const (
 	revylLiveOrigin = "https://app.revyl.ai" // the socket wants the viewer's origin
 	// revylMoveEvery joins moves so at most 60 a second are sent.
@@ -58,9 +61,13 @@ type revylLiveConn struct {
 	c      *websocket.Conn
 	cancel context.CancelFunc // ends the reader
 	gone   chan struct{}      // closed once the reader stopped
-	w, h   int                // the screen size worker-connection reports; 0 when it gave none
+	// trace gets a record when a frame changes the size; nil drops it.
+	trace func(map[string]any)
 
-	mu     sync.Mutex
+	mu sync.Mutex
+	// w, h is the screen size touches are mapped onto: worker-connection's,
+	// then the newest a frame reports. 0 when neither gave one.
+	w, h   int
 	ready  bool // manual_input_ready
 	dead   bool
 	diedAt time.Time
@@ -68,8 +75,9 @@ type revylLiveConn struct {
 	acks   map[int64]chan bool
 }
 
-// openLive looks up and dials the session's worker socket.
-func (r *RevylREST) openLive(ctx context.Context, key, runID string) (*revylLiveConn, error) {
+// openLive looks up and dials the session's worker socket. trace gets a
+// record each time the socket reports another screen size.
+func (r *RevylREST) openLive(ctx context.Context, key, runID string, trace func(map[string]any)) (*revylLiveConn, error) {
 	ws, err := r.workerSocket(ctx, key, runID)
 	if err != nil {
 		return nil, err
@@ -97,14 +105,15 @@ func (r *RevylREST) openLive(ctx context.Context, key, runID string) (*revylLive
 	// 32 KiB would close the socket.
 	c.SetReadLimit(-1)
 	rctx, rcancel := context.WithCancel(context.Background())
-	lc := &revylLiveConn{c: c, cancel: rcancel, gone: make(chan struct{}), w: ws.w, h: ws.h, nextID: 1, acks: map[int64]chan bool{}}
+	lc := &revylLiveConn{c: c, cancel: rcancel, gone: make(chan struct{}), trace: trace, w: ws.w, h: ws.h, nextID: 1, acks: map[int64]chan bool{}}
 	go lc.read(rctx)
 	return lc, nil
 }
 
 // read takes the socket's frames until it closes. It keeps
-// manual_input_ready and hands each ack to the lift waiting for it; every
-// other frame is dropped unread.
+// manual_input_ready and the newest screen size any frame reports, and
+// hands each ack to the lift waiting for it; the rest of a frame is
+// dropped unread.
 func (lc *revylLiveConn) read(ctx context.Context) {
 	defer close(lc.gone)
 	defer lc.fail()
@@ -131,11 +140,22 @@ func (lc *revylLiveConn) read(ctx context.Context) {
 			ManualInputReady *bool  `json:"manual_input_ready"`
 			ActionID         int64  `json:"action_id"`
 			Success          *bool  `json:"success"`
+			// Raw, so a size of the wrong type does not lose the rest of
+			// the frame.
+			Type json.RawMessage `json:"type"`
+			revylSizeKeys
 		}
 		if json.Unmarshal(b, &f) != nil {
 			continue
 		}
+		w, h, ok := f.size()
+		changed := false
+		var was [2]int
 		lc.mu.Lock()
+		if ok && (w != lc.w || h != lc.h) {
+			changed, was = true, [2]int{lc.w, lc.h}
+			lc.w, lc.h = w, h
+		}
 		switch f.EventType {
 		case "DEVICE_INIT_STATUS":
 			if f.ManualInputReady != nil {
@@ -148,7 +168,75 @@ func (lc *revylLiveConn) read(ctx context.Context) {
 			}
 		}
 		lc.mu.Unlock()
+		if changed && lc.trace != nil {
+			kind := f.EventType
+			if kind == "" {
+				_ = json.Unmarshal(f.Type, &kind)
+			}
+			lc.trace(revylSizeRecord(kind, was, w, h))
+		}
 	}
+}
+
+// revylSizeRecord is the trace's record of a frame that changed the size
+// from was to w x h. kind is the frame's event_type or type, kept when it
+// reads as a name.
+func revylSizeRecord(kind string, was [2]int, w, h int) map[string]any {
+	rec := map[string]any{"action": "live-size", "size": fmt.Sprintf("%dx%d", w, h)}
+	if was[0] > 0 {
+		rec["was"] = fmt.Sprintf("%dx%d", was[0], was[1])
+	}
+	if kind = strings.ToLower(kind); revylCode.MatchString(kind) {
+		rec["frame"] = kind
+	}
+	return rec
+}
+
+// revylSizeKeys are where a socket frame may report the screen size:
+// device_width and device_height, as DEVICE_INIT_STATUS did on Android and
+// "elements" frames do in Revyl's viewer, or width and height under
+// deviceDimensions or device_dimensions. No frame has been seen with the
+// nested form; deviceDimensions is what Revyl's viewer calls its size.
+type revylSizeKeys struct {
+	W     json.RawMessage `json:"device_width"`
+	H     json.RawMessage `json:"device_height"`
+	Camel json.RawMessage `json:"deviceDimensions"`
+	Snake json.RawMessage `json:"device_dimensions"`
+}
+
+// size is the frame's size, the top-level pair first. ok is false when
+// it reports none that can be read, which leaves the size as it was.
+func (k revylSizeKeys) size() (w, h int, ok bool) {
+	if w, h, ok := revylRawSize(k.W, k.H); ok {
+		return w, h, true
+	}
+	for _, d := range []json.RawMessage{k.Camel, k.Snake} {
+		var wh struct {
+			W json.RawMessage `json:"width"`
+			H json.RawMessage `json:"height"`
+		}
+		if json.Unmarshal(d, &wh) == nil {
+			if w, h, ok := revylRawSize(wh.W, wh.H); ok {
+				return w, h, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func revylRawSize(w, h json.RawMessage) (int, int, bool) {
+	var fw, fh float64
+	if json.Unmarshal(w, &fw) != nil || json.Unmarshal(h, &fh) != nil {
+		return 0, 0, false
+	}
+	return revylScreenSize(fw, fh)
+}
+
+// size is the screen size a new press is mapped onto.
+func (lc *revylLiveConn) size() (int, int) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	return lc.w, lc.h
 }
 
 func (lc *revylLiveConn) fail() {
@@ -320,7 +408,7 @@ func (in *revylInput) dialLive() {
 	var lc *revylLiveConn
 	err := errors.New("revyl live touch: no API key")
 	if key := in.rest.key(); key != "" {
-		lc, err = in.rest.openLive(in.ctx, key, in.runID)
+		lc, err = in.rest.openLive(in.ctx, key, in.runID, in.trace)
 	}
 	in.lmu.Lock()
 	defer in.lmu.Unlock()
@@ -532,7 +620,8 @@ func (in *revylInput) liveFallback(lp *revylLivePress, wrote bool, x, y int, cau
 }
 
 // livePoint maps a stream pixel for a live press: onto the w x h screen
-// the worker reports, or the session's when w is 0, and by toDevice for
+// the worker reported when the press began, or the session's when w is 0,
+// and by toDevice for
 // the device proxy. It fails where toDevice does, so a press that could
 // not go as one gesture does not go live either.
 func (in *revylInput) livePoint(w, h int, x, y int32, m Meta) (revylLivePoint, error) {

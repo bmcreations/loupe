@@ -41,6 +41,7 @@ type fakeWorker struct {
 	gets, upgrades, conns int
 	origin, auth          string
 	frames                []map[string]any
+	conn                  *websocket.Conn // the newest socket, for push
 
 	closed chan struct{} // closed once closeAfter closed a socket
 	ended  chan struct{} // one value per socket that stopped reading
@@ -118,6 +119,7 @@ func (w *fakeWorker) serveSocket(c *websocket.Conn) {
 	ctx := context.Background()
 	w.mu.Lock()
 	w.conns++
+	w.conn = c
 	ready, devW, devH := !w.notReady, w.devW, w.devH
 	w.mu.Unlock()
 	send := func(v any) {
@@ -160,6 +162,21 @@ func (w *fakeWorker) serveSocket(c *websocket.Conn) {
 			send(map[string]any{"event_type": "ACTION_ACK", "action": f["gesture"], "action_id": f["action_id"], "success": true,
 				"x": f["x"], "y": f["y"], "server_completed_at_ms": now, "queue_wait_ms": 1, "device_exec_ms": 0})
 		}
+	}
+}
+
+// push sends a text frame on the open socket, as the worker would at any
+// time.
+func (w *fakeWorker) push(frame string) {
+	w.t.Helper()
+	w.mu.Lock()
+	c := w.conn
+	w.mu.Unlock()
+	if c == nil {
+		w.t.Fatal("no socket to push on")
+	}
+	if err := c.Write(context.Background(), websocket.MessageText, []byte(frame)); err != nil {
+		w.t.Fatalf("push: %v", err)
 	}
 }
 
@@ -709,4 +726,239 @@ func TestRevylLiveKeepsOffAStreamOfAnotherShape(t *testing.T) {
 	touch(TouchDown, 1311, 603)
 	touch(TouchUp, 1311, 603)
 	checkFrames(t, w.waitFrames(2), [][3]any{{"MANUAL_TOUCH_DOWN", 437, 201}, {"MANUAL_TOUCH_UP", 437, 201}})
+}
+
+// traceRecs is the records the trace has for action, in order.
+func traceRecs(l *traceLog, action string) []map[string]any {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []map[string]any
+	for _, rec := range l.recs {
+		if rec["action"] == action {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+// waitSize waits for the trace to say the socket took a size, and returns
+// that record. It fails the test without stopping it, so what the next
+// press does with the old size shows too.
+func waitSize(t *testing.T, l *traceLog, size string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		for _, rec := range traceRecs(l, "live-size") {
+			if rec["size"] == size {
+				return rec
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("no live-size record for %s after 2s: %v", size, traceRecs(l, "live-size"))
+			return nil
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// The socket can report another screen size after it opens, as the
+// "elements" frames Revyl's viewer maps its touches with do. A press that
+// starts after it is mapped onto that size, turned with the stream as
+// before, and the trace says the size changed.
+func TestRevylLiveFollowsTheSocketsSize(t *testing.T) {
+	m := Meta{Width: 540, Height: 1200}
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	w.waitSocket()
+	touch := liveTouch(t, g.in, m)
+
+	touch(TouchDown, 270, 600)
+	touch(TouchUp, 270, 600)
+	w.waitFrames(2)
+	w.push(`{"type": "elements", "elements": [], "device_width": 720, "device_height": 1600}`)
+	rec := waitSize(t, g.log, "720x1600")
+	touch(TouchDown, 270, 600)
+	touch(TouchUp, 270, 600)
+	w.waitFrames(4)
+	touch = liveTouch(t, g.in, Meta{Width: 1200, Height: 540}) // turned to landscape
+	touch(TouchDown, 600, 270)
+	touch(TouchUp, 600, 270)
+	checkFrames(t, w.waitFrames(6), [][3]any{
+		{"MANUAL_TOUCH_DOWN", 540, 1200}, {"MANUAL_TOUCH_UP", 540, 1200},
+		{"MANUAL_TOUCH_DOWN", 360, 800}, {"MANUAL_TOUCH_UP", 360, 800},
+		{"MANUAL_TOUCH_DOWN", 800, 360}, {"MANUAL_TOUCH_UP", 800, 360},
+	})
+	if rec == nil || rec["was"] != "1080x2400" || rec["frame"] != "elements" {
+		t.Fatalf("size record %v, want 720x1600 was 1080x2400 from an elements frame", rec)
+	}
+	for _, rec := range g.log.wait(t, 4) {
+		b, _ := json.Marshal(rec)
+		if s := string(b); strings.Contains(s, testWSToken) || strings.Contains(s, testRevylKey) || strings.Contains(s, "ws://") {
+			t.Fatalf("token, key or URL in the trace: %s", s)
+		}
+	}
+	if r := p.requests(); len(r) != 0 {
+		t.Fatalf("device proxy got %d requests, want none", len(r))
+	}
+}
+
+// On iOS a size from the socket is taken in the touches' units, points,
+// as worker-connection's is: a DEVICE_INIT_STATUS with another size, then
+// one nested under device_dimensions, each moves the next press.
+func TestRevylLiveFollowsTheSocketsSizeOnIOS(t *testing.T) {
+	m := Meta{Width: 1206, Height: 2622}
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	w.set(func(w *fakeWorker) { w.devW, w.devH = 402, 874 })
+	g := restGestures(t, f, p.srv.URL, "ios", 402, 874)
+	w.waitSocket()
+	touch := liveTouch(t, g.in, m)
+
+	touch(TouchDown, 603, 1311)
+	touch(TouchUp, 603, 1311)
+	w.waitFrames(2)
+	w.push(`{"event_type": "DEVICE_INIT_STATUS", "status": "initialized", "manual_input_ready": true, "device_width": 440, "device_height": 956}`)
+	waitSize(t, g.log, "440x956")
+	touch(TouchDown, 603, 1311)
+	touch(TouchUp, 603, 1311)
+	w.waitFrames(4)
+	w.push(`{"type": "elements", "device_dimensions": {"width": 402, "height": 874}}`)
+	waitSize(t, g.log, "402x874")
+	touch(TouchDown, 603, 1311)
+	touch(TouchUp, 603, 1311)
+	checkFrames(t, w.waitFrames(6), [][3]any{
+		{"MANUAL_TOUCH_DOWN", 201, 437}, {"MANUAL_TOUCH_UP", 201, 437},
+		{"MANUAL_TOUCH_DOWN", 220, 478}, {"MANUAL_TOUCH_UP", 220, 478},
+		{"MANUAL_TOUCH_DOWN", 201, 437}, {"MANUAL_TOUCH_UP", 201, 437},
+	})
+	if r := p.requests(); len(r) != 0 {
+		t.Fatalf("device proxy got %d requests, want none", len(r))
+	}
+}
+
+// A size that comes while the finger is down leaves that press on the size
+// it started with, so its moves and lift land where its down did. The
+// next press takes the new size.
+func TestRevylLiveKeepsAPressOnItsSize(t *testing.T) {
+	m := Meta{Width: 540, Height: 1200}
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	w.waitSocket()
+	touch := liveTouch(t, g.in, m)
+
+	touch(TouchDown, 100, 1000)
+	w.waitFrames(1)
+	w.push(`{"type": "elements", "device_width": 720, "device_height": 1600}`)
+	waitSize(t, g.log, "720x1600")
+	touch(TouchMove, 100, 500)
+	w.waitFrames(2)
+	touch(TouchUp, 100, 500)
+	w.waitFrames(3)
+	touch(TouchDown, 270, 600)
+	touch(TouchUp, 270, 600)
+	checkFrames(t, w.waitFrames(5), [][3]any{
+		{"MANUAL_TOUCH_DOWN", 200, 2000},
+		{"MANUAL_TOUCH_MOVE", 200, 1000},
+		{"MANUAL_TOUCH_UP", 200, 1000},
+		{"MANUAL_TOUCH_DOWN", 360, 800},
+		{"MANUAL_TOUCH_UP", 360, 800},
+	})
+}
+
+// A size the client cannot read is no size: the socket keeps the one it
+// had, the rest of that frame still counts, and the socket keeps taking
+// touches and later sizes.
+func TestRevylLiveIgnoresASizeItCannotRead(t *testing.T) {
+	m := Meta{Width: 540, Height: 1200}
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	w.set(func(w *fakeWorker) { w.notReady = true })
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	w.waitSocket()
+	touch := liveTouch(t, g.in, m)
+
+	for _, fr := range []string{
+		`{"type": "elements", "device_width": "720", "device_height": 1600}`,
+		`{"type": "elements", "device_width": -720, "device_height": -1600}`,
+		`{"type": "elements", "device_width": 0, "device_height": 1600}`,
+		`{"type": "elements", "device_width": 0.4, "device_height": 1600}`,
+		`{"type": "elements", "device_width": 65536, "device_height": 1600}`,
+		`{"type": "elements", "device_width": 720}`,
+		`{"type": "elements", "device_width": null, "device_height": 1600}`,
+		`{"type": "elements", "deviceDimensions": {"width": "720", "height": 1600}}`,
+		`{"type": "elements", "deviceDimensions": [720, 1600]}`,
+		`{"type": "elements", "device_width": 720, "device_height": 1600`,
+		`not json`,
+		// Its size is no use, but it says the device takes touches now.
+		`{"event_type": "DEVICE_INIT_STATUS", "manual_input_ready": true, "device_width": {"px": 720}, "device_height": 1600}`,
+	} {
+		w.push(fr)
+	}
+	w.until("the socket to take touches", func() bool {
+		g.in.lmu.Lock()
+		defer g.in.lmu.Unlock()
+		return g.in.live != nil && g.in.live.usable()
+	})
+	touch(TouchDown, 270, 600)
+	touch(TouchUp, 270, 600)
+	w.waitFrames(2)
+	if rec := g.log.wait(t, 1)[0]; rec["via"] != "ws" || rec["ack"] != nil || rec["error"] != nil {
+		t.Fatalf("trace %v, want a tap via ws that was acked", rec)
+	}
+	if got := traceRecs(g.log, "live-size"); len(got) != 0 {
+		t.Fatalf("size records for sizes that cannot be read: %v", got)
+	}
+	w.push(`{"type": "elements", "device_width": 720, "device_height": 1600}`)
+	waitSize(t, g.log, "720x1600")
+	touch(TouchDown, 270, 600)
+	touch(TouchUp, 270, 600)
+	checkFrames(t, w.waitFrames(4), [][3]any{
+		{"MANUAL_TOUCH_DOWN", 540, 1200}, {"MANUAL_TOUCH_UP", 540, 1200},
+		{"MANUAL_TOUCH_DOWN", 360, 800}, {"MANUAL_TOUCH_UP", 360, 800},
+	})
+	if r := p.requests(); len(r) != 0 {
+		t.Fatalf("device proxy got %d requests, want none", len(r))
+	}
+}
+
+// A stream more than 1% off the shape of the size worker-connection
+// reports keeps its press off the socket, until the socket reports a size
+// of the stream's shape. The next press then goes live, on that size.
+func TestRevylLiveGoesLiveOnceTheSizeFitsTheStream(t *testing.T) {
+	m := Meta{Width: 1206, Height: 2400}
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	w.set(func(w *fakeWorker) { w.devW, w.devH = 402, 874 })
+	g := restGestures(t, f, p.srv.URL, "ios", 402, 874)
+	w.waitSocket()
+	touch := liveTouch(t, g.in, m)
+
+	touch(TouchDown, 603, 2000)
+	touch(TouchUp, 603, 2000)
+	checkBodies(t, p.waitFor(1), []any{[2]any{"tap", map[string]any{"x": float64(201), "y": float64(728)}}})
+	if fr := w.got(); len(fr) != 0 {
+		t.Fatalf("frames sent for a stream of another shape: %v", fr)
+	}
+	w.push(`{"type": "elements", "deviceDimensions": {"width": 402, "height": 800}}`)
+	waitSize(t, g.log, "402x800")
+	touch(TouchDown, 603, 2000)
+	w.waitFrames(1)
+	touch(TouchMove, 603, 1000)
+	w.waitFrames(2)
+	touch(TouchUp, 603, 1000)
+	checkFrames(t, w.waitFrames(3), [][3]any{
+		{"MANUAL_TOUCH_DOWN", 201, 667},
+		{"MANUAL_TOUCH_MOVE", 201, 333},
+		{"MANUAL_TOUCH_UP", 201, 333},
+	})
+	if r := p.requests(); len(r) != 1 {
+		t.Fatalf("device proxy got %d requests, want the first tap only", len(r))
+	}
 }
