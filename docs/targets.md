@@ -300,12 +300,13 @@ v0.2.18.
   starting answers 409.
 - Exit runs these stops first, at the same time as the Firebase releases
   and the HTTP shutdown, and gives them 10 seconds from the signal; the
-  5-second SIGINT wait comes out of those 10. Under launchd the window is
-  shorter: launchd SIGKILLs loupe ExitTimeOut after its SIGTERM, neither
-  login item's plist sets one, and `launchctl print` shows the default as
-  5 seconds. The SIGINT wait can use all of that, so the stop of a device
-  whose start finished anyway runs only outside launchd or with a longer
-  ExitTimeOut. A stop still running at the cutoff is abandoned, and whether
+  5-second SIGINT wait comes out of those 10. Under launchd the window can
+  be shorter: launchd SIGKILLs a job ExitTimeOut after its SIGTERM, and
+  `launchctl print` shows 5 seconds for a job whose plist sets none.
+  loupe's own plist sets 30, but `loupe-supervisor.sh` SIGKILLs loupe 5
+  seconds after passing the SIGTERM on. With 5 seconds the SIGINT wait can
+  use all of it, so the stop of a device whose start finished anyway runs
+  only with a longer window. A stop still running at the cutoff is abandoned, and whether
   Revyl acted on its request is not known. A device that comes up after
   loupe has gone is adopted by the next loupe and runs until it is stopped
   or Revyl's 900-second idle timeout ends it. Once exit begins,

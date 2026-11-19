@@ -7,10 +7,11 @@ import (
 )
 
 // ExitStopBudget is how long exit gives the billed-device stops, counted
-// from the signal. Under launchd it does not bind today: launchd SIGKILLs
-// loupe ExitTimeOut after its SIGTERM, neither login item's plist sets
-// one, and the loaded job's default is 5 s. An ExitTimeOut of 30 s would
-// cover this budget and the rest of shutdown, 6 s or more after it.
+// from the signal. Under launchd it binds only with a long enough
+// ExitTimeOut: launchd SIGKILLs a job that long after its SIGTERM, 5 s
+// unless the plist sets one. launchd/dev.bmcreations.loupe.plist sets 30 s,
+// which covers this budget and the rest of shutdown, 6 s or more after it,
+// but loupe-supervisor.sh SIGKILLs loupe 5 s after passing the SIGTERM on.
 const ExitStopBudget = 10 * time.Second
 
 // StopBilledDevices ends the cloud devices loupe holds, which bill by the
