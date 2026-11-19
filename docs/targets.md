@@ -345,10 +345,12 @@ for `revyl device tap`. The device's own part was about 6 ms.
   `cli_upgrade_required`.
 - The CLI sends the gesture instead when there is no key or no
   `workflow_run_id`, or when Revyl did not act on the request: it was never
-  sent, or the backend refused it with 401, 403, 404 or 426. After a 426 the
+  sent, the backend refused it with 401, 403, 404 or 426, or the proxy
+  answered a 5xx with code `worker_gone`, which the Revyl CLI documents as
+  the action never reaching the device. After a 426 the
   stream stops trying the proxy; after a 401 or 403 it stops until the key
   changes.
-- A gesture is not resent after a 5xx, a timeout or a dropped connection
+- A gesture is not resent after any other 5xx, a timeout or a dropped connection
   once the request went out, or when the device answers `success: false`. The device
   may already have acted, and a tap sent twice lands twice.
 - The trace has one `input` record per gesture: the gesture, `via` (`rest`

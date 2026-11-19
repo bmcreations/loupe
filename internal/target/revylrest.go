@@ -131,14 +131,18 @@ type revylRESTError struct {
 	// wrote is set once the request's headers were written, after which
 	// Revyl may have acted on it.
 	wrote bool
-	msg   string
+	// code is the error code the proxy answered with, "" when it gave none.
+	code string
+	msg  string
 }
 
 func (e *revylRESTError) Error() string { return "revyl " + e.action + " over REST: " + e.msg }
 
 // fallback reports whether the CLI may send the same action after this
 // failure. It may when Revyl did not act on the request: it never left,
-// or the backend refused it with 401, 403, 404 or 426.
+// or the backend refused it with 401, 403, 404 or 426, or the proxy
+// answered 5xx worker_gone, which the Revyl CLI documents as the action
+// never reaching the device (internal/mcp/device_session.go, v0.2.27).
 //
 // Every other failure is reported, not retried, a 5xx included: the
 // proxy can answer 5xx after the device acted, and a second tap or Back
@@ -150,6 +154,8 @@ func (e *revylRESTError) fallback() bool {
 		return !e.wrote
 	case e.status == http.StatusUnauthorized, e.status == http.StatusForbidden,
 		e.status == http.StatusNotFound, e.status == http.StatusUpgradeRequired:
+		return true
+	case e.status >= 500 && e.code == "worker_gone":
 		return true
 	}
 	return false
@@ -195,10 +201,13 @@ func (r *RevylREST) do(ctx context.Context, key, runID, action string, body any)
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 256<<10))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg := "status " + fmt.Sprint(resp.StatusCode)
-		if c := revylErrorCode(data); c != "" {
+		c := revylErrorCode(data)
+		if c != "" {
 			msg += " " + c
 		}
-		return fail(resp.StatusCode, true, msg)
+		_, err := fail(resp.StatusCode, true, msg)
+		err.(*revylRESTError).code = c
+		return revylRESTResult{}, err
 	}
 	if rerr != nil {
 		return fail(resp.StatusCode, true, "reading the answer: "+revylTransportError(ctx, rerr))

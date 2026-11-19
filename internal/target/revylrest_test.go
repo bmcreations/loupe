@@ -449,6 +449,28 @@ func closedURL(t *testing.T) string {
 func TestRevylRESTFallsBackToTheCLI(t *testing.T) {
 	m := Meta{Width: 1080, Height: 2400}
 
+	t.Run("a 5xx worker_gone tap goes through the CLI once", func(t *testing.T) {
+		f := newFakeRevyl(t)
+		p := newFakeProxy(t)
+		p.set(func(string) (int, string) {
+			return http.StatusServiceUnavailable, `{"detail":{"code":"worker_gone"}}`
+		}, nil)
+		g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+		g.tap(t, m, 10, 10)
+		calls := f.waitCalls(1)
+		if !reflect.DeepEqual(calls[0], argv("device", "tap", "--x", "10", "--y", "10")) {
+			t.Fatalf("CLI argv %q", calls)
+		}
+		time.Sleep(50 * time.Millisecond)
+		if n := len(f.calls()); n != 1 {
+			t.Fatalf("%d CLI calls, want 1", n)
+		}
+		recs := g.log.wait(t, 1)
+		if recs[0]["via"] != "cli" || !strings.Contains(recs[0]["restError"].(string), "503 worker_gone") {
+			t.Fatalf("trace %v", recs[0])
+		}
+	})
+
 	t.Run("426 turns REST off for the stream", func(t *testing.T) {
 		f := newFakeRevyl(t)
 		p := newFakeProxy(t)
@@ -648,6 +670,27 @@ func TestRevylRESTFallbackRules(t *testing.T) {
 		e := &revylRESTError{action: tc.action, status: tc.status, wrote: tc.wrote}
 		if got := e.fallback(); got != tc.want {
 			t.Errorf("%s status %d wrote %v: fallback %v, want %v", tc.action, tc.status, tc.wrote, got, tc.want)
+		}
+	}
+}
+
+// worker_gone on a 5xx means the action never reached the device, so the
+// CLI may send it; any other code, or worker_gone on a non-5xx, may not.
+func TestRevylRESTFallsBackOnWorkerGone(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		code   string
+		want   bool
+	}{
+		{503, "worker_gone", true},
+		{502, "worker_gone", true},
+		{503, "session_busy", false},
+		{503, "", false},
+		{409, "worker_gone", false},
+	} {
+		e := &revylRESTError{action: "tap", status: tc.status, wrote: true, code: tc.code}
+		if got := e.fallback(); got != tc.want {
+			t.Errorf("status %d code %q: fallback %v, want %v", tc.status, tc.code, got, tc.want)
 		}
 	}
 }
