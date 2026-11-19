@@ -63,6 +63,7 @@ var (
 	errRevylHolding  = errors.New("stop the Revyl devices loupe started before signing out")
 	errRevylClosing  = errors.New("loupe is shutting down")
 	errRevylStopping = errors.New("the device is already stopping")
+	errRevylUnread   = errors.New("loupe has not read the account's Revyl devices while one starts; try again once it is up")
 )
 
 // RevylDevice is one Revyl session loupe started or found on the account.
@@ -379,10 +380,13 @@ func (r *RevylDevices) Stop(ctx context.Context, key string) error {
 			return fmt.Errorf("could not read the account's Revyl sessions: %w", err)
 		}
 		r.mu.Lock()
-		it = r.stopRowLocked(key)
+		it, listed = r.stopRowLocked(key), r.listed
 	}
 	if it == nil {
 		r.mu.Unlock()
+		if !listed {
+			return errRevylUnread
+		}
 		return errRevylNoDevice
 	}
 	switch it.State {
@@ -475,7 +479,7 @@ func (r *RevylDevices) sync(ctx context.Context) error {
 	var adopt []target.Target
 	var ended []*RevylDevice
 	r.mu.Lock()
-	r.listed = true
+	skipped := false
 	for id, at := range r.stopped {
 		if time.Since(at) >= r.listGrace {
 			delete(r.stopped, id)
@@ -511,6 +515,7 @@ func (r *RevylDevices) sync(ctx context.Context) error {
 		// A start in flight has no session ID yet; its session can show up
 		// here first. Leave it to the start rather than list it twice.
 		if r.starting {
+			skipped = true
 			continue
 		}
 		it := &RevylDevice{Key: newRevylKey(), SessionID: id, Target: "revyl:" + id, Platform: s.Platform,
@@ -518,6 +523,10 @@ func (r *RevylDevices) sync(ctx context.Context) error {
 			activated: time.Now()}
 		r.items = append(r.items, it)
 		adopt = append(adopt, r.newTarget(cli, s, "", ""))
+	}
+	// A session left to a start may be one loupe has never seen.
+	if !skipped {
+		r.listed = true
 	}
 	r.mu.Unlock()
 	for _, it := range ended {
@@ -831,7 +840,7 @@ func (s *Server) handleRevyl(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, errRevylNoDevice):
 			http.Error(w, err.Error(), http.StatusNotFound)
-		case errors.Is(err, errRevylStarting), errors.Is(err, errRevylStopping):
+		case errors.Is(err, errRevylStarting), errors.Is(err, errRevylStopping), errors.Is(err, errRevylUnread):
 			http.Error(w, err.Error(), http.StatusConflict)
 		case err != nil:
 			http.Error(w, err.Error(), http.StatusBadGateway)

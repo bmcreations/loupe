@@ -853,3 +853,35 @@ func TestRevylStopOfAnUnknownDeviceIs404OnlyOnceTheAccountIsRead(t *testing.T) {
 		t.Errorf("listed %d more times after the account was read", n-lists)
 	}
 }
+
+// A list read while a start runs leaves unknown sessions to the start, so
+// it has not found a device left running before a restart. A stop for one
+// then is "not yet", not 404, and once the start is up it finds it.
+func TestRevylStopDuringAStartBeforeTheFirstListIsNot404(t *testing.T) {
+	rig := revylServer(t)
+	rig.startHeld("")
+	rig.file("device-list.json", `[`+revylStartJSON+`,{"index":-1,"session_id":"left-1","platform":"android","started_at":"2026-11-18T15:01:00Z","idle_timeout":900000000000}]`)
+	if rec := do(rig.s, http.MethodDelete, "/api/revyl?target=revyl:left-1", ""); rec.Code != http.StatusConflict {
+		t.Errorf("stop of an unread device during a start = %d %s", rec.Code, rec.Body)
+	}
+	if rig.ran("device", "stop") != nil {
+		t.Error("ran a stop during the start")
+	}
+
+	rig.file("device-stop.json", `{"stopped":true}`)
+	rig.remove("device-start.hold")
+	rig.waitFor("the start to finish", func() bool {
+		for _, d := range rig.list() {
+			if d.State == revylActive && !d.Adopted {
+				return true
+			}
+		}
+		return false
+	})
+	if rec := do(rig.s, http.MethodDelete, "/api/revyl?target=revyl:left-1", ""); rec.Code != http.StatusOK {
+		t.Fatalf("stop once the start is up = %d %s", rec.Code, rec.Body)
+	}
+	if a := rig.ran("device", "stop"); !reflect.DeepEqual(a, []string{"device", "stop", "--session-id", "left-1", "--json"}) {
+		t.Errorf("stop argv = %q", a)
+	}
+}

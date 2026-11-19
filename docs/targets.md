@@ -321,7 +321,8 @@ v0.2.18.
   device left running before it restarted. Until then, a `DELETE /api/revyl`
   for a device it does not know runs `revyl device list` first, so that one is
   found and stopped instead of answered 404. If the list fails, the answer
-  is 502, not 404.
+  is 502, not 404. While a start runs, the list leaves sessions loupe does
+  not know to the start, so the answer is 409 until the start is up.
 - The WHEP, viewer and worker URLs Revyl returns are kept out of
   `/api/targets`, `/api/revyl` and the trace, and any URL in the CLI's
   error output is cut before it reaches either.
