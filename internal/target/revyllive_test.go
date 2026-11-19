@@ -34,6 +34,9 @@ type fakeWorker struct {
 	closeAfter int
 	// notReady says manual_input_ready: false.
 	notReady bool
+	// devW and devH are the device_width and device_height
+	// worker-connection reports, left out when 0.
+	devW, devH int
 
 	gets, upgrades, conns int
 	origin, auth          string
@@ -45,7 +48,7 @@ type fakeWorker struct {
 
 func newFakeWorker(t *testing.T, p *fakeProxy) *fakeWorker {
 	t.Helper()
-	w := &fakeWorker{t: t, closed: make(chan struct{}), ended: make(chan struct{}, 16)}
+	w := &fakeWorker{t: t, closed: make(chan struct{}), ended: make(chan struct{}, 16), devW: 1080, devH: 2400}
 	p.mu.Lock()
 	p.live = w
 	p.mu.Unlock()
@@ -64,7 +67,7 @@ func (w *fakeWorker) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		w.mu.Lock()
 		w.gets++
 		w.auth = r.Header.Get("Authorization")
-		status := w.status
+		status, devW, devH := w.status, w.devW, w.devH
 		w.mu.Unlock()
 		if r.Method != http.MethodGet {
 			http.Error(rw, "method", http.StatusMethodNotAllowed)
@@ -76,11 +79,14 @@ func (w *fakeWorker) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(rw, `{"detail":"no worker for this run"}`)
 			return
 		}
-		_ = json.NewEncoder(rw).Encode(map[string]any{
+		answer := map[string]any{
 			"status": "ready", "message": nil, "workflow_run_id": testRunID,
 			"worker_ws_url": "ws://" + r.Host + "/ws/stream?token=" + testWSToken,
-			"device_width":  1080, "device_height": 2400,
-		})
+		}
+		if devW > 0 {
+			answer["device_width"], answer["device_height"] = devW, devH
+		}
+		_ = json.NewEncoder(rw).Encode(answer)
 	case r.URL.Path == "/ws/stream":
 		w.mu.Lock()
 		w.upgrades++
@@ -112,7 +118,7 @@ func (w *fakeWorker) serveSocket(c *websocket.Conn) {
 	ctx := context.Background()
 	w.mu.Lock()
 	w.conns++
-	ready := !w.notReady
+	ready, devW, devH := !w.notReady, w.devW, w.devH
 	w.mu.Unlock()
 	send := func(v any) {
 		b, _ := json.Marshal(v)
@@ -120,7 +126,7 @@ func (w *fakeWorker) serveSocket(c *websocket.Conn) {
 	}
 	send(map[string]any{"event_type": "CONNECTION", "status": "established", "workflow_run_id": testRunID})
 	send(map[string]any{"event_type": "DEVICE_INIT_STATUS", "status": "initialized", "workflow_run_id": testRunID,
-		"manual_input_ready": ready, "execution_ready": true, "device_width": 1080, "device_height": 2400})
+		"manual_input_ready": ready, "execution_ready": true, "device_width": devW, "device_height": devH})
 	// A binary frame past the library's default 32 KiB read limit: the
 	// client must skip it rather than drop the socket.
 	_ = c.Write(ctx, websocket.MessageBinary, make([]byte, 64<<10))
@@ -461,6 +467,28 @@ func TestRevylLiveFallsBackMidGesture(t *testing.T) {
 			t.Fatalf("trace %v, want the rest as a drag via rest", rec)
 		}
 	})
+	// The worker's size and the session's differ: the frames are in the
+	// worker's units, and the rest of the drag in the session's.
+	t.Run("drag in two sizes", func(t *testing.T) {
+		f := newFakeRevyl(t)
+		p := newFakeProxy(t)
+		w := newFakeWorker(t, p)
+		w.set(func(w *fakeWorker) { w.closeAfter, w.devW, w.devH = 2, 720, 1600 })
+		g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+		w.waitSocket()
+		touch := liveTouch(t, g.in, m)
+
+		touch(TouchDown, 100, 1000)
+		touch(TouchMove, 100, 900)
+		<-w.closed
+		touch(TouchMove, 100, 700)
+		touch(TouchMove, 100, 500)
+		touch(TouchUp, 100, 500)
+		checkBodies(t, p.waitFor(1), []any{
+			[2]any{"drag", map[string]any{"start_x": float64(200), "start_y": float64(1800), "end_x": float64(200), "end_y": float64(1000)}},
+		})
+		checkFrames(t, w.got(), [][3]any{{"MANUAL_TOUCH_DOWN", 133, 1333}, {"MANUAL_TOUCH_MOVE", 133, 1200}})
+	})
 	t.Run("tap", func(t *testing.T) {
 		f := newFakeRevyl(t)
 		p := newFakeProxy(t)
@@ -577,22 +605,108 @@ func TestRevylLiveLetsGoOfAQuietPress(t *testing.T) {
 	}
 }
 
-// iOS stays on whole gestures: it takes points, and its live touches are
-// untested, so it never asks for the socket.
-func TestRevylLiveIsAndroidOnly(t *testing.T) {
+// An iOS press goes live too, in points: the size worker-connection
+// reports, which on a live iPhone was 402x874 for its 1206x2622 stream.
+func TestRevylLiveTouchOnIOSIsInPoints(t *testing.T) {
+	m := Meta{Width: 1206, Height: 2622}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
-	g := restGestures(t, f, p.srv.URL, "ios", 393, 852)
-	touch := liveTouch(t, g.in, Meta{Width: 1179, Height: 2556})
+	w.set(func(w *fakeWorker) { w.devW, w.devH = 402, 874 })
+	g := restGestures(t, f, p.srv.URL, "ios", 402, 874)
+	w.waitSocket()
+	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 589, 2400)
-	touch(TouchMove, 589, 1800)
-	touch(TouchUp, 589, 1200)
-	checkBodies(t, p.waitFor(1), []any{
-		[2]any{"drag", map[string]any{"start_x": float64(196), "start_y": float64(800), "end_x": float64(196), "end_y": float64(400)}},
+	touch(TouchDown, 903, 1311)
+	w.waitFrames(1)
+	touch(TouchMove, 603, 1311)
+	w.waitFrames(2)
+	touch(TouchUp, 603, 1311)
+	checkFrames(t, w.waitFrames(3), [][3]any{
+		{"MANUAL_TOUCH_DOWN", 301, 437},
+		{"MANUAL_TOUCH_MOVE", 201, 437},
+		{"MANUAL_TOUCH_UP", 201, 437},
 	})
-	if gets, ups, _ := w.counts(); gets != 0 || ups != 0 {
-		t.Fatalf("iOS asked for the socket: worker-connection %d, upgrades %d", gets, ups)
+	if rec := g.log.wait(t, 1)[0]; rec["via"] != "ws" || rec["gesture"] != "drag" {
+		t.Fatalf("trace %v, want a drag via ws", rec)
 	}
+	if r := p.requests(); len(r) != 0 {
+		t.Fatalf("device proxy got %d requests, want none", len(r))
+	}
+}
+
+// A live press is mapped with the size worker-connection reports, not the
+// session's, and with the session's when the worker gives none.
+func TestRevylLiveMapsWithTheWorkersSize(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		platform         string
+		screenW, screenH int // the session's size
+		devW, devH       int // the worker's; 0 leaves it out
+		m                Meta
+		down, move       [2]int32
+		want             [3][2]int // down, move, up
+	}{
+		{"android", "android", 1080, 2400, 720, 1600, Meta{Width: 540, Height: 1200},
+			[2]int32{270, 900}, [2]int32{270, 600}, [3][2]int{{360, 1200}, {360, 800}, {360, 800}}},
+		{"ios", "ios", 393, 852, 402, 874, Meta{Width: 1206, Height: 2622},
+			[2]int32{603, 1311}, [2]int32{603, 1749}, [3][2]int{{201, 437}, {201, 583}, {201, 583}}},
+		{"none reported", "android", 1080, 2400, 0, 0, Meta{Width: 540, Height: 1200},
+			[2]int32{270, 900}, [2]int32{270, 600}, [3][2]int{{540, 1800}, {540, 1200}, {540, 1200}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeRevyl(t)
+			p := newFakeProxy(t)
+			w := newFakeWorker(t, p)
+			w.set(func(w *fakeWorker) { w.devW, w.devH = tc.devW, tc.devH })
+			g := restGestures(t, f, p.srv.URL, tc.platform, tc.screenW, tc.screenH)
+			w.waitSocket()
+			touch := liveTouch(t, g.in, tc.m)
+
+			touch(TouchDown, tc.down[0], tc.down[1])
+			w.waitFrames(1)
+			touch(TouchMove, tc.move[0], tc.move[1])
+			w.waitFrames(2)
+			touch(TouchUp, tc.move[0], tc.move[1])
+			checkFrames(t, w.waitFrames(3), [][3]any{
+				{"MANUAL_TOUCH_DOWN", tc.want[0][0], tc.want[0][1]},
+				{"MANUAL_TOUCH_MOVE", tc.want[1][0], tc.want[1][1]},
+				{"MANUAL_TOUCH_UP", tc.want[2][0], tc.want[2][1]},
+			})
+		})
+	}
+}
+
+// A stream whose shape is more than 1% off the size the worker reports
+// keeps its press off the socket: the press goes as one gesture, mapped
+// with the session's size, and says why. A stream turned to landscape is
+// the same shape turned, and goes live.
+func TestRevylLiveKeepsOffAStreamOfAnotherShape(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	w.set(func(w *fakeWorker) { w.devW, w.devH = 402, 874 })
+	g := restGestures(t, f, p.srv.URL, "ios", 402, 874)
+	w.waitSocket()
+
+	touch := liveTouch(t, g.in, Meta{Width: 1206, Height: 2400})
+	touch(TouchDown, 603, 2000)
+	time.Sleep(100 * time.Millisecond) // a live press has sent its down by now
+	touch(TouchMove, 603, 1500)
+	touch(TouchUp, 603, 1000)
+	checkBodies(t, p.waitFor(1), []any{
+		[2]any{"drag", map[string]any{"start_x": float64(201), "start_y": float64(728), "end_x": float64(201), "end_y": float64(364)}},
+	})
+	if fr := w.got(); len(fr) != 0 {
+		t.Fatalf("frames sent for a stream of another shape: %v", fr)
+	}
+	rec := g.log.wait(t, 1)[0]
+	if why, _ := rec["live"].(string); rec["via"] != "rest" || !strings.Contains(why, "1206x2400") {
+		t.Fatalf("trace %v, want the drag via rest and why it was not live", rec)
+	}
+
+	touch = liveTouch(t, g.in, Meta{Width: 2622, Height: 1206})
+	touch(TouchDown, 1311, 603)
+	touch(TouchUp, 1311, 603)
+	checkFrames(t, w.waitFrames(2), [][3]any{{"MANUAL_TOUCH_DOWN", 437, 201}, {"MANUAL_TOUCH_UP", 437, 201}})
 }

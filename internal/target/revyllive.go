@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -14,14 +15,15 @@ import (
 	"github.com/coder/websocket"
 )
 
-// A viewer's press on an Android Revyl device goes to the device as it
-// happens, over the worker websocket Revyl's browser viewer uses, so a drag
-// moves the screen while the finger is down. The socket takes text frames
+// A viewer's press on a Revyl device goes to the device as it happens, over
+// the worker websocket Revyl's browser viewer uses, so a drag moves the
+// screen while the finger is down. The socket takes text frames
 //
 //	{"event_type": "STREAM", "action": "MANUAL_TOUCH_DOWN" | "MANUAL_TOUCH_MOVE" | "MANUAL_TOUCH_UP",
-//	 "action_id": n, "client_sent_at_ms": ms, "x": px, "y": px}
+//	 "action_id": n, "client_sent_at_ms": ms, "x": x, "y": y}
 //
-// and MANUAL_TOUCH_UP adds "gesture" and "duration_ms". On a live account
+// in the screen size worker-connection reports: pixels on Android, points
+// on iOS. MANUAL_TOUCH_UP adds "gesture" and "duration_ms". On a live account
 // (2026-11-19) it answered each frame with an ACTION_RECEIVED frame and the
 // UP with an ACTION_ACK frame carrying the same action_id and success; it
 // opened with a CONNECTION frame and a DEVICE_INIT_STATUS frame whose
@@ -43,6 +45,11 @@ const (
 	// sooner than this, doubling to the most.
 	revylLiveRetry    = 2 * time.Second
 	revylLiveRetryMax = time.Minute
+	// revylShapeSlack is how far the stream's aspect ratio may be from the
+	// worker's screen size before a press stays off the socket. Revyl's
+	// viewer turns input off past the same 1% on some iPhones rather than
+	// guess where a touch lands.
+	revylShapeSlack = 0.01
 )
 
 // revylLiveConn is one open worker socket. Only the input's worker writes
@@ -51,6 +58,7 @@ type revylLiveConn struct {
 	c      *websocket.Conn
 	cancel context.CancelFunc // ends the reader
 	gone   chan struct{}      // closed once the reader stopped
+	w, h   int                // the screen size worker-connection reports; 0 when it gave none
 
 	mu     sync.Mutex
 	ready  bool // manual_input_ready
@@ -62,7 +70,7 @@ type revylLiveConn struct {
 
 // openLive looks up and dials the session's worker socket.
 func (r *RevylREST) openLive(ctx context.Context, key, runID string) (*revylLiveConn, error) {
-	u, err := r.workerSocket(ctx, key, runID)
+	ws, err := r.workerSocket(ctx, key, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +80,7 @@ func (r *RevylREST) openLive(ctx context.Context, key, runID string) (*revylLive
 	}
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	c, resp, err := websocket.Dial(dctx, u, &websocket.DialOptions{
+	c, resp, err := websocket.Dial(dctx, ws.url, &websocket.DialOptions{
 		HTTPHeader: http.Header{"Origin": {revylLiveOrigin}, "User-Agent": {r.UserAgent}},
 	})
 	if err != nil {
@@ -89,7 +97,7 @@ func (r *RevylREST) openLive(ctx context.Context, key, runID string) (*revylLive
 	// 32 KiB would close the socket.
 	c.SetReadLimit(-1)
 	rctx, rcancel := context.WithCancel(context.Background())
-	lc := &revylLiveConn{c: c, cancel: rcancel, gone: make(chan struct{}), nextID: 1, acks: map[int64]chan bool{}}
+	lc := &revylLiveConn{c: c, cancel: rcancel, gone: make(chan struct{}), w: ws.w, h: ws.h, nextID: 1, acks: map[int64]chan bool{}}
 	go lc.read(rctx)
 	return lc, nil
 }
@@ -216,15 +224,24 @@ func (lc *revylLiveConn) send(ctx context.Context, f revylLiveFrame, ack bool) (
 
 var errRevylLiveClosed = errors.New("revyl live touch: the socket closed")
 
+// revylLivePoint is a point of a live press: x, y where the socket puts it,
+// px, py where the device proxy would, for the rest of a press the socket
+// fails partway through.
+type revylLivePoint struct {
+	x, y   int
+	px, py int
+}
+
 // revylLivePress is a press going to the device as it happens. The viewer's
 // touches update it; the worker sends it.
 type revylLivePress struct {
-	x0, y0 int       // device units
-	start  time.Time // in.now at the down
-	nudge  chan struct{}
+	w, h  int // the size its points are mapped onto; 0 for the session's
+	p0    revylLivePoint
+	start time.Time // in.now at the down
+	nudge chan struct{}
 
 	mu        sync.Mutex
-	x, y      int // newest point
+	p         revylLivePoint // newest point
 	heard     time.Time
 	ended     bool
 	cancelled bool
@@ -240,17 +257,17 @@ func (lp *revylLivePress) poke() {
 	}
 }
 
-func (lp *revylLivePress) move(x, y int) {
+func (lp *revylLivePress) move(pt revylLivePoint) {
 	lp.mu.Lock()
-	lp.x, lp.y, lp.heard = x, y, time.Now()
+	lp.p, lp.heard = pt, time.Now()
 	lp.mu.Unlock()
 	lp.poke()
 }
 
-// lift ends the press at x, y. finish is the same press as one gesture.
-func (lp *revylLivePress) lift(x, y int, gesture string, held time.Duration, finish *revylJob) {
+// lift ends the press at pt. finish is the same press as one gesture.
+func (lp *revylLivePress) lift(pt revylLivePoint, gesture string, held time.Duration, finish *revylJob) {
 	lp.mu.Lock()
-	lp.x, lp.y, lp.heard = x, y, time.Now()
+	lp.p, lp.heard = pt, time.Now()
 	lp.ended, lp.gesture, lp.held, lp.finish = true, gesture, held.Milliseconds(), finish
 	lp.mu.Unlock()
 	lp.poke()
@@ -269,11 +286,10 @@ func (lp *revylLivePress) cancel(held time.Duration) {
 }
 
 // liveFor returns the open socket a new press can go live on, or nil.
-// Android only: iOS takes points, and its live touches are untested. With
-// no socket it starts opening one, unless the last try is too recent; the
-// press in hand still goes as a finished gesture.
+// With no socket it starts opening one, unless the last try is too recent;
+// the press in hand still goes as a finished gesture.
 func (in *revylInput) liveFor() *revylLiveConn {
-	if in.platform != "android" || in.rest == nil || in.runID == "" {
+	if in.rest == nil || in.runID == "" {
 		return nil
 	}
 	in.lmu.Lock()
@@ -372,33 +388,33 @@ func (in *revylInput) runLive(j *revylJob) {
 		return
 	}
 	sent := 0
-	lastX, lastY := lp.x0, lp.y0
+	last := lp.p0
 	var lastMove time.Time
-	if _, err := lc.send(in.ctx, revylLiveFrame{Action: "MANUAL_TOUCH_DOWN", X: lp.x0, Y: lp.y0}, false); err != nil {
+	if _, err := lc.send(in.ctx, revylLiveFrame{Action: "MANUAL_TOUCH_DOWN", X: last.x, Y: last.y}, false); err != nil {
 		in.liveFallback(lp, false, 0, 0, err)
 		return
 	}
 	sent++
 	for {
 		lp.mu.Lock()
-		x, y, ended, heard := lp.x, lp.y, lp.ended, lp.heard
+		pt, ended, heard := lp.p, lp.ended, lp.heard
 		lp.mu.Unlock()
-		if x != lastX || y != lastY {
+		if pt != last {
 			if wait := revylMoveEvery - time.Since(lastMove); wait > 0 {
 				select {
 				case <-time.After(wait):
 				case <-in.ctx.Done():
-					in.liftNow(lc, lp, lastX, lastY, sent)
+					in.liftNow(lc, lp, last.x, last.y, sent)
 					return
 				}
 				continue
 			}
-			if _, err := lc.send(in.ctx, revylLiveFrame{Action: "MANUAL_TOUCH_MOVE", X: x, Y: y}, false); err != nil {
-				in.liveFallback(lp, true, lastX, lastY, err)
+			if _, err := lc.send(in.ctx, revylLiveFrame{Action: "MANUAL_TOUCH_MOVE", X: pt.x, Y: pt.y}, false); err != nil {
+				in.liveFallback(lp, true, last.px, last.py, err)
 				return
 			}
 			sent++
-			lastX, lastY, lastMove = x, y, time.Now()
+			last, lastMove = pt, time.Now()
 			continue
 		}
 		if ended {
@@ -407,11 +423,11 @@ func (in *revylInput) runLive(j *revylJob) {
 		select {
 		case <-lp.nudge:
 		case <-in.ctx.Done():
-			in.liftNow(lc, lp, lastX, lastY, sent)
+			in.liftNow(lc, lp, last.x, last.y, sent)
 			return
 		case <-time.After(in.liveIdle - time.Since(heard)):
 			if time.Since(heard) >= in.liveIdle {
-				in.liftNow(lc, lp, lastX, lastY, sent)
+				in.liftNow(lc, lp, last.x, last.y, sent)
 				return
 			}
 		}
@@ -420,9 +436,9 @@ func (in *revylInput) runLive(j *revylJob) {
 	gesture, held, cancelled := lp.gesture, lp.held, lp.cancelled
 	lp.mu.Unlock()
 	t0 := time.Now()
-	ack, err := lc.send(in.ctx, revylLiveFrame{Action: "MANUAL_TOUCH_UP", X: lastX, Y: lastY, Gesture: gesture, DurationMs: &held}, true)
+	ack, err := lc.send(in.ctx, revylLiveFrame{Action: "MANUAL_TOUCH_UP", X: last.x, Y: last.y, Gesture: gesture, DurationMs: &held}, true)
 	if err != nil {
-		in.liveFallback(lp, true, lastX, lastY, err)
+		in.liveFallback(lp, true, last.px, last.py, err)
 		return
 	}
 	sent++
@@ -465,7 +481,8 @@ func (in *revylInput) liftNow(lc *revylLiveConn, lp *revylLivePress, x, y, sent 
 
 // liveFallback sends what is left of a press the socket could not carry,
 // once the finger lifts. wrote says whether its down was sent; x, y is the
-// last point sent. cause is why, nil when the socket did not fail.
+// last point sent, in the device proxy's units. cause is why, nil when the
+// socket did not fail.
 func (in *revylInput) liveFallback(lp *revylLivePress, wrote bool, x, y int, cause error) {
 	for {
 		lp.mu.Lock()
@@ -512,6 +529,31 @@ func (in *revylInput) liveFallback(lp *revylLivePress, wrote bool, x, y int, cau
 		rec["gesture"], rec["via"] = finish.action, "ws"
 		in.done(nil, rec, cause)
 	}
+}
+
+// livePoint maps a stream pixel for a live press: onto the w x h screen
+// the worker reports, or the session's when w is 0, and by toDevice for
+// the device proxy. It fails where toDevice does, so a press that could
+// not go as one gesture does not go live either.
+func (in *revylInput) livePoint(w, h int, x, y int32, m Meta) (revylLivePoint, error) {
+	px, py, err := in.toDevice(x, y, m)
+	if err != nil {
+		return revylLivePoint{}, err
+	}
+	pt := revylLivePoint{x: px, y: py, px: px, py: py}
+	if w > 0 && h > 0 {
+		pt.x, pt.y = scaleTo(x, y, m, w, h)
+	}
+	return pt, nil
+}
+
+// revylSameShape reports whether a stream of a known size is the w x h
+// screen's shape, turned with the stream, within revylShapeSlack.
+func revylSameShape(m Meta, w, h int) bool {
+	w, h = turnedTo(m, w, h)
+	want := float64(w) / float64(h)
+	got := float64(m.Width) / float64(m.Height)
+	return math.Abs(got-want) <= revylShapeSlack*want
 }
 
 // revylLiveGesture is the trace's name for a lift's gesture, the same as

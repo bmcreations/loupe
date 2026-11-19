@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
@@ -236,14 +237,17 @@ func (r *RevylREST) do(ctx context.Context, key, runID, action string, body any)
 //
 //	GET <base>/api/v1/execution/streaming/worker-connection/<workflow_run_id>
 //
-// answers {"status": "ready", "worker_ws_url": "wss://...?token=...", ...}.
+// answers {"status": "ready", "worker_ws_url": "wss://...?token=...",
+// "device_width": w, "device_height": h, ...}. The size is the one the
+// socket's touches are in: on a live account (2026-11-19) it was 1080x2400
+// pixels on Android and 402x874 points on an iPhone streamed at 1206x2622.
 // The endpoint is not documented; its shape was read from a live account
 // on 2026-11-19. The URL carries a token: it is never logged or put in an
 // error, and the error holds no URL, key or run id.
-func (r *RevylREST) workerSocket(ctx context.Context, key, runID string) (string, error) {
-	fail := func(msg string) (string, error) {
+func (r *RevylREST) workerSocket(ctx context.Context, key, runID string) (revylWorkerSocket, error) {
+	fail := func(msg string) (revylWorkerSocket, error) {
 		msg = strings.ReplaceAll(revylRedact(msg, key), runID, "<run>")
-		return "", errors.New("revyl worker-connection: " + msg)
+		return revylWorkerSocket{}, errors.New("revyl worker-connection: " + msg)
 	}
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -293,7 +297,25 @@ func (r *RevylREST) workerSocket(ctx context.Context, key, runID string) (string
 	if p, err := url.Parse(out.URL); err != nil || (p.Scheme != "wss" && p.Scheme != "ws") || p.Host == "" {
 		return fail("the answer has no websocket URL")
 	}
-	return out.URL, nil
+	ws := revylWorkerSocket{url: out.URL}
+	// Read on its own, so a size it cannot read is no size rather than no
+	// socket.
+	var size struct {
+		W float64 `json:"device_width"`
+		H float64 `json:"device_height"`
+	}
+	_ = json.Unmarshal(data, &size)
+	if size.W >= 1 && size.H >= 1 && size.W < 1<<16 && size.H < 1<<16 {
+		ws.w, ws.h = int(math.Round(size.W)), int(math.Round(size.H))
+	}
+	return ws, nil
+}
+
+// revylWorkerSocket is worker-connection's answer: the socket's URL, and
+// the screen size its touches are in, 0 when it gave none.
+type revylWorkerSocket struct {
+	url  string
+	w, h int
 }
 
 // revylTransportError describes a failed round trip without its URL: a
