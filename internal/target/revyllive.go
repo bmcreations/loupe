@@ -63,6 +63,7 @@ type revylLiveConn struct {
 	gone   chan struct{}      // closed once the reader stopped
 	// trace gets a record when a frame changes the size; nil drops it.
 	trace func(map[string]any)
+	ios   bool // sizes are in points, which a frame in pixels must not replace
 
 	mu sync.Mutex
 	// w, h is the screen size touches are mapped onto: worker-connection's,
@@ -76,8 +77,9 @@ type revylLiveConn struct {
 }
 
 // openLive looks up and dials the session's worker socket. trace gets a
-// record each time the socket reports another screen size.
-func (r *RevylREST) openLive(ctx context.Context, key, runID string, trace func(map[string]any)) (*revylLiveConn, error) {
+// record each time the socket reports another screen size. ios says the
+// session's sizes are in points.
+func (r *RevylREST) openLive(ctx context.Context, key, runID string, ios bool, trace func(map[string]any)) (*revylLiveConn, error) {
 	ws, err := r.workerSocket(ctx, key, runID)
 	if err != nil {
 		return nil, err
@@ -105,7 +107,7 @@ func (r *RevylREST) openLive(ctx context.Context, key, runID string, trace func(
 	// 32 KiB would close the socket.
 	c.SetReadLimit(-1)
 	rctx, rcancel := context.WithCancel(context.Background())
-	lc := &revylLiveConn{c: c, cancel: rcancel, gone: make(chan struct{}), trace: trace, w: ws.w, h: ws.h, nextID: 1, acks: map[int64]chan bool{}}
+	lc := &revylLiveConn{c: c, cancel: rcancel, gone: make(chan struct{}), trace: trace, ios: ios, w: ws.w, h: ws.h, nextID: 1, acks: map[int64]chan bool{}}
 	go lc.read(rctx)
 	return lc, nil
 }
@@ -149,12 +151,17 @@ func (lc *revylLiveConn) read(ctx context.Context) {
 			continue
 		}
 		w, h, ok := f.size()
-		changed := false
+		changed, scaled := false, false
 		var was [2]int
 		lc.mu.Lock()
 		if ok && (w != lc.w || h != lc.h) {
-			changed, was = true, [2]int{lc.w, lc.h}
-			lc.w, lc.h = w, h
+			was = [2]int{lc.w, lc.h}
+			if lc.ios && revylRescaled(was[0], was[1], w, h) {
+				scaled = true
+			} else {
+				changed = true
+				lc.w, lc.h = w, h
+			}
 		}
 		switch f.EventType {
 		case "DEVICE_INIT_STATUS":
@@ -168,12 +175,16 @@ func (lc *revylLiveConn) read(ctx context.Context) {
 			}
 		}
 		lc.mu.Unlock()
-		if changed && lc.trace != nil {
+		if (changed || scaled) && lc.trace != nil {
 			kind := f.EventType
 			if kind == "" {
 				_ = json.Unmarshal(f.Type, &kind)
 			}
-			lc.trace(revylSizeRecord(kind, was, w, h))
+			rec := revylSizeRecord(kind, was, w, h)
+			if scaled {
+				rec["ignored"] = "same shape at 2x or 3x: pixels, not points"
+			}
+			lc.trace(rec)
 		}
 	}
 }
@@ -190,6 +201,28 @@ func revylSizeRecord(kind string, was [2]int, w, h int) map[string]any {
 		rec["frame"] = kind
 	}
 	return rec
+}
+
+// revylRescaled reports whether w x h is the w0 x h0 screen, either way
+// up, at 2 or 3 times its size or a half or third of it, each side within
+// a pixel of rounding. An iPhone is 2x or 3x, so on iOS such a size is
+// the screen in pixels where touches want points, or back; a real change
+// of size on one device is not a whole multiple.
+func revylRescaled(w0, h0, w, h int) bool {
+	if w0 <= 0 || h0 <= 0 {
+		return false
+	}
+	if (w > h) != (w0 > h0) {
+		w, h = h, w
+	}
+	near := func(a, b float64) bool { return math.Abs(a-b) <= 1 }
+	for _, k := range []float64{2, 3} {
+		if near(float64(w), k*float64(w0)) && near(float64(h), k*float64(h0)) ||
+			near(float64(w0), k*float64(w)) && near(float64(h0), k*float64(h)) {
+			return true
+		}
+	}
+	return false
 }
 
 // revylSizeKeys are where a socket frame may report the screen size:
@@ -408,7 +441,7 @@ func (in *revylInput) dialLive() {
 	var lc *revylLiveConn
 	err := errors.New("revyl live touch: no API key")
 	if key := in.rest.key(); key != "" {
-		lc, err = in.rest.openLive(in.ctx, key, in.runID, in.trace)
+		lc, err = in.rest.openLive(in.ctx, key, in.runID, in.platform == "ios", in.trace)
 	}
 	in.lmu.Lock()
 	defer in.lmu.Unlock()

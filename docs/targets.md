@@ -434,8 +434,11 @@ gestures.
   press already down keeps the size it started with. On Android the
   `DEVICE_INIT_STATUS` frame carries the pair, and Revyl's viewer takes a new
   size from its `elements` frames. A side under 1, from 65536 up, or not a
-  number leaves the size as it was. Rotation still swaps the axes of the
-  newest size, and the 1% shape check below uses it.
+  number leaves the size as it was. On iOS a size that is the current one
+  at 2x or 3x, or a half or third of it, either way up, is the screen in
+  pixels and is ignored, so touches stay in points; no iOS frame with a
+  size has been seen yet. Rotation still swaps the axes of the newest size,
+  and the 1% shape check below uses it.
 - The worker opens with a `DEVICE_INIT_STATUS` frame, and a press goes live
   only once its `manual_input_ready` is true. It answers each touch with
   `ACTION_RECEIVED` and the up with `ACTION_ACK`, carrying the up's
@@ -462,7 +465,8 @@ gestures.
   when no ack came. A whole gesture's record gives, under `live`, why the
   last try at the socket failed, or that the stream was of another shape. A
   frame that changes the size has a `live-size` record with the new `size`,
-  the one it `was`, and the `frame` type it came in.
+  the one it `was`, and the `frame` type it came in; one ignored on iOS
+  also has `ignored`.
 
 ### Agent input
 

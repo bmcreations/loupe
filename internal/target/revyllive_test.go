@@ -927,6 +927,67 @@ func TestRevylLiveIgnoresASizeItCannotRead(t *testing.T) {
 	}
 }
 
+// On iOS a size that is the points size at 3x, or at 2x either way up,
+// is the screen in pixels: touches stay on points, and the trace says the
+// frame was ignored. A size that is no whole multiple still moves them.
+func TestRevylLiveKeepsPointsOverPixelsOnIOS(t *testing.T) {
+	m := Meta{Width: 1206, Height: 2622}
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	w.set(func(w *fakeWorker) { w.devW, w.devH = 402, 874 })
+	g := restGestures(t, f, p.srv.URL, "ios", 402, 874)
+	w.waitSocket()
+	touch := liveTouch(t, g.in, m)
+
+	w.push(`{"type": "elements", "device_width": 1206, "device_height": 2622}`)
+	w.push(`{"type": "elements", "deviceDimensions": {"width": 1748, "height": 804}}`)
+	rec := waitSize(t, g.log, "1748x804")
+	touch(TouchDown, 603, 1311)
+	touch(TouchUp, 603, 1311)
+	w.waitFrames(2)
+	w.push(`{"type": "elements", "device_width": 440, "device_height": 956}`)
+	waitSize(t, g.log, "440x956")
+	touch(TouchDown, 603, 1311)
+	touch(TouchUp, 603, 1311)
+	checkFrames(t, w.waitFrames(4), [][3]any{
+		{"MANUAL_TOUCH_DOWN", 201, 437}, {"MANUAL_TOUCH_UP", 201, 437},
+		{"MANUAL_TOUCH_DOWN", 220, 478}, {"MANUAL_TOUCH_UP", 220, 478},
+	})
+	if px := waitSize(t, g.log, "1206x2622"); px == nil || px["ignored"] == nil || px["was"] != "402x874" {
+		t.Fatalf("size record %v, want 1206x2622 ignored, was 402x874", px)
+	}
+	if rec == nil || rec["ignored"] == nil {
+		t.Fatalf("size record %v, want 1748x804 ignored", rec)
+	}
+	for _, r := range traceRecs(g.log, "live-size") {
+		if r["size"] == "440x956" && r["ignored"] != nil {
+			t.Fatalf("440x956 was ignored: %v", r)
+		}
+	}
+}
+
+// Android sizes are pixels on both sides, so a 2x size is followed.
+func TestRevylLiveFollowsADoubledSizeOnAndroid(t *testing.T) {
+	m := Meta{Width: 540, Height: 1200}
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	w.waitSocket()
+	touch := liveTouch(t, g.in, m)
+
+	w.push(`{"type": "elements", "device_width": 540, "device_height": 1200}`)
+	if rec := waitSize(t, g.log, "540x1200"); rec == nil || rec["ignored"] != nil {
+		t.Fatalf("size record %v, want 540x1200 followed", rec)
+	}
+	touch(TouchDown, 270, 600)
+	touch(TouchUp, 270, 600)
+	checkFrames(t, w.waitFrames(2), [][3]any{
+		{"MANUAL_TOUCH_DOWN", 270, 600}, {"MANUAL_TOUCH_UP", 270, 600},
+	})
+}
+
 // A stream more than 1% off the shape of the size worker-connection
 // reports keeps its press off the socket, until the socket reports a size
 // of the stream's shape. The next press then goes live, on that size.
