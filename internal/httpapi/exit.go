@@ -10,8 +10,8 @@ import (
 // from the signal. Under launchd it binds only with a long enough
 // ExitTimeOut: launchd SIGKILLs a job that long after its SIGTERM, 5 s
 // unless the plist sets one. launchd/dev.bmcreations.loupe.plist sets 30 s,
-// which covers this budget and the rest of shutdown, 6 s or more after it,
-// but loupe-supervisor.sh SIGKILLs loupe 5 s after passing the SIGTERM on.
+// and loupe-supervisor.sh, which that plist runs, passes the SIGTERM on up
+// to 2 s late and gives loupe 25 s to exit before it SIGKILLs it.
 const ExitStopBudget = 10 * time.Second
 
 // StopBilledDevices ends the cloud devices loupe holds, which bill by the
