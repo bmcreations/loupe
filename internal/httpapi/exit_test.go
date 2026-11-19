@@ -46,6 +46,13 @@ func TestExitStopsBilledDevicesTogetherWithinTheBudget(t *testing.T) {
 	if took := time.Since(began); took > 2*time.Second {
 		t.Errorf("the stops took %v on a 500ms budget", took)
 	}
+	// The budget cut the remove off, so Google never confirmed it: the row
+	// stays releasing for the next start. Waiting for that also keeps the
+	// release's save out of the TempDir cleanup.
+	waitFor(t, func() bool {
+		g := frig.only(t)
+		return g.State == remoteReleasing && g.ReleaseError != ""
+	})
 }
 
 // Exit's stops now run while the HTTP server drains, so a reserve that
