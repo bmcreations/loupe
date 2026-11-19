@@ -656,7 +656,7 @@ func main() {
 	}
 
 	api := httpapi.NewServer(mgr, web.FS, tracer)
-	api.SetVersion(version)
+	api.SetVersion(loupeVersion())
 	api.SetAAPT2(target.AAPT2Binary(target.SDKRoot(*androidSDK)))
 	// Presets beside it, for the same reason.
 	if err := api.SetPresetsPath(filepath.Join(filepath.Dir(cfgPath), "presets.json")); err != nil {
