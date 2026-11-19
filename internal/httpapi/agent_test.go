@@ -2326,3 +2326,68 @@ func TestAgentTextOnAPhoneKeepsItsPhoneErrorDetail(t *testing.T) {
 		t.Errorf("an ordinary text error answered %s; want it redacted", rec.Body.String())
 	}
 }
+
+// A key or button the target has no way to press is a 501 with the
+// target's reason, as a missing capability is, not a 502 device failure.
+func TestAgentKeyTheTargetCannotPressIs501(t *testing.T) {
+	reason := "keycode 26 has no gesture; it takes home (3)"
+	m := NewManager(target.Options{})
+	m.Register(&fakeAgentTarget{id: "dev1", screenW: 1080, screenH: 2400,
+		keyErr: fmt.Errorf("%s: %w", reason, target.ErrNoControl)})
+	s := &Server{mgr: m}
+	for _, body := range []string{`{"action":"key","keycode":26}`, `{"action":"button","button":"lock"}`} {
+		rec := postInput(s, "dev1", body)
+		if rec.Code != http.StatusNotImplemented || !strings.Contains(rec.Body.String(), reason) {
+			t.Errorf("%s = %d %s; want 501 with the reason", body, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// Typing that needs a session, or a tap first, answers 409 in the target's
+// fixed words: they say what to do, and carry nothing that was typed even
+// when something wrapped them with it. Any other text error is still
+// "input failed".
+func TestAgentTextKeepsFixedNoSessionAndNeedsTapWords(t *testing.T) {
+	const secret = "hunter2-secret"
+	noSession := target.NoSessionError("open this device in a viewer first")
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"no session", noSession, string(noSession)},
+		{"wrapped no session", fmt.Errorf("typing %s: %w", secret, noSession), string(noSession)},
+		{"needs a tap", fmt.Errorf("typing %s: %w", secret, target.ErrRevylNeedsTap), target.ErrRevylNeedsTap.Error()},
+	} {
+		for _, withSession := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/session=%v", tc.name, withSession), func(t *testing.T) {
+				m := NewManager(target.Options{})
+				m.Register(&fakeAgentTarget{id: "dev1", screenW: 1080, screenH: 2400, textErr: tc.err})
+				var sess *session.Session
+				if withSession {
+					var err error
+					if sess, err = m.Acquire(t.Context(), "dev1"); err != nil {
+						t.Fatalf("Acquire: %v", err)
+					}
+					defer sess.Close()
+				}
+				rec := postInput(&Server{mgr: m}, "dev1", `{"action":"text","text":"`+secret+`"}`)
+				var body ErrorResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+					t.Fatal(err)
+				}
+				if rec.Code != http.StatusConflict || body.Error != tc.want {
+					t.Fatalf("= %d %q; want 409 %q", rec.Code, body.Error, tc.want)
+				}
+				if sess == nil {
+					return
+				}
+				for _, e := range sess.EventsAfter(0) {
+					if strings.Contains(e.Err, secret) || strings.Contains(e.Text, secret) {
+						t.Errorf("event %+v contains the typed text", e)
+					}
+				}
+			})
+		}
+	}
+}

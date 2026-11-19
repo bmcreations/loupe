@@ -360,9 +360,12 @@ func TestRevylTextJoinsAndIsNeverDropped(t *testing.T) {
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	release := make(chan struct{})
-	p.set(nil, func(action string, _ *http.Request) {
+	p.set(nil, func(action string, r *http.Request) {
 		if action == "tap" {
-			<-release
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
 		}
 	})
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
@@ -822,4 +825,412 @@ func TestRevylTargetSendsInputOverREST(t *testing.T) {
 	if rec := log.wait(t, 1)[0]; rec["target"] != "revyl:"+testSession || rec["via"] != "rest" {
 		t.Fatalf("trace %v", rec)
 	}
+}
+
+// An agent's gesture waits for Revyl's answer and gives back what it said.
+// Its coordinates are stream pixels, mapped as a viewer's are.
+func TestRevylAgentInputWaitsForRevylsAnswer(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	release := make(chan struct{})
+	var taps atomic.Int32
+	p.set(func(action string) (int, string) {
+		if action == "tap" && taps.Load() == 2 {
+			return http.StatusOK, `{"success":false,"action":"tap","error":"no element at point"}`
+		}
+		return 0, ""
+	}, func(action string, r *http.Request) {
+		if action == "tap" && taps.Add(1) == 1 {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		}
+	})
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	// The stream is half the screen's size.
+	m := Meta{Width: 540, Height: 1200}
+	ctx := context.Background()
+
+	tapped := make(chan error, 1)
+	go func() { tapped <- g.in.agentTap(ctx, 270, 600, m) }()
+	if a := <-p.got; a != "tap" {
+		t.Fatalf("first request %s", a)
+	}
+	select {
+	case err := <-tapped:
+		t.Fatalf("Tap returned %v before Revyl answered", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-tapped; err != nil {
+		t.Fatalf("Tap = %v", err)
+	}
+	// The device's refusal comes back to the caller.
+	if err := g.in.agentTap(ctx, 270, 600, m); err == nil || !strings.Contains(err.Error(), "no element at point") {
+		t.Fatalf("refused Tap = %v, want the device's reason", err)
+	}
+
+	if err := g.in.agentSwipe(ctx, 100, 1000, 100, 200, m); err != nil {
+		t.Fatalf("Swipe = %v", err)
+	}
+	// Typing goes where the agent's tap landed.
+	if err := g.in.agentText(ctx, "hello"); err != nil {
+		t.Fatalf("TypeText = %v", err)
+	}
+	for _, k := range []int{KeycodeHome, KeycodeBack, keycodeEnter, keycodeDel} {
+		if err := g.in.agentKey(ctx, k); err != nil {
+			t.Fatalf("PressKey(%d) = %v", k, err)
+		}
+	}
+	err := g.in.agentKey(ctx, KeycodePower)
+	if !errors.Is(err, ErrNoControl) || !strings.Contains(err.Error(), "26") {
+		t.Fatalf("PressKey(power) = %v, want ErrNoControl naming the keycode", err)
+	}
+	tap := [2]any{"tap", map[string]any{"x": float64(540), "y": float64(1200)}}
+	checkBodies(t, p.waitFor(8), []any{
+		tap, tap,
+		[2]any{"drag", map[string]any{"start_x": float64(200), "start_y": float64(2000), "end_x": float64(200), "end_y": float64(400)}},
+		[2]any{"input", map[string]any{"x": float64(540), "y": float64(1200), "text": "hello", "clear_first": false}},
+		"go_home",
+		"back",
+		[2]any{"key", map[string]any{"key": "ENTER"}},
+		[2]any{"key", map[string]any{"key": "BACKSPACE"}},
+	})
+}
+
+// A 3x iPhone streams pixels and Revyl takes points: an agent's pixel tap
+// reaches Revyl divided by three.
+func TestRevylAgentTapOnA3xIOSStreamIsInPoints(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	// iPhone 16 Pro: 393x852 points, streamed at its 1179x2556 pixels.
+	g := restGestures(t, f, p.srv.URL, "ios", 393, 852)
+	m := Meta{Width: 1179, Height: 2556}
+	ctx := context.Background()
+	if err := g.in.agentTap(ctx, 589, 1278, m); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.in.agentSwipe(ctx, 589, 2400, 589, 1200, m); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.in.agentKey(ctx, KeycodeBack); !errors.Is(err, ErrNoControl) {
+		t.Fatalf("iOS back = %v, want ErrNoControl (back is Android's)", err)
+	}
+	if err := g.in.agentKey(ctx, KeycodeHome); err != nil {
+		t.Fatal(err)
+	}
+	checkBodies(t, p.waitFor(3), []any{
+		[2]any{"tap", map[string]any{"x": float64(196), "y": float64(426)}},
+		[2]any{"drag", map[string]any{"start_x": float64(196), "start_y": float64(800), "end_x": float64(196), "end_y": float64(400)}},
+		"go_home",
+	})
+
+	// Without a size from Revyl the tap is refused, not guessed.
+	blind := restGestures(t, f, p.srv.URL, "ios", 0, 0)
+	if err := blind.in.agentTap(ctx, 10, 10, m); !errors.Is(err, errRevylNoPoints) {
+		t.Fatalf("iOS tap without a screen size = %v, want errRevylNoPoints", err)
+	}
+}
+
+// queued reports how many gestures wait behind the one in flight.
+func (in *revylInput) queued() int {
+	in.qmu.Lock()
+	defer in.qmu.Unlock()
+	return len(in.queue)
+}
+
+func waitRevylQueued(t *testing.T, in *revylInput, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for in.queued() != n {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d gestures queued, want %d", in.queued(), n)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// Typing needs a point first. An agent's text is its own job: it neither
+// joins a viewer's pending text nor takes a viewer's later keystrokes, so
+// each waiter hears about its own gesture.
+func TestRevylAgentTextNeedsATapAndKeepsItsOwnJob(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	release := make(chan struct{})
+	p.set(nil, func(action string, r *http.Request) {
+		if action == "tap" {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		}
+	})
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	m := Meta{Width: 1080, Height: 2400}
+	ctx := context.Background()
+
+	err := g.in.agentText(ctx, "x")
+	if !errors.Is(err, ErrRevylNeedsTap) {
+		t.Fatalf("text before any tap = %v, want ErrRevylNeedsTap", err)
+	}
+	if c := p.requests(); len(c) != 0 {
+		t.Fatalf("text before a tap sent %d requests", len(c))
+	}
+
+	// A viewer's tap is in flight and held; its text waits behind it.
+	g.tap(t, m, 5, 5)
+	if a := <-p.got; a != "tap" {
+		t.Fatalf("first request %s", a)
+	}
+	if err := g.in.text("he"); err != nil {
+		t.Fatal(err)
+	}
+	typed := make(chan error, 1)
+	go func() { typed <- g.in.agentText(ctx, "XY") }()
+	waitRevylQueued(t, g.in, 2)
+	if err := g.in.text("llo"); err != nil {
+		t.Fatal(err)
+	}
+	waitRevylQueued(t, g.in, 3)
+	close(release)
+	if err := <-typed; err != nil {
+		t.Fatalf("agent text = %v", err)
+	}
+	reqs := p.waitFor(4)
+	got := make([]string, len(reqs))
+	for i, r := range reqs {
+		got[i] = r.action()
+		if r.action() == "input" {
+			got[i] += ":" + r.body(t)["text"].(string)
+		}
+	}
+	if want := []string{"tap", "input:he", "input:XY", "input:llo"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("requests\n got %q\nwant %q", got, want)
+	}
+}
+
+// Text Revyl echoes back in an error stays out of what the agent is told.
+func TestRevylAgentTextKeepsTheTextOutOfItsError(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	p.set(func(action string) (int, string) {
+		if action == "input" {
+			return http.StatusOK, `{"success":false,"action":"input","error":"could not type hunter2pass"}`
+		}
+		return 0, ""
+	}, nil)
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	m := Meta{Width: 1080, Height: 2400}
+	ctx := context.Background()
+	if err := g.in.agentTap(ctx, 10, 10, m); err != nil {
+		t.Fatal(err)
+	}
+	err := g.in.agentText(ctx, "hunter2pass")
+	if err == nil || strings.Contains(err.Error(), "hunter2pass") || !strings.Contains(err.Error(), "<text>") {
+		t.Fatalf("text error = %v, want it with the text hidden", err)
+	}
+}
+
+// An agent is told when the queue is full rather than waiting behind it,
+// for text as well as gestures: unlike a viewer's keystroke, a refused
+// agent call is not lost without anyone knowing. A viewer's text still goes
+// in.
+func TestRevylAgentInputHonoursTheQueueLimit(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	release := make(chan struct{})
+	defer close(release)
+	p.set(nil, func(action string, r *http.Request) {
+		if action == "tap" {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		}
+	})
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	m := Meta{Width: 1080, Height: 2400}
+	ctx := context.Background()
+	g.tap(t, m, 5, 5)
+	<-p.got
+	for range revylQueue {
+		g.tap(t, m, 7, 7)
+	}
+	waitRevylQueued(t, g.in, revylQueue)
+	for name, call := range map[string]func() error{
+		"tap":   func() error { return g.in.agentTap(ctx, 1, 1, m) },
+		"swipe": func() error { return g.in.agentSwipe(ctx, 1, 1, 500, 500, m) },
+		"text":  func() error { return g.in.agentText(ctx, "x") },
+		"key":   func() error { return g.in.agentKey(ctx, KeycodeHome) },
+	} {
+		done := make(chan error, 1)
+		go func() { done <- call() }()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "queue full") {
+				t.Fatalf("%s with the queue full = %v, want queue full", name, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s waited behind a full queue", name)
+		}
+	}
+	if err := g.in.text("y"); err != nil {
+		t.Fatalf("viewer text with the queue full: %v", err)
+	}
+}
+
+// An agent that gives up on a gesture still in the queue takes it out, so
+// it cannot land after the caller was told it failed and retried.
+func TestRevylAgentInputThatTimesOutIsNotSentLater(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	release := make(chan struct{})
+	p.set(nil, func(action string, r *http.Request) {
+		if action == "tap" {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		}
+	})
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	m := Meta{Width: 1080, Height: 2400}
+	g.tap(t, m, 5, 5)
+	<-p.got
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := g.in.agentKey(ctx, KeycodeHome)
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "not sent") {
+		t.Fatalf("PressKey past its deadline = %v, want a deadline error saying it was not sent", err)
+	}
+	close(release)
+	time.Sleep(100 * time.Millisecond)
+	if reqs := p.requests(); len(reqs) != 1 {
+		t.Fatalf("%d requests, want only the first tap: the timed-out key was sent anyway", len(reqs))
+	}
+}
+
+// Closing the stream answers every agent call still waiting, as having no
+// session.
+func TestRevylAgentInputEndsWithTheStream(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	p.set(nil, func(action string, r *http.Request) {
+		if action == "tap" {
+			<-r.Context().Done()
+		}
+	})
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	m := Meta{Width: 1080, Height: 2400}
+	g.tap(t, m, 5, 5)
+	<-p.got
+	done := make(chan error, 1)
+	go func() { done <- g.in.agentKey(context.Background(), KeycodeHome) }()
+	waitRevylQueued(t, g.in, 1)
+	g.in.close()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrNoSession) {
+			t.Fatalf("PressKey across a close = %v, want ErrNoSession", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PressKey still waiting after the stream closed")
+	}
+	if err := g.in.agentKey(context.Background(), KeycodeHome); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("PressKey on a closed stream = %v, want ErrNoSession", err)
+	}
+}
+
+// The target sends an agent's input through the stream a viewer opened,
+// and has none to send it through before that or after the stream closes.
+func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
+	w := newFakeWHEP(t)
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	f.respond("device-info", "device-info", w.srv.URL+"/whep/endpoint")
+	tgt := &RevylTarget{
+		CLI: f.cli, Session: RevylSession{SessionID: testSession, Platform: "android"},
+		REST:     &RevylREST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
+		settings: loopbackSettings(), poll: 20 * time.Millisecond,
+	}
+	var act Actuator = tgt
+	var sizer ScreenSizer = tgt
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	noStream := func(when string) {
+		t.Helper()
+		for name, err := range map[string]error{
+			"Tap":      act.Tap(ctx, 1, 1),
+			"Swipe":    act.Swipe(ctx, 1, 1, 2, 2, 300),
+			"TypeText": act.TypeText(ctx, "x"),
+			"PressKey": act.PressKey(ctx, KeycodeHome),
+		} {
+			if !errors.Is(err, ErrNoSession) || !strings.Contains(err.Error(), "viewer") {
+				t.Fatalf("%s %s = %v, want ErrNoSession saying to open a viewer", name, when, err)
+			}
+		}
+		if _, _, err := sizer.ScreenSize(ctx); !errors.Is(err, ErrNoSession) {
+			t.Fatalf("ScreenSize %s = %v, want ErrNoSession", when, err)
+		}
+	}
+	noStream("before Open")
+	if n := len(p.requests()); n != 0 {
+		t.Fatalf("%d proxy requests with no stream", n)
+	}
+
+	st, err := tgt.Open(ctx, DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's screen is 720x404, twice the 360x202 stream. An agent
+	// works in the stream's pixels, so that is the size it is told.
+	if w, h, err := sizer.ScreenSize(ctx); err != nil || w != 360 || h != 202 {
+		t.Fatalf("ScreenSize = %d, %d, %v, want the stream's 360x202", w, h, err)
+	}
+	if err := act.Tap(ctx, 180, 101); err != nil {
+		t.Fatalf("Tap = %v", err)
+	}
+	if err := act.TypeText(ctx, "hi"); err != nil {
+		t.Fatalf("TypeText = %v", err)
+	}
+	if err := act.Swipe(ctx, 0, 200, 0, 0, 300); err != nil {
+		t.Fatalf("Swipe = %v", err)
+	}
+	if err := act.PressKey(ctx, KeycodeBack); err != nil {
+		t.Fatalf("PressKey = %v", err)
+	}
+	checkBodies(t, p.waitFor(4), []any{
+		[2]any{"tap", map[string]any{"x": float64(360), "y": float64(202)}},
+		[2]any{"input", map[string]any{"x": float64(360), "y": float64(202), "text": "hi", "clear_first": false}},
+		[2]any{"drag", map[string]any{"start_x": float64(0), "start_y": float64(400), "end_x": float64(0), "end_y": float64(0)}},
+		"back",
+	})
+
+	// A second stream takes over while both are open, and the first still
+	// serves once the second closes. The fake WHEP server serves one
+	// session, so the second gets its own.
+	w2 := newFakeWHEP(t)
+	f.respond("device-info", "device-info", w2.srv.URL+"/whep/endpoint")
+	st2, err := tgt.Open(ctx, DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tgt.liveStream(); got != st2 {
+		t.Fatalf("live stream is %p, want the newest %p", got, st2)
+	}
+	if err := st2.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := tgt.liveStream(); got != st {
+		t.Fatalf("live stream after closing the newest is %p, want the first %p", got, st)
+	}
+	if err := act.PressKey(ctx, KeycodeHome); err != nil {
+		t.Fatalf("PressKey through the first stream = %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	noStream("after Close")
 }

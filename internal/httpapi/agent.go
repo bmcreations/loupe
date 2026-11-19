@@ -785,8 +785,17 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, status, ErrorResponse{Error: safeErr.Error(), Code: code})
 			return
 		}
-		if errors.Is(err, target.ErrNoSession) {
+		// A Revyl device types at the last tap, so typing before one is
+		// asked out of turn, like input with no session.
+		if errors.Is(err, target.ErrNoSession) || errors.Is(err, target.ErrRevylNeedsTap) {
 			writeJSON(w, http.StatusConflict, ErrorResponse{Error: safeErr.Error()})
+			return
+		}
+		// A key or button the target has no way to press is a missing
+		// capability, the same 501 as a target with no input at all, not
+		// a device failure.
+		if errors.Is(err, target.ErrNoControl) {
+			writeJSON(w, http.StatusNotImplemented, ErrorResponse{Error: safeErr.Error()})
 			return
 		}
 		if errors.Is(err, target.ErrHubHoldsInput) {
@@ -924,12 +933,22 @@ var errInputFailed = errors.New("input failed")
 // character names the key), so they cannot carry the text. Redacting them
 // would drop what a caller needs to tell a retry-safe failure from one that
 // may have landed.
+//
+// A target.NoSessionError and target.ErrRevylNeedsTap say what to do
+// first, in fixed words. Only those words are returned, without whatever
+// wrapped them, so they cannot carry the text either.
 func sanitizeActionErr(req InputRequest, err error, redaction *textRedaction) error {
 	if err == nil || req.Action != "text" {
 		return err
 	}
 	if errors.Is(err, target.ErrPhoneUnreachable) || errors.Is(err, target.ErrPhoneDeliveryUnknown) {
 		return err
+	}
+	if ns, ok := errors.AsType[target.NoSessionError](err); ok {
+		return ns
+	}
+	if errors.Is(err, target.ErrRevylNeedsTap) {
+		return target.ErrRevylNeedsTap
 	}
 	if redaction != nil && !redaction.redacted {
 		return err

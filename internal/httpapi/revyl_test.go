@@ -621,21 +621,47 @@ func TestRevylTargetIsRefusedByLocalOnlyRoutes(t *testing.T) {
 		{http.MethodPost, "/api/install?target=" + id},
 		{http.MethodPost, "/api/devices/boot?target=" + id},
 		{http.MethodPost, "/api/devices/shutdown?target=" + id},
-		{http.MethodPost, "/api/input?target=" + id},
-		{http.MethodPost, "/api/sequence?target=" + id},
 	} {
-		body := ""
-		switch {
-		case strings.HasPrefix(c.path, "/api/input"):
-			body = `{"action":"tap","x":10,"y":10}`
-		case strings.HasPrefix(c.path, "/api/sequence"):
-			body = `{"steps":[{"action":"tap","x":10,"y":10}]}`
-		}
-		rec := do(rig.s, c.method, c.path, body)
+		rec := do(rig.s, c.method, c.path, "")
 		t.Logf("%s %s = %d %s", c.method, c.path, rec.Code, strings.TrimSpace(rec.Body.String()))
 		if rec.Code < 400 || rec.Code >= 500 && rec.Code != http.StatusNotImplemented {
 			t.Errorf("%s %s = %d, want a refusal", c.method, c.path, rec.Code)
 		}
+	}
+}
+
+// A Revyl target takes an agent's input through the stream a viewer
+// opened. With none open, every input action is a 409 that says to open
+// one, and so is a sequence, which stops at that step. Nothing reaches the
+// CLI. Input through an open stream is covered in internal/target, which
+// has the fake WHEP server a stream needs.
+func TestRevylAgentInputWithNoStreamIs409(t *testing.T) {
+	rig := revylServer(t)
+	rig.file("device-start.json", revylStartJSON)
+	if rec := do(rig.s, http.MethodPost, "/api/revyl", `{"platform":"android"}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("start = %d %s", rec.Code, rec.Body)
+	}
+	rig.waitFor("the device to start", func() bool {
+		l := rig.list()
+		return len(l) == 1 && l[0].State == revylActive
+	})
+	id := rig.list()[0].Target
+	before := len(rig.argv())
+	for _, c := range []struct{ path, body string }{
+		{"/api/input?target=" + id, `{"action":"tap","x":10,"y":10}`},
+		{"/api/input?target=" + id, `{"action":"swipe","x":10,"y":500,"x2":10,"y2":100}`},
+		{"/api/input?target=" + id, `{"action":"text","text":"hello"}`},
+		{"/api/input?target=" + id, `{"action":"key","keycode":3}`},
+		{"/api/input?target=" + id, `{"action":"button","button":"back"}`},
+		{"/api/sequence?target=" + id, `{"steps":[{"action":"tap","x":10,"y":10}]}`},
+	} {
+		rec := do(rig.s, http.MethodPost, c.path, c.body)
+		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "open this device in a viewer first") {
+			t.Errorf("%s %s = %d %s; want 409 saying to open a viewer", c.path, c.body, rec.Code, strings.TrimSpace(rec.Body.String()))
+		}
+	}
+	if ran := rig.argv()[before:]; len(ran) != 0 {
+		t.Errorf("input with no stream ran the CLI: %q", ran)
 	}
 }
 

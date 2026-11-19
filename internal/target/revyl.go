@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -402,7 +403,21 @@ type RevylTarget struct {
 
 	settings *webrtc.SettingEngine // tests: loopback candidates
 	poll     time.Duration         // tests: how often Open re-reads info
+
+	// streams are the open streams, oldest first. An agent's input goes
+	// through the newest, so it queues behind a viewer's gestures instead
+	// of racing them on a second queue.
+	mu      sync.Mutex
+	streams []*revylStream
 }
+
+var (
+	_ Actuator    = (*RevylTarget)(nil)
+	_ ScreenSizer = (*RevylTarget)(nil)
+)
+
+// errRevylNoStream is an agent's input with no stream to send it through.
+var errRevylNoStream = NoSessionError("revyl: open this device in a viewer first; loupe sends a Revyl device's input through the viewer's stream")
 
 func (t *RevylTarget) ID() string { return "revyl:" + t.Session.SessionID }
 func (t *RevylTarget) Kind() Kind { return KindRevyl }
@@ -443,7 +458,100 @@ func (t *RevylTarget) Open(ctx context.Context, _ Options) (Stream, error) {
 	}
 	// t.Session is not updated: listing reads it from other goroutines, and
 	// the stream keeps s itself.
-	return &revylStream{whepReceiver: rcv, in: newRevylInput(t.CLI, t.REST, s, t.inputTrace())}, nil
+	st := &revylStream{whepReceiver: rcv, in: newRevylInput(t.CLI, t.REST, s, t.inputTrace()), owner: t}
+	t.mu.Lock()
+	t.streams = append(t.streams, st)
+	t.mu.Unlock()
+	return st, nil
+}
+
+// forget drops a stream that is closing, so agent input stops going to it.
+func (t *RevylTarget) forget(st *revylStream) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i, s := range t.streams {
+		if s == st {
+			t.streams = slices.Delete(t.streams, i, i+1)
+			return
+		}
+	}
+}
+
+// liveStream is the newest open stream, or nil.
+func (t *RevylTarget) liveStream() *revylStream {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if n := len(t.streams); n > 0 {
+		return t.streams[n-1]
+	}
+	return nil
+}
+
+func (t *RevylTarget) agentStream() (*revylStream, error) {
+	if st := t.liveStream(); st != nil {
+		return st, nil
+	}
+	return nil, errRevylNoStream
+}
+
+// Tap, Swipe, TypeText and PressKey are an agent's input. They go through
+// the open stream's queue, in order with a viewer's gestures, and return
+// what Revyl answered. Coordinates are stream pixels, mapped the same way
+// as a viewer's touches. With no stream open they return ErrNoSession.
+func (t *RevylTarget) Tap(ctx context.Context, x, y int) error {
+	st, err := t.agentStream()
+	if err != nil {
+		return err
+	}
+	return st.in.agentTap(ctx, clamp32(x), clamp32(y), st.Meta())
+}
+
+// Swipe sends a drag. ms is ignored: Revyl's drag takes no duration (the
+// device proxy's drag body and `revyl device drag` have only the two
+// points), and its swipe, which has one, takes a direction instead of an
+// end point.
+func (t *RevylTarget) Swipe(ctx context.Context, x1, y1, x2, y2, _ int) error {
+	st, err := t.agentStream()
+	if err != nil {
+		return err
+	}
+	return st.in.agentSwipe(ctx, clamp32(x1), clamp32(y1), clamp32(x2), clamp32(y2), st.Meta())
+}
+
+// TypeText types at the last tap, an agent's or a viewer's, since Revyl
+// types at a point. Before any tap it returns ErrRevylNeedsTap.
+func (t *RevylTarget) TypeText(ctx context.Context, s string) error {
+	st, err := t.agentStream()
+	if err != nil {
+		return err
+	}
+	return st.in.agentText(ctx, s)
+}
+
+func (t *RevylTarget) PressKey(ctx context.Context, keycode int) error {
+	st, err := t.agentStream()
+	if err != nil {
+		return err
+	}
+	return st.in.agentKey(ctx, keycode)
+}
+
+// ScreenSize is the open stream's size: an agent's coordinates are stream
+// pixels, so this is the space its taps are placed in.
+func (t *RevylTarget) ScreenSize(context.Context) (int, int, error) {
+	st, err := t.agentStream()
+	if err != nil {
+		return 0, 0, err
+	}
+	m := st.Meta()
+	if m.Width <= 0 || m.Height <= 0 {
+		return 0, 0, errRevylNoSize
+	}
+	return m.Width, m.Height, nil
+}
+
+func clamp32(v int) int32 {
+	return int32(min(max(v, math.MinInt32), math.MaxInt32))
 }
 
 func (t *RevylTarget) inputTrace() func(map[string]any) {
@@ -487,7 +595,8 @@ func (t *RevylTarget) readySession(ctx context.Context) (RevylSession, error) {
 // revylStream is a WHEP video stream with Revyl gestures for input.
 type revylStream struct {
 	*whepReceiver
-	in *revylInput
+	in    *revylInput
+	owner *RevylTarget // forgets the stream on Close
 }
 
 func (s *revylStream) Touch(t Touch) error    { return s.in.touch(t, s.Meta()) }
@@ -495,6 +604,10 @@ func (s *revylStream) Scroll(Scroll) error    { return ErrNoControl }
 func (s *revylStream) Key(k Key) error        { return s.in.key(k) }
 func (s *revylStream) Text(text string) error { return s.in.text(text) }
 func (s *revylStream) Close() error {
+	// Forgotten first, so no agent input is queued on an input closing.
+	if s.owner != nil {
+		s.owner.forget(s)
+	}
 	s.in.close()
 	return s.whepReceiver.Close()
 }
@@ -527,7 +640,9 @@ const (
 // Each gesture is a network round trip, so gestures queue for one worker
 // that sends them one at a time, in order, and the input methods return at
 // once instead of holding up the viewer that sent them. The worker sends
-// over the device proxy when it can and through the CLI otherwise.
+// over the device proxy when it can and through the CLI otherwise. An
+// agent's gesture (the agent* methods) joins the same queue but waits for
+// Revyl's answer, which the worker gives back on the job's done channel.
 type revylInput struct {
 	cli      RevylCLI
 	rest     *RevylREST // nil: the CLI sends everything
@@ -581,6 +696,11 @@ type revylJob struct {
 	ms     int    // longpress's hold
 	key    string // ENTER or BACKSPACE
 	text   string // input's text; never in argv, an error or the trace
+	// done, for an agent's gesture, gets its one result: from the worker
+	// once Revyl answered, or from close if it never went. It has room for
+	// that result, so neither waits on a caller that gave up. Nil for a
+	// viewer's gesture, which nobody waits on.
+	done chan error
 }
 
 // body is the device-proxy request body, as the CLI's MCP tools build it
@@ -708,6 +828,12 @@ func (in *revylInput) run(j *revylJob) {
 	if in.trace != nil {
 		in.trace(rec)
 	}
+	if j.done != nil {
+		if err != nil && in.ctx.Err() != nil {
+			err = errRevylClosedInFlight
+		}
+		j.done <- err
+	}
 }
 
 // sendREST sends j over the device proxy. done is false when the CLI
@@ -764,31 +890,48 @@ func revylHideText(err error, text string) error {
 	return errors.New(strings.ReplaceAll(err.Error(), text, "<text>"))
 }
 
+// Once the stream closes there is nothing to send an agent's gesture
+// through, which /api/input answers as having no session.
+var (
+	errRevylClosed         = NoSessionError("revyl: the viewer's stream closed before the gesture was sent; open the device in a viewer again")
+	errRevylClosedInFlight = NoSessionError("revyl: the viewer's stream closed while the gesture was in flight, so it may have landed; open the device in a viewer again")
+)
+
 func (in *revylInput) close() {
 	in.once.Do(func() {
 		in.qmu.Lock()
+		dropped := in.queue
 		in.closed, in.queue = true, nil
 		in.qmu.Unlock()
+		for _, j := range dropped {
+			if j.done != nil {
+				j.done <- errRevylClosed
+			}
+		}
 		in.cancel()
 	})
 	<-in.stopped
 }
 
-// enqueue queues a gesture against this session. Typing joins text still
-// waiting at the same point, so a burst of keystrokes is one input call.
-// Text is never refused for a full queue: a dropped character is a wrong
-// word nobody is told about, while a dropped tap is visible. Past the
-// limit nothing else is queued, so later text joins the last job and the
-// queue grows by one at most.
+// enqueue queues a gesture against this session. A viewer's typing joins
+// its text still waiting at the same point, so a burst of keystrokes is
+// one input call. A viewer's text is never refused for a full queue: a
+// dropped character is a wrong word nobody is told about, while a dropped
+// tap is visible. Past the limit nothing else is queued, so later text
+// joins the last job and the queue grows by one at most.
+//
+// An agent's text is its own job, joined to nothing and joined by
+// nothing, so its result is its own. It is refused for a full queue like
+// any other gesture: the agent is told, so nothing is lost unseen.
 func (in *revylInput) enqueue(j *revylJob) error {
 	in.qmu.Lock()
 	defer in.qmu.Unlock()
 	if in.closed {
-		return errors.New("revyl: stream closed")
+		return errRevylClosed
 	}
-	if j.action == "input" {
+	if j.action == "input" && j.done == nil {
 		if n := len(in.queue); n > 0 {
-			if t := in.queue[n-1]; t.action == "input" && t.x == j.x && t.y == j.y {
+			if t := in.queue[n-1]; t.action == "input" && t.done == nil && t.x == j.x && t.y == j.y {
 				t.text += j.text
 				return nil
 			}
@@ -809,11 +952,13 @@ func (in *revylInput) enqueue(j *revylJob) error {
 // every tap in the wrong place without saying so.
 var errRevylNoPoints = errors.New("revyl: the session reports no screen size, so a stream pixel cannot be turned into an iOS point")
 
+var errRevylNoSize = errors.New("revyl: stream size not known yet")
+
 // toDevice maps a stream pixel to Revyl's device units: pixels on Android,
 // points on iOS (the flags' help text, cmd/revyl/device.go:4014).
 func (in *revylInput) toDevice(x, y int32, m Meta) (int, int, error) {
 	if m.Width <= 0 || m.Height <= 0 {
-		return 0, 0, errors.New("revyl: stream size not known yet")
+		return 0, 0, errRevylNoSize
 	}
 	sw, sh := in.screenW, in.screenH
 	if sw <= 0 || sh <= 0 {
@@ -892,21 +1037,45 @@ func (in *revylInput) key(k Key) error {
 	if k.Action != KeyDown {
 		return nil
 	}
-	switch k.Keycode {
-	case KeycodeHome:
-		return in.enqueue(&revylJob{action: "go_home"})
-	case KeycodeBack:
-		if in.platform != "android" {
-			return ErrNoControl
-		}
-		return in.enqueue(&revylJob{action: "back"})
-	case keycodeEnter:
-		return in.enqueue(&revylJob{action: "key", key: "ENTER"})
-	case keycodeDel:
-		return in.enqueue(&revylJob{action: "key", key: "BACKSPACE"})
+	j, err := in.keyJob(int(k.Keycode))
+	if err != nil {
+		return err
 	}
-	return ErrNoControl
+	return in.enqueue(j)
 }
+
+// keyJob is the gesture for an Android keycode, or an error matching
+// ErrNoControl for one Revyl has no gesture for.
+func (in *revylInput) keyJob(keycode int) (*revylJob, error) {
+	switch keycode {
+	case KeycodeHome:
+		return &revylJob{action: "go_home"}, nil
+	case KeycodeBack:
+		if in.platform == "android" {
+			return &revylJob{action: "back"}, nil
+		}
+	case keycodeEnter:
+		return &revylJob{action: "key", key: "ENTER"}, nil
+	case keycodeDel:
+		return &revylJob{action: "key", key: "BACKSPACE"}, nil
+	}
+	takes := "home (3), enter (66) and delete (67)"
+	if in.platform == "android" {
+		takes = "home (3), back (4), enter (66) and delete (67)"
+	}
+	return nil, revylNoKey(fmt.Sprintf("revyl: keycode %d has no Revyl gesture on %s; it takes %s", keycode, in.platform, takes))
+}
+
+// revylNoKey is a key Revyl cannot press, in words that say which it can.
+// errors.Is matches it to ErrNoControl.
+type revylNoKey string
+
+func (e revylNoKey) Error() string        { return string(e) }
+func (e revylNoKey) Is(target error) bool { return target == ErrNoControl }
+
+// ErrRevylNeedsTap is typing on a Revyl device before anything was
+// tapped: Revyl types at a point, and the last tap is the field.
+var ErrRevylNeedsTap = errors.New("revyl: tap a text field first; Revyl types at a point")
 
 // text types at the last tap, the field the user picked: Revyl types at a
 // point.
@@ -914,13 +1083,110 @@ func (in *revylInput) text(s string) error {
 	if s == "" {
 		return nil
 	}
-	in.mu.Lock()
-	x, y, ok := in.tapX, in.tapY, in.haveTap
-	in.mu.Unlock()
-	if !ok {
-		return errors.New("revyl: tap a text field first; Revyl types at a point")
+	x, y, err := in.typingPoint()
+	if err != nil {
+		return err
 	}
 	return in.enqueue(&revylJob{action: "input", x: x, y: y, text: s})
+}
+
+func (in *revylInput) typingPoint() (int, int, error) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if !in.haveTap {
+		return 0, 0, ErrRevylNeedsTap
+	}
+	return in.tapX, in.tapY, nil
+}
+
+// agentTap taps a stream pixel and waits for Revyl's answer. Like a
+// viewer's tap, it is where typing goes next.
+func (in *revylInput) agentTap(ctx context.Context, x, y int32, m Meta) error {
+	dx, dy, err := in.toDevice(x, y, m)
+	if err != nil {
+		return err
+	}
+	j := &revylJob{action: "tap", x: dx, y: dy, done: make(chan error, 1)}
+	if err := in.enqueue(j); err != nil {
+		return err
+	}
+	in.mu.Lock()
+	in.tapX, in.tapY, in.haveTap = dx, dy, true
+	in.mu.Unlock()
+	return in.wait(ctx, j)
+}
+
+func (in *revylInput) agentSwipe(ctx context.Context, x0, y0, x1, y1 int32, m Meta) error {
+	dx0, dy0, err := in.toDevice(x0, y0, m)
+	if err != nil {
+		return err
+	}
+	dx1, dy1, err := in.toDevice(x1, y1, m)
+	if err != nil {
+		return err
+	}
+	return in.send(ctx, &revylJob{action: "drag", x: dx0, y: dy0, x1: dx1, y1: dy1})
+}
+
+func (in *revylInput) agentText(ctx context.Context, s string) error {
+	if s == "" {
+		return nil
+	}
+	x, y, err := in.typingPoint()
+	if err != nil {
+		return err
+	}
+	return in.send(ctx, &revylJob{action: "input", x: x, y: y, text: s})
+}
+
+func (in *revylInput) agentKey(ctx context.Context, keycode int) error {
+	j, err := in.keyJob(keycode)
+	if err != nil {
+		return err
+	}
+	return in.send(ctx, j)
+}
+
+// send queues an agent's gesture and waits for its result.
+func (in *revylInput) send(ctx context.Context, j *revylJob) error {
+	j.done = make(chan error, 1)
+	if err := in.enqueue(j); err != nil {
+		return err
+	}
+	return in.wait(ctx, j)
+}
+
+// wait waits for a queued gesture's result. A caller that gives up first
+// takes its gesture out of the queue if it is still there, so it cannot
+// land after the caller was told it failed and tried again.
+func (in *revylInput) wait(ctx context.Context, j *revylJob) error {
+	select {
+	case err := <-j.done:
+		return err
+	case <-ctx.Done():
+	}
+	if in.unqueue(j) {
+		return fmt.Errorf("revyl: %s not sent: %w", j.action, ctx.Err())
+	}
+	select {
+	case err := <-j.done:
+		return err
+	default:
+	}
+	return fmt.Errorf("revyl: stopped waiting for %s, which was already sent and may still land: %w", j.action, ctx.Err())
+}
+
+// unqueue takes j out of the queue, reporting whether it was there.
+func (in *revylInput) unqueue(j *revylJob) bool {
+	in.qmu.Lock()
+	defer in.qmu.Unlock()
+	for i, q := range in.queue {
+		if q == j {
+			in.queue = slices.Delete(in.queue, i, i+1)
+			return true
+		}
+	}
+	return false
 }
 
 // Err returns the last gesture's error, for tests and diagnostics.

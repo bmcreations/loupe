@@ -40,6 +40,16 @@ const uhidKeyboardName = "loupe keyboard"
 // nothing to attach it to.
 var ErrNoSession = errors.New("no session is open on this device; the keyboard attaches when one is")
 
+// NoSessionError is ErrNoSession in a target's own words, for a target
+// that needs an open session for something other than the keyboard.
+// errors.Is matches it to ErrNoSession. Its words are fixed, never
+// anything a caller sent, so /api/input passes them on for a text action
+// whose other errors it hides.
+type NoSessionError string
+
+func (e NoSessionError) Error() string        { return string(e) }
+func (e NoSessionError) Is(target error) bool { return target == ErrNoSession }
+
 // SetHardwareKeyboard implements HardwareKeyboarder. It applies the setting
 // to every open stream, and a stream opened while it holds applies it
 // itself.
