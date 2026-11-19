@@ -4133,6 +4133,9 @@
         "reason": {
           "type": "string"
         },
+        "releaseError": {
+          "type": "string"
+        },
         "reservation": {
           "type": "string"
         },

@@ -43,8 +43,9 @@ func (f *fakeRemoteCLI) run(_ context.Context, args ...string) ([]byte, []byte, 
 	line := strings.Join(args, " ")
 	f.mu.Lock()
 	f.calls = append(f.calls, line)
+	fail := f.fail
 	f.mu.Unlock()
-	for prefix, msg := range f.fail {
+	for prefix, msg := range fail {
 		if strings.HasPrefix(line, prefix) {
 			return nil, []byte(msg), errors.New("exit status 1")
 		}
@@ -290,12 +291,10 @@ func TestExitReleasesAndARestartReleasesWhatACrashLeft(t *testing.T) {
 	if err := next.Load(path); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, func() bool { return len(cli.ran()) == 2 })
-	if ran := cli.ran(); ran[1] != "device remote remove --project=demo-project 21kulawh96ut3" {
+	// Ended only once the remove has answered.
+	waitFor(t, func() bool { l := next.List(); return len(l) == 1 && l[0].State == remoteEnded })
+	if ran := cli.ran(); len(ran) != 2 || ran[1] != "device remote remove --project=demo-project 21kulawh96ut3" {
 		t.Errorf("restart ran %v", ran)
-	}
-	if list := next.List(); len(list) != 1 || list[0].State != remoteEnded {
-		t.Errorf("after restart = %+v", list)
 	}
 }
 
@@ -469,5 +468,175 @@ func TestSignOutIsRefusedWhileADeviceIsReserved(t *testing.T) {
 	}
 	if rec := do(rig.s, http.MethodDelete, "/api/remote/account", ""); rec.Code != http.StatusOK {
 		t.Fatalf("sign-out after release = %d: %s", rec.Code, rec.Body)
+	}
+}
+
+// onDisk is the state file's row for key.
+func onDisk(t *testing.T, path, key string) RemoteReservation {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []RemoteReservation
+	if err := json.Unmarshal(raw, &items); err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items {
+		if it.Key == key {
+			return it
+		}
+	}
+	t.Fatalf("no row %s in %s", key, raw)
+	return RemoteReservation{}
+}
+
+func (f *fakeRemoteCLI) setFail(fail map[string]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fail = fail
+}
+
+func (f *fakeRemoteCLI) count(prefix string) int {
+	n := 0
+	for _, l := range f.ran() {
+		if strings.HasPrefix(l, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+const removeCall = "device remote remove --project=demo-project 21kulawh96ut3"
+
+// A release Google did not confirm still bills, so the row stays releasing
+// on disk, a second DELETE tries again, and the next start finishes it.
+func TestAReleaseGoogleRefusedStaysReleasingAndARestartFinishesIt(t *testing.T) {
+	cli := &fakeRemoteCLI{fail: map[string]string{"device remote remove": "Error: UNAVAILABLE: connection reset"}}
+	rig := remoteServer(t, cli)
+	key := rig.reserve(t)
+	waitFor(t, func() bool { return rig.only(t).State == remoteActive })
+
+	for i := range 2 {
+		if rec := do(rig.s, http.MethodDelete, "/api/remote?key="+key, ""); rec.Code != http.StatusBadGateway {
+			t.Fatalf("release %d = %d %s, want 502", i+1, rec.Code, rec.Body)
+		}
+	}
+	if n := cli.count(removeCall); n != 2 {
+		t.Errorf("removes = %d, want 2: a DELETE on a releasing row tries again", n)
+	}
+	if got := rig.only(t); got.State != "releasing" || got.Reason != "released" {
+		t.Errorf("after a refused release = %+v", got)
+	}
+	if got := onDisk(t, rig.rd.path, key); got.State != "releasing" {
+		t.Errorf("on disk = %+v", got)
+	}
+	// The retry needs the signed-in account.
+	if rec := do(rig.s, http.MethodDelete, "/api/remote/account", ""); rec.Code != http.StatusConflict {
+		t.Errorf("sign-out while releasing = %d, want 409", rec.Code)
+	}
+
+	next := &fakeRemoteCLI{t: t, holding: true}
+	rd := NewRemoteDevices(func() string { return "android" }, nil, nil)
+	rd.run = next.run
+	rd.now = rig.rd.now
+	if err := rd.Load(rig.rd.path); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { l := rd.List(); return len(l) == 1 && l[0].State == remoteEnded })
+	if n := next.count(removeCall); n != 1 {
+		t.Errorf("restart ran %v", next.ran())
+	}
+	if got := onDisk(t, rig.rd.path, key); got.State != remoteEnded {
+		t.Errorf("on disk after restart = %+v", got)
+	}
+}
+
+func TestExitRetriesAReleaseGoogleRefusedEarlier(t *testing.T) {
+	cli := &fakeRemoteCLI{fail: map[string]string{"device remote remove": "Error: UNAVAILABLE: connection reset"}}
+	rig := remoteServer(t, cli)
+	key := rig.reserve(t)
+	waitFor(t, func() bool { return rig.only(t).State == remoteActive })
+	if rec := do(rig.s, http.MethodDelete, "/api/remote?key="+key, ""); rec.Code != http.StatusBadGateway {
+		t.Fatalf("release = %d %s", rec.Code, rec.Body)
+	}
+	cli.setFail(nil)
+
+	rig.rd.ReleaseAll()
+	if n := cli.count(removeCall); n != 2 {
+		t.Errorf("removes = %d, want 2; ran %v", n, cli.ran())
+	}
+	if got := onDisk(t, rig.rd.path, key); got.State != remoteEnded || got.Reason != "released" {
+		t.Errorf("on disk after exit = %+v", got)
+	}
+}
+
+// A failed remove is done only on an answer that says Google has no such
+// reservation, or past the expiry it cannot outlive.
+func TestAFailedRemoveIsDoneOnlyWhenTheReservationIsGone(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		fail    map[string]string
+		listed  bool
+		expired bool
+		want    string
+	}{
+		{"not found", map[string]string{"device remote remove": "Error: Could not find reservation 21kulawh96ut3"}, true, false, remoteEnded},
+		{"gone from the list", map[string]string{"device remote remove": "Error: UNAVAILABLE"}, false, false, remoteEnded},
+		{"past its expiry", map[string]string{"device remote remove": "Error: UNAVAILABLE", "device remote list": "Error: UNAVAILABLE"}, true, true, remoteEnded},
+		{"still listed", map[string]string{"device remote remove": "Error: UNAVAILABLE"}, true, false, "releasing"},
+		{"list fails", map[string]string{"device remote remove": "Error: UNAVAILABLE", "device remote list": "Error: not signed in"}, false, false, "releasing"},
+		{"some other not found", map[string]string{"device remote remove": "Error: host not found"}, true, false, "releasing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cli := &fakeRemoteCLI{}
+			rig := remoteServer(t, cli)
+			key := rig.reserve(t)
+			waitFor(t, func() bool { return rig.only(t).State == remoteActive })
+			cli.mu.Lock()
+			cli.holding = tc.listed
+			cli.mu.Unlock()
+			cli.setFail(tc.fail)
+			if tc.expired {
+				*rig.clock = rig.clock.Add(20 * time.Minute)
+			}
+			_ = rig.rd.Release(key)
+			if got := onDisk(t, rig.rd.path, key); got.State != tc.want {
+				t.Errorf("on disk = %+v, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// A quit mid-reserve leaves a row with no id. When the next start cannot read
+// the project, it keeps the row and tries again on the start after.
+func TestARestartThatCannotReadTheProjectKeepsAMidReserveRow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote-devices.json")
+	left := []RemoteReservation{{Key: "k1", Project: "demo-project", Codename: "tokay", API: 36, State: remoteReserving, Before: []string{}}}
+	raw, _ := json.Marshal(left)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	load := func(cli *fakeRemoteCLI) *RemoteDevices {
+		rd := NewRemoteDevices(func() string { return "android" }, nil, nil)
+		rd.run = cli.run
+		if err := rd.Load(path); err != nil {
+			t.Fatal(err)
+		}
+		return rd
+	}
+	offline := &fakeRemoteCLI{t: t, fail: map[string]string{"device remote list": "Error: UNAVAILABLE"}}
+	load(offline)
+	waitFor(t, func() bool { return offline.count("device remote list") == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if got := onDisk(t, path, "k1"); got.State != "releasing" {
+		t.Fatalf("after an unreadable project = %+v", got)
+	}
+
+	online := &fakeRemoteCLI{t: t, holding: true}
+	rd := load(online)
+	waitFor(t, func() bool { l := rd.List(); return len(l) == 1 && l[0].State == remoteEnded })
+	if n := online.count(removeCall); n != 1 {
+		t.Errorf("second start ran %v", online.ran())
 	}
 }

@@ -25,7 +25,10 @@ import (
 //   - reserves only when a client asks, in the project that client names;
 //   - never extends on its own;
 //   - releases what it reserved when it exits, and at the next start for a
-//     reservation a crash left behind.
+//     reservation a crash left behind;
+//   - marks a reservation ended only once Google confirms the release. Until
+//     then it stays releasing in the state file, and the next DELETE, start
+//     or exit tries again.
 //
 // A connected reservation is an ordinary adb device at localhost:<port>, so
 // streaming and input need nothing from this file. It only marks that row.
@@ -33,6 +36,9 @@ import (
 const (
 	remoteReserving = "reserving"
 	remoteActive    = "active"
+	// remoteReleasing is a release Google has not confirmed. The device may
+	// still bill, so the row is kept and retried.
+	remoteReleasing = "releasing"
 	remoteEnded     = "ended"
 
 	remoteCreateTimeout = 3 * time.Minute
@@ -71,10 +77,14 @@ type RemoteReservation struct {
 	Model       string `json:"model,omitempty"`
 	// Target is the id of the attached row, localhost:<port>.
 	Target string `json:"target,omitempty"`
-	State  string `json:"state"`
-	// Reason says how an ended reservation ended: released, expired, failed.
+	// State is reserving, active, releasing or ended.
+	State string `json:"state"`
+	// Reason says how a releasing or ended reservation ended: released,
+	// expired, failed.
 	Reason string `json:"reason,omitempty"`
 	Error  string `json:"error,omitempty"`
+	// ReleaseError is why Google has not confirmed a releasing row's release.
+	ReleaseError string `json:"releaseError,omitempty"`
 	// APIDisabled is true when the failure is the project not having the
 	// Device Streaming or Cloud Testing API turned on.
 	APIDisabled bool      `json:"apiDisabled,omitempty"`
@@ -118,6 +128,9 @@ type RemoteDevices struct {
 	// creating counts reserves still inside the CLI, so exit can wait for
 	// their ids.
 	creating sync.WaitGroup
+	// releasing holds the keys whose release is in the CLI right now, so a
+	// DELETE, the start's retry and exit do not run the same one twice.
+	releasing map[string]bool
 	// signingIn is true while `android auth login` waits on the browser.
 	signingIn bool
 	// installer installs the CLI on request; nil means it cannot.
@@ -186,49 +199,35 @@ func (r *RemoteDevices) Load(path string) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	r.items = items
-	var orphans, unnamed []*RemoteReservation
+	var retry []*RemoteReservation
 	for _, it := range r.items {
-		if it.State == remoteEnded {
+		switch it.State {
+		case remoteEnded:
 			continue
+		case remoteReleasing:
+			// A release an earlier run could not confirm.
+		default:
+			// Usage counts up to the expiry at most: nobody knows when the
+			// old process died, and the reservation could not outlive its
+			// expiry.
+			end := r.now()
+			if !it.ExpiresAt.IsZero() && it.ExpiresAt.Before(end) {
+				end = it.ExpiresAt
+			}
+			it.State, it.Reason, it.EndedAt = remoteReleasing, "released", end
 		}
-		if it.Reservation == "" {
-			cp := *it
-			unnamed = append(unnamed, &cp)
-		}
-		// Usage counts up to the expiry at most: nobody knows when the old
-		// process died, and the reservation could not outlive its expiry.
-		end := r.now()
-		if !it.ExpiresAt.IsZero() && it.ExpiresAt.Before(end) {
-			end = it.ExpiresAt
-		}
-		it.State, it.Reason, it.EndedAt = remoteEnded, "released", end
-		if it.Reservation != "" {
-			cp := *it
-			orphans = append(orphans, &cp)
-		}
+		cp := *it
+		retry = append(retry, &cp)
 	}
 	r.saveLocked()
 	r.mu.Unlock()
 	go func() {
-		for _, it := range orphans {
-			r.releaseAtGoogle(it)
-			r.record(map[string]any{"action": "reconcile", "reservation": it.Reservation, "project": it.Project})
-		}
-		// The old process quit mid-reserve. What the project holds now and
-		// did not hold before is what that reserve made.
-		for _, it := range unnamed {
-			ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
-			now := r.held(ctx, it.Project)
-			cancel()
-			for _, id := range now {
-				if slices.Contains(it.Before, id) {
-					continue
-				}
-				cp := *it
-				cp.Reservation = id
-				r.releaseAtGoogle(&cp)
-				r.record(map[string]any{"action": "reconcile", "reservation": id, "project": it.Project, "midReserve": true})
+		for _, it := range retry {
+			rec := map[string]any{"action": "reconcile", "reservation": it.Reservation, "project": it.Project}
+			if err := r.release(it.Key); err != nil {
+				rec["error"] = err.Error()
 			}
+			r.record(rec)
 		}
 	}()
 	return nil
@@ -289,7 +288,7 @@ func (r *RemoteDevices) holding() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, it := range r.items {
-		if it.State == remoteReserving || it.State == remoteActive {
+		if it.State == remoteReserving || it.State == remoteActive || it.State == remoteReleasing {
 			return true
 		}
 	}
@@ -300,7 +299,7 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 	defer r.creating.Done()
 	ctx, cancel := context.WithTimeout(context.Background(), remoteCreateTimeout)
 	defer cancel()
-	before := r.held(ctx, project)
+	before, _ := r.held(ctx, project)
 	r.mu.Lock()
 	if it := r.findLocked(key); it != nil {
 		it.Before = before
@@ -324,14 +323,21 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 		failure = remoteFailure(string(out), string(stderr), runErr)
 		it.State, it.Reason, it.Error, it.EndedAt = remoteEnded, "failed", failure, now
 		it.APIDisabled = isAPIDisabled(string(out) + string(stderr))
+		if it.Reservation != "" {
+			// Reserved but never connected: it bills until it expires
+			// unless the release goes through.
+			it.State = remoteReleasing
+			if res.expires != "" {
+				it.ExpiresAt = resolveClock(res.expires, now)
+			}
+		}
 	}
 	cp := *it
 	r.saveLocked()
 	r.mu.Unlock()
 
-	if failure != "" && cp.Reservation != "" {
-		// Reserved but never connected: it would bill until it expired.
-		r.releaseAtGoogle(&cp)
+	if cp.State == remoteReleasing {
+		_ = r.release(key)
 	}
 	rec := map[string]any{"action": "reserve", "project": project, "device": codename, "api": api, "reservation": cp.Reservation, "tookMs": now.Sub(cp.StartedAt).Milliseconds()}
 	if failure != "" {
@@ -340,14 +346,22 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 	r.record(rec)
 }
 
-// held is the ids of the project's reservations right now, never nil.
-func (r *RemoteDevices) held(ctx context.Context, project string) []string {
-	out, _, _ := r.exec(ctx, "device", "remote", "list", "--project="+project)
+// held is the ids of the project's reservations right now, never nil. The
+// error is set unless the CLI printed a list it recognises, so an empty
+// answer is never taken for an empty project.
+func (r *RemoteDevices) held(ctx context.Context, project string) ([]string, error) {
+	out, stderr, err := r.exec(ctx, "device", "remote", "list", "--project="+project)
 	ids := []string{}
+	if err != nil {
+		return ids, errors.New(remoteFailure(string(out), string(stderr), err))
+	}
+	if !strings.Contains(string(out), "No reservations found") && !reListHeader.Match(out) {
+		return ids, errors.New("the CLI printed no reservation list")
+	}
 	for _, row := range parseRemoteList(string(out)) {
 		ids = append(ids, row.id)
 	}
-	return ids
+	return ids, nil
 }
 
 func (r *RemoteDevices) findLocked(key string) *RemoteReservation {
@@ -359,21 +373,118 @@ func (r *RemoteDevices) findLocked(key string) *RemoteReservation {
 	return nil
 }
 
-// releaseAtGoogle disconnects, then removes. The connect daemon is a process
-// of its own and outlives loupe, so removing alone would leave it running.
+// releaseAtGoogle disconnects, then removes, and is nil once Google no longer
+// holds the reservation. The connect daemon is a process of its own and
+// outlives loupe, so removing alone would leave it running.
 func (r *RemoteDevices) releaseAtGoogle(it *RemoteReservation) error {
 	ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
 	defer cancel()
 	_, _, _ = r.exec(ctx, "device", "remote", "disconnect", "--project="+it.Project, it.Reservation)
 	out, stderr, err := r.exec(ctx, "device", "remote", "remove", "--project="+it.Project, it.Reservation)
-	if err != nil {
-		return errors.New(remoteFailure(string(out), string(stderr), err))
+	if err == nil {
+		return nil
 	}
-	return nil
+	failure := remoteFailure(string(out), string(stderr), err)
+	// The CLI's answer to a reservation Google does not have (gRPC
+	// NOT_FOUND), and its answer to one that has ended.
+	if text := string(out) + string(stderr); strings.Contains(text, "Could not find reservation") || strings.Contains(text, "It has already ended") {
+		return nil
+	}
+	if ids, lerr := r.held(ctx, it.Project); lerr == nil && !slices.Contains(ids, it.Reservation) {
+		return nil
+	}
+	// It cannot outlive its expiry. This also ends the retries for one
+	// that can no longer be read, say after a sign-out outside loupe.
+	if !it.ExpiresAt.IsZero() && !r.now().Before(it.ExpiresAt) {
+		return nil
+	}
+	return errors.New(failure)
 }
 
-// Release ends a reservation now. The row is forgotten whether or not Google
-// answered, and the error says when it did not.
+// releaseMidReserve releases what a reserve made before its process quit,
+// with no id recorded: what the project holds now and did not hold when that
+// reserve began, less the ids loupe's other rows own.
+func (r *RemoteDevices) releaseMidReserve(it *RemoteReservation) error {
+	ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
+	ids, err := r.held(ctx, it.Project)
+	cancel()
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	var known []string
+	for _, other := range r.items {
+		if other.Reservation != "" {
+			known = append(known, other.Reservation)
+		}
+	}
+	r.mu.Unlock()
+	var first error
+	for _, id := range ids {
+		if slices.Contains(it.Before, id) || slices.Contains(known, id) {
+			continue
+		}
+		cp := *it
+		cp.Reservation = id
+		err := r.releaseAtGoogle(&cp)
+		rec := map[string]any{"action": "reconcile", "reservation": id, "project": it.Project, "midReserve": true}
+		if err != nil {
+			rec["error"] = err.Error()
+			if first == nil {
+				first = err
+			}
+		}
+		r.record(rec)
+	}
+	return first
+}
+
+// release asks Google to end a releasing row and marks it ended once Google
+// has. Until then the row stays releasing, saved, with the reason.
+func (r *RemoteDevices) release(key string) error {
+	r.mu.Lock()
+	it := r.findLocked(key)
+	if it == nil || it.State != remoteReleasing {
+		r.mu.Unlock()
+		return nil
+	}
+	if r.releasing[key] {
+		r.mu.Unlock()
+		return errReleaseRunning
+	}
+	if r.releasing == nil {
+		r.releasing = map[string]bool{}
+	}
+	r.releasing[key] = true
+	cp := *it
+	r.mu.Unlock()
+
+	var err error
+	if cp.Reservation == "" {
+		err = r.releaseMidReserve(&cp)
+	} else {
+		err = r.releaseAtGoogle(&cp)
+	}
+
+	r.mu.Lock()
+	delete(r.releasing, key)
+	if it := r.findLocked(key); it != nil && it.State == remoteReleasing {
+		if err == nil {
+			it.State, it.ReleaseError = remoteEnded, ""
+		} else {
+			it.ReleaseError = err.Error()
+		}
+		r.saveLocked()
+	}
+	r.mu.Unlock()
+	return err
+}
+
+var errReleaseRunning = errors.New("a release of this reservation is already running")
+
+// Release ends a reservation now, or tries again to release one Google has
+// not confirmed. The row stays releasing until Google confirms, and the error
+// says why it has not.
 func (r *RemoteDevices) Release(key string) error { return r.end(key, "released") }
 
 func (r *RemoteDevices) end(key, reason string) error {
@@ -383,22 +494,26 @@ func (r *RemoteDevices) end(key, reason string) error {
 		r.mu.Unlock()
 		return errNoReservation
 	}
-	if it.State != remoteActive {
+	wasActive := it.State == remoteActive
+	switch it.State {
+	case remoteReserving:
 		r.mu.Unlock()
-		if it.State == remoteReserving {
-			return errors.New("still reserving; release it once it connects")
-		}
+		return errors.New("still reserving; release it once it connects")
+	case remoteActive:
+		it.State, it.Reason, it.EndedAt = remoteReleasing, reason, r.now()
+		r.saveLocked()
+	case remoteReleasing:
+	default:
+		r.mu.Unlock()
 		return nil
 	}
-	it.State, it.Reason, it.EndedAt = remoteEnded, reason, r.now()
 	cp := *it
-	r.saveLocked()
 	r.mu.Unlock()
 
-	if r.endTarget != nil && cp.Target != "" {
+	if wasActive && r.endTarget != nil && cp.Target != "" {
 		r.endTarget(cp.Target, reason)
 	}
-	err := r.releaseAtGoogle(&cp)
+	err := r.release(key)
 	rec := map[string]any{"action": reason, "reservation": cp.Reservation, "project": cp.Project, "heldMs": cp.EndedAt.Sub(cp.ActiveAt).Milliseconds()}
 	if err != nil {
 		rec["error"] = err.Error()
@@ -492,15 +607,19 @@ func (r *RemoteDevices) ReleaseAll() {
 	case <-done:
 	case <-time.After(remoteCreateTimeout):
 	}
+	// Held devices first, then releases Google has not confirmed yet.
 	r.mu.Lock()
-	var keys []string
+	var active, releasing []string
 	for _, it := range r.items {
-		if it.State == remoteActive {
-			keys = append(keys, it.Key)
+		switch it.State {
+		case remoteActive:
+			active = append(active, it.Key)
+		case remoteReleasing:
+			releasing = append(releasing, it.Key)
 		}
 	}
 	r.mu.Unlock()
-	for _, key := range keys {
+	for _, key := range append(active, releasing...) {
 		_ = r.end(key, "released")
 	}
 }
@@ -599,7 +718,10 @@ var (
 	// Two or more plain spaces: the CLI writes "10:56\u202fAM" with a narrow
 	// no-break space, which must stay inside its column.
 	reColumns = regexp.MustCompile(` {2,}`)
-	reAccount = regexp.MustCompile(`(?m)^Logged in as (.+)$`)
+	// reListHeader is the first line of `device remote list` when the
+	// project holds anything.
+	reListHeader = regexp.MustCompile(`(?m)^\s*Reservation {2,}State {2,}`)
+	reAccount    = regexp.MustCompile(`(?m)^Logged in as (.+)$`)
 )
 
 func parseRemoteCreate(out string) remoteCreated {
@@ -874,6 +996,10 @@ func (s *Server) handleRemote(w http.ResponseWriter, r *http.Request) {
 		err := rd.Release(r.URL.Query().Get("key"))
 		if errors.Is(err, errNoReservation) {
 			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, errReleaseRunning) {
+			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		if err != nil {
