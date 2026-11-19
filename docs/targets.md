@@ -140,8 +140,7 @@ installed. Nothing is downloaded.
   name exists on that platform.
 - A failed create's row stays in `/api/targets` as `createFailed` until the
   next create on either route, or a restart: the slot is in memory only. No
-  target is behind the row, so it has no swipe actions and `DELETE
-  /api/devices` answers 404.
+  target is behind the row, so `DELETE /api/devices` answers 404 for it.
 - Only valid pairs are offered. TV, Wear, automotive and desktop devices are
   never listed, a device is not offered on an image older than its API floor
   (`pixel_fold` needs 34, `pixel_9` 35), and a tablet image takes tablets only.
