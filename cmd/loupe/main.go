@@ -754,7 +754,9 @@ func main() {
 	// Unlike the CLI, avdmanager and the SDK it lists images from are found
 	// once. avdmanager ships in cmdline-tools, which neither the CLI's create
 	// nor /api/android/cli installs, so a Mac set up by the CLI alone gets
-	// New device from the CLI's profiles (profilesFallback) instead.
+	// New device from the CLI's profiles (profilesFallback) instead. So does
+	// one whose avdmanager is found and does not run, such as cmdline-tools
+	// left with no Java runtime: NewDeviceCreator runs it once to check.
 	sdkAtStart := sdkRoot()
 	avdMgr := ""
 	if registerAVDs != nil {

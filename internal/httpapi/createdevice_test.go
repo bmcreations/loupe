@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -73,6 +74,19 @@ type devEnv struct {
 	home  string
 	trace chan map[string]any
 	avds  *[]string
+	// avdmanager is the stub NewDeviceCreator checked; creates go to tools.
+	avdmanager string
+}
+
+// avdManagerStub writes an avdmanager that runs script under /bin/sh, for
+// NewDeviceCreator's check that avdmanager runs.
+func avdManagerStub(t *testing.T, script string) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "avdmanager")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin
 }
 
 func devServer(t *testing.T, android, ios bool) *devEnv {
@@ -85,7 +99,7 @@ func devServer(t *testing.T, android, ios bool) *devEnv {
 	cfg := DeviceCreatorConfig{Manager: NewManager(target.Options{}), SDK: t.TempDir(), AVDHome: home,
 		Trace: func(m map[string]any) { trace <- m }}
 	if android {
-		cfg.AVDManager = "/sdk/avdmanager"
+		cfg.AVDManager = avdManagerStub(t, "exit 0")
 		cfg.RegisterAVDs = func(_ time.Time, a []target.AVD) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -131,7 +145,7 @@ func devServer(t *testing.T, android, ios bool) *devEnv {
 	}
 	s := &Server{mgr: cfg.Manager}
 	s.SetDeviceCreator(c)
-	return &devEnv{s: s, tools: tools, home: home, trace: trace, avds: &registered}
+	return &devEnv{s: s, tools: tools, home: home, trace: trace, avds: &registered, avdmanager: cfg.AVDManager}
 }
 
 func decodeOptions(t *testing.T, s *Server) DeviceOptionsResponse {
@@ -208,6 +222,80 @@ func TestDeviceOptions404AndProfilesFallback(t *testing.T) {
 	}
 }
 
+// avdmanager is a script that starts Java. A Mac set up by the android CLI
+// alone can keep cmdline-tools from an old Android Studio and have no Java
+// runtime: avdmanager is found, a create through it fails, and New device has
+// to offer the CLI's profiles instead. The stub prints what that Mac's
+// avdmanager printed, and exits 1 as it did.
+func TestAVDManagerWithoutJavaLeavesAndroidToTheCLI(t *testing.T) {
+	home := t.TempDir()
+	stub := avdManagerStub(t, `echo "$0: line 173: test: : integer expression expected" >&2
+echo "The operation couldn’t be completed. Unable to locate a Java Runtime." >&2
+echo "Please visit http://www.java.com for information on installing Java." >&2
+exit 1`)
+	var mu sync.Mutex
+	var registered []string
+	register := func(_ time.Time, a []target.AVD) {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, x := range a {
+			registered = append(registered, x.Name)
+		}
+	}
+	mgr := NewManager(target.Options{})
+	s := &Server{mgr: mgr}
+	if c := NewDeviceCreator(DeviceCreatorConfig{Manager: mgr, SDK: t.TempDir(), AVDManager: stub, AVDHome: home, RegisterAVDs: register}); c != nil {
+		s.SetDeviceCreator(c)
+	}
+	avds := testAVDCreator(home, register)
+	avds.run = (&fakeCLI{home: home}).run
+	s.SetAVDCreator(avds)
+
+	r := decodeOptions(t, s)
+	if !r.ProfilesFallback || len(r.Platforms) != 0 {
+		t.Fatalf("profilesFallback = %v, platforms = %+v; want the CLI's profiles and no avdmanager platform", r.ProfilesFallback, r.Platforms)
+	}
+	if rec := do(s, http.MethodPost, "/api/avds", `{"profile":"medium_phone"}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("CLI create = %d %s", rec.Code, rec.Body)
+	}
+	waitFor(t, func() bool { row, ok := targetRow(t, s, "avd:medium_phone"); return !ok || row.State != stateCreating })
+	if row, ok := targetRow(t, s, "avd:medium_phone"); ok {
+		t.Errorf("row after create = %+v", row)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Contains(registered, "medium_phone") {
+		t.Errorf("registered %v, want medium_phone", registered)
+	}
+}
+
+// A failed create's row has no target behind it, so DELETE cannot remove it.
+// It stays until the next create on either route, or a restart, since the
+// slot is only in memory.
+func TestAFailedCreateRowStaysUntilTheNextCreate(t *testing.T) {
+	e := devServer(t, true, false)
+	e.tools.avdFail = "Unable to locate a Java Runtime."
+	post(e, `{"platform":"android","os":"`+img36+`","device":"pixel_9","name":"x"}`)
+	waitFor(t, func() bool { r, ok := targetRow(t, e.s, "avd:x"); return ok && r.State == stateCreateFailed })
+	if rec := do(e.s, http.MethodDelete, "/api/devices?target=avd:x", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("delete the failed row = %d %s", rec.Code, rec.Body)
+	}
+	if _, ok := targetRow(t, e.s, "avd:x"); !ok {
+		t.Fatal("the failed row went before another create")
+	}
+	avds := testAVDCreator(e.home, nil)
+	avds.run = (&fakeCLI{home: e.home}).run
+	e.s.SetAVDCreator(avds)
+	if rec := do(e.s, http.MethodPost, "/api/avds", `{"profile":"small_phone"}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("CLI create = %d %s", rec.Code, rec.Body)
+	}
+	if _, ok := targetRow(t, e.s, "avd:x"); ok {
+		t.Error("the failed row outlived the next create")
+	}
+	// The create writes into home; let it end before the test removes it.
+	waitFor(t, func() bool { row, ok := targetRow(t, e.s, "avd:small_phone"); return !ok || row.State != stateCreating })
+}
+
 func post(e *devEnv, body string) int {
 	return do(e.s, http.MethodPost, "/api/devices", body).Code
 }
@@ -251,7 +339,7 @@ func TestCreateAndroidDevice(t *testing.T) {
 	e.tools.mu.Lock()
 	call, env := e.tools.calls[0], e.tools.envs[0]
 	e.tools.mu.Unlock()
-	if !strings.HasPrefix(call, "/sdk/avdmanager create avd -n Pixel_9_API_36 -k "+img36+" -d pixel_9") || strings.Contains(call, "--force") {
+	if !strings.HasPrefix(call, e.avdmanager+" create avd -n Pixel_9_API_36 -k "+img36+" -d pixel_9") || strings.Contains(call, "--force") {
 		t.Errorf("call = %q", call)
 	}
 	if len(env) != 1 || env[0] != "ANDROID_AVD_HOME="+e.home {

@@ -187,8 +187,9 @@ func readDeviceJar(jar string) ([]AVDDevice, error) {
 }
 
 // AVDManagerBinary finds avdmanager: the explicit path, then every
-// cmdline-tools/*/bin in the SDK with "latest" first. It runs without
-// JAVA_HOME. "" when there is none.
+// cmdline-tools/*/bin in the SDK with "latest" first. "" when there is none.
+// Found is not runnable: it is a script that starts Java, from JAVA_HOME or
+// else PATH, so it needs no JAVA_HOME but fails with no Java runtime at all.
 func AVDManagerBinary(sdk, explicit string) string {
 	cands := []string{explicit}
 	if sdk != "" {
