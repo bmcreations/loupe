@@ -137,6 +137,10 @@ An Android `tap` or `swipe` the input dispatcher threw away answers 409
 `code: "touchRejected"` with its reason, because `input` itself exits 0 either
 way.
 
+A `key` or `button` the target has no way to press, such as `recents` on a
+Revyl device, answers 501 with the reason, as an action the target lacks
+entirely does.
+
 #### Cursor
 
 `move` (`{"x": ..., "y": ...}`) sends the agent's cursor to a point on every
@@ -609,8 +613,13 @@ payments, prepaid balance, spending or the organization.
  "billingURL":"https://app.revyl.ai/settings/billing"}
 ```
 
-A Revyl target streams to viewers and takes their touches, but `/api/input`,
-`/api/sequence`, `/api/ui` and `/api/screenshot` answer 501 for it.
+A Revyl target takes `/api/input` and `/api/sequence` while it has an open
+session, and answers 409 without one. `tap`, `swipe` (without its `ms`),
+`text` after a tap, `key` 3, 4, 66 and 67, `button` `home` and `back`, `move`
+and `wait` with `ms` work; `back` only on Android. Other keycodes, the
+`recents` and `lock` buttons, the other actions and anything by `match` answer
+501, as do `/api/ui` and `/api/screenshot`. See
+[targets.md](targets.md#agent-input).
 
 ## Logs and crashes
 

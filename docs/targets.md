@@ -369,10 +369,10 @@ Revyl takes whole gestures, not touch events.
 - Text is typed at the last tap, so tap the field first. It does not clear
   the field.
 - Gestures go one at a time, in order, each a round trip to Revyl, so input
-  lags the finger by at least that. The input methods return at once. Up to
-  32 gestures wait, and past that a gesture is refused, but text never is:
-  typing that waits at the same point joins into one call, so a burst of
-  keystrokes is one request.
+  lags the finger by at least that. A viewer's input returns at once. Up to
+  32 gestures wait, and past that a gesture is refused, but a viewer's text
+  never is: typing that waits at the same point joins into one call, so a
+  burst of keystrokes is one request.
 
 Each gesture is a `POST` to
 `https://backend.revyl.ai/api/v1/execution/device-proxy/<workflow_run_id>/<action>`
@@ -404,11 +404,50 @@ for `revyl device tap`. The device's own part was about 6 ms.
 - The proxy URL is fixed. The CLI's own overrides, such as
   `REVYL_BACKEND_URL`, move the CLI fallback but not the proxy.
 
+### Agent input
+
+`/api/input` and `/api/sequence` reach a Revyl device through an open
+session (a viewer, a recording or another holder). An agent's gesture joins
+the same queue as the viewer's touches, behind whatever is already waiting,
+and goes out the same way. With no session the call answers 409 and says to
+open the device in a viewer.
+
+- The call answers once Revyl has, with Revyl's result: 200 when it acted,
+  502 when it refused or failed. A viewer's input, by contrast, returns at
+  once.
+- Coordinates are stream pixels, as for every target, and are mapped like a
+  viewer's touches: pixels on Android, points on iOS. The target reports the
+  stream's size as its screen size, so the event log, the agent cursor,
+  overlays and flags place a Revyl point, and a flag records the size.
+  `/api/screenshot` still answers 501.
+- `tap` sets where `text` types next, as a viewer's tap does. `text` before
+  any tap answers 409. An agent's text is its own call: it does not join a
+  viewer's typing, and a viewer's typing does not join it.
+- `swipe` is a drag from the first point to the second, and `ms` is ignored.
+  Neither the proxy's drag body nor `revyl device drag` takes a duration, and
+  `revyl device swipe`, which does, takes a direction instead of an end point.
+- `key` takes 3 (Home), 4 (Back, Android only), 66 (Enter) and 67
+  (Backspace).
+  Any other keycode answers 501, naming the ones the device takes. `button`
+  takes `home`, and `back` on Android; `recents` and `lock` answer 501, and a
+  name outside the button table answers 400 as on every target.
+- An agent's gesture counts against the 32-gesture limit, text included, and
+  past it is refused with 502.
+- If the session closes before the gesture is sent, the call answers 409. If
+  it closes while the gesture is in flight, the 409 says the gesture may have
+  landed. A gesture still waiting when the 10 s request timeout runs out is
+  taken off the queue, so it does not land after the agent was told it failed.
+- Tap or wait by `match`, `scroll`, `pinch`, `rotate`, `reclaim`,
+  `hardwareKeyboard`, `launch` and `openURL` answer 501. The first three need
+  the UI tree, which a Revyl target cannot read.
+
+Agent input is tested against the fake device proxy and CLI, not yet against
+a live device.
+
 ### What it does not do
 
-`/api/input` and `/api/sequence` answer 501, since a Revyl target has no
-`Actuator`. `/api/ui`, `/api/screenshot`, `/api/install`, logcat, crashes,
-settings and the clipboard answer 501. The lifecycle routes under
+`/api/ui`, `/api/screenshot`, `/api/install`, logcat, crashes, settings and
+the clipboard answer 501. The lifecycle routes under
 `/api/devices` answer 422 `notSupported`; stop a device with `DELETE
 /api/revyl`.
 
