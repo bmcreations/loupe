@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"regexp"
@@ -176,7 +177,10 @@ type RevylDevices struct {
 	exitCtx context.Context
 	// stopped is when loupe stopped each session, so Sync does not adopt
 	// one the list still shows.
-	stopped      map[string]time.Time
+	stopped map[string]time.Time
+	// listed is set once a `revyl device list` has succeeded. Before that
+	// loupe does not know the devices it left running before a restart.
+	listed       bool
 	login        *revylLogin
 	lastLoginErr string
 
@@ -348,17 +352,34 @@ func (r *RevylDevices) findLocked(key string) *RevylDevice {
 	return nil
 }
 
+// stopRowLocked finds a row by key or target ID.
+func (r *RevylDevices) stopRowLocked(key string) *RevylDevice {
+	var it *RevylDevice
+	for _, c := range r.items {
+		if c.Key == key || (c.Target != "" && c.Target == key) {
+			it = c
+		}
+	}
+	return it
+}
+
 // Stop ends a device by key or target ID. A failed row is forgotten. An
 // active one shows as stopping until the CLI answers; the row and the
 // target go once it confirms, and a stop that fails leaves both, active
 // with StopError.
 func (r *RevylDevices) Stop(ctx context.Context, key string) error {
 	r.mu.Lock()
-	var it *RevylDevice
-	for _, c := range r.items {
-		if c.Key == key || (c.Target != "" && c.Target == key) {
-			it = c
+	it, listed := r.stopRowLocked(key), r.listed
+	if it == nil && !listed {
+		// A device left running before a restart is not known until the
+		// account is read, and a 404 meanwhile tells the client it is gone
+		// while it bills. Read it now; a failed read is not a 404.
+		r.mu.Unlock()
+		if err := r.sync(ctx); err != nil {
+			return fmt.Errorf("could not read the account's Revyl sessions: %w", err)
 		}
+		r.mu.Lock()
+		it = r.stopRowLocked(key)
 	}
 	if it == nil {
 		r.mu.Unlock()
@@ -432,15 +453,18 @@ func (r *RevylDevices) List() []RevylDevice {
 // does not know is adopted as a target, and an active one the list no
 // longer has has ended. It does nothing when the CLI is missing or the
 // list fails, such as when signed out.
-func (r *RevylDevices) Sync(ctx context.Context) {
+func (r *RevylDevices) Sync(ctx context.Context) { _ = r.sync(ctx) }
+
+// sync is Sync, returning why it read nothing.
+func (r *RevylDevices) sync(ctx context.Context) error {
 	cli, ok := r.cli()
 	if !ok {
-		return
+		return errRevylNoCLI
 	}
 	began := time.Now()
 	sessions, err := cli.List(ctx)
 	if err != nil {
-		return
+		return err
 	}
 	live := map[string]target.RevylSession{}
 	for _, s := range sessions {
@@ -451,6 +475,7 @@ func (r *RevylDevices) Sync(ctx context.Context) {
 	var adopt []target.Target
 	var ended []*RevylDevice
 	r.mu.Lock()
+	r.listed = true
 	for id, at := range r.stopped {
 		if time.Since(at) >= r.listGrace {
 			delete(r.stopped, id)
@@ -507,6 +532,7 @@ func (r *RevylDevices) Sync(ctx context.Context) {
 		}
 		r.record(map[string]any{"action": "adopt", "target": t.ID()})
 	}
+	return nil
 }
 
 // Watch syncs once, then every minute while loupe holds a device, so one

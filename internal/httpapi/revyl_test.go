@@ -257,6 +257,8 @@ func TestRevylRoutesRefuseBadInputAndAMissingCLI(t *testing.T) {
 	if len(rig.argv()) != 0 {
 		t.Errorf("bad input reached the CLI: %v", rig.argv())
 	}
+	// Unknown on an account that lists no sessions.
+	rig.file("device-list.json", `[]`)
 	if rec := do(rig.s, http.MethodDelete, "/api/revyl?key=nope", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("stop unknown = %d", rec.Code)
 	}
@@ -805,4 +807,49 @@ func (r *revylRig) argvMatching(prefix ...string) [][]string {
 		}
 	}
 	return out
+}
+
+// After a restart loupe knows no devices until it reads the account. A
+// stop for one it left running must find it there, not answer 404 while
+// the device bills.
+func TestRevylStopBeforeTheFirstListFindsTheDevice(t *testing.T) {
+	rig := revylServer(t)
+	rig.file("device-list.json", `[`+revylStartJSON+`]`)
+	rig.file("device-stop.json", `{"stopped":true}`)
+	const sid = "6f1c2a8e-3b4d-4e5f-9a0b-1c2d3e4f5a6b"
+	rec := do(rig.s, http.MethodDelete, "/api/revyl?target=revyl:"+sid, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stop before the first list = %d %s", rec.Code, rec.Body)
+	}
+	if a := rig.ran("device", "stop"); !reflect.DeepEqual(a, []string{"device", "stop", "--session-id", sid, "--json"}) {
+		t.Errorf("stop argv = %q", a)
+	}
+	if l := rig.list(); len(l) != 0 {
+		t.Errorf("after the stop = %+v", l)
+	}
+}
+
+// Until loupe has read the account it cannot say a device is gone, so a
+// list that fails answers 502, not 404. Once one has succeeded, an
+// unknown device is 404 without listing again.
+func TestRevylStopOfAnUnknownDeviceIs404OnlyOnceTheAccountIsRead(t *testing.T) {
+	rig := revylServer(t)
+	rig.file("device-list.fail", "Error: network\n")
+	if rec := do(rig.s, http.MethodDelete, "/api/revyl?target=revyl:gone-1", ""); rec.Code != http.StatusBadGateway {
+		t.Errorf("stop with the account unread = %d %s", rec.Code, rec.Body)
+	}
+	if rig.ran("device", "stop") != nil {
+		t.Error("ran a stop for a device it never found")
+	}
+
+	rig.remove("device-list.fail")
+	rig.file("device-list.json", `[]`)
+	rig.rv.Sync(context.Background())
+	lists := len(rig.argvMatching("device", "list"))
+	if rec := do(rig.s, http.MethodDelete, "/api/revyl?target=revyl:gone-1", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("stop of an unknown device = %d %s", rec.Code, rec.Body)
+	}
+	if n := len(rig.argvMatching("device", "list")); n != lists {
+		t.Errorf("listed %d more times after the account was read", n-lists)
+	}
 }

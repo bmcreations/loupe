@@ -317,6 +317,11 @@ v0.2.18.
   `DELETE` answers 409. A stop that fails or runs out of time answers 502
   and puts the device back to `active` with `stopError`, so it can be
   stopped again. Exit waits for a stop in progress, within its 10 seconds.
+- Until loupe has read the account's sessions once, it does not know a
+  device left running before it restarted. Until then, a `DELETE /api/revyl`
+  for a device it does not know runs `revyl device list` first, so that one is
+  found and stopped instead of answered 404. If the list fails, the answer
+  is 502, not 404.
 - The WHEP, viewer and worker URLs Revyl returns are kept out of
   `/api/targets`, `/api/revyl` and the trace, and any URL in the CLI's
   error output is cut before it reaches either.
