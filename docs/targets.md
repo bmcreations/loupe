@@ -291,6 +291,9 @@ v0.2.18.
   account's sessions from `revyl device list`. A session it did not start is
   adopted as a target and left running when loupe exits. One loupe started
   is stopped at exit. A session that leaves the list leaves the picker.
+- `DELETE /api/revyl` runs `revyl device stop` for up to 45 seconds whether
+  or not the client waits for the answer, so a client that hangs up or times
+  out does not leave the device billing.
 - The WHEP, viewer and worker URLs Revyl returns are kept out of
   `/api/targets`, `/api/revyl` and the trace, and any URL in the CLI's
   error output is cut before it reaches either.

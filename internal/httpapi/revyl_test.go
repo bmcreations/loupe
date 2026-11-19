@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -411,6 +412,50 @@ func TestRevylExitStopsTheDevicesLoupeStarted(t *testing.T) {
 	rig.rv.StopAll()
 	if rig.ran("device", "stop") == nil {
 		t.Error("exit left a started device running")
+	}
+}
+
+// A client that hangs up mid-stop must not cut the stop short: the row and
+// the target are gone by then, and the device would bill until its idle
+// timeout.
+func TestRevylDeleteFinishesTheStopWhenTheClientHangsUp(t *testing.T) {
+	rig := revylServer(t)
+	rig.file("device-start.json", revylStartJSON)
+	_ = do(rig.s, http.MethodPost, "/api/revyl", `{"platform":"android"}`)
+	rig.waitFor("the device to start", func() bool {
+		l := rig.list()
+		return len(l) == 1 && l[0].State == revylActive
+	})
+	rig.file("device-stop.json", `{"stopped":true}`)
+	rig.file("device-stop.hold", "")
+
+	ctx, hangUp := context.WithCancel(context.Background())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/revyl?target="+rig.list()[0].Target, nil).WithContext(ctx)
+	answered := make(chan struct{})
+	go func() {
+		rig.s.Handler().ServeHTTP(rec, req)
+		close(answered)
+	}()
+	rig.waitFor("the stop to be running", func() bool { return rig.ran("device", "stop") != nil })
+	hangUp()
+	// Long enough for a stop tied to the request to be killed.
+	time.Sleep(200 * time.Millisecond)
+	rig.remove("device-stop.hold")
+	select {
+	case <-answered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stop never finished")
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("stop after the client hung up = %d %s", rec.Code, rec.Body)
+	}
+	rig.mu.Lock()
+	defer rig.mu.Unlock()
+	for _, r := range rig.trace {
+		if r["action"] == "stop" && r["error"] != nil {
+			t.Errorf("stop record = %v", r)
+		}
 	}
 }
 

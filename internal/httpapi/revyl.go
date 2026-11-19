@@ -692,7 +692,10 @@ func (s *Server) handleRevyl(w http.ResponseWriter, r *http.Request) {
 		if key == "" {
 			key = r.URL.Query().Get("target")
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), revylCallTimeout)
+		// Not cancelled with the request: by the time the CLI runs, the row
+		// and the target are gone, so a client that hangs up mid-stop
+		// would leave the device billing with nothing left to stop it.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), revylCallTimeout)
 		defer cancel()
 		err := rv.Stop(ctx, key)
 		switch {
