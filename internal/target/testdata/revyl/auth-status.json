@@ -1,0 +1,10 @@
+{
+  "authenticated": true,
+  "email": "dev@example.invalid",
+  "user_id": "usr-test",
+  "org_id": "org-test",
+  "org_name": "Test Org",
+  "auth_method": "browser",
+  "expires_in_seconds": 3600,
+  "expired": false
+}

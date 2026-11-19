@@ -1,0 +1,28 @@
+[
+  {
+    "index": 0,
+    "session_id": "5b0c9f7e-2d55-4c4b-9a43-0d6f3f1f2a10",
+    "workflow_run_id": "wfr-test",
+    "worker_base_url": "https://worker-test.revyl.invalid",
+    "viewer_url": "https://app.revyl.invalid/devices/5b0c9f7e",
+    "platform": "android",
+    "screen_width": 720,
+    "screen_height": 404,
+    "device_ready": true,
+    "started_at": "2026-11-18T15:00:00Z",
+    "last_activity": "2026-11-18T15:00:00Z",
+    "idle_timeout": 900000000000
+  },
+  {
+    "index": -1,
+    "session_id": "0d9e3c1a-7f21-4e0b-8c55-2b6a9d4e7f33",
+    "workflow_run_id": "",
+    "worker_base_url": "",
+    "viewer_url": "",
+    "platform": "ios",
+    "started_at": "2026-11-18T15:01:00Z",
+    "last_activity": "0001-01-01T00:00:00Z",
+    "idle_timeout": 0,
+    "status": "queued"
+  }
+]

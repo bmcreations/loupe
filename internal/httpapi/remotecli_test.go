@@ -122,7 +122,7 @@ func TestRemoteCLIRouteInstallsAndTheNextLookupFindsIt(t *testing.T) {
 	if rec := do(s, http.MethodPost, "/api/remote/cli", ""); rec.Code != http.StatusNotImplemented {
 		t.Fatalf("without an installer = %d", rec.Code)
 	}
-	rd.SetCLIInstaller(in)
+	rd.SetAndroidTools(NewAndroidTools(AndroidToolsConfig{Installer: in, FindCLI: find}))
 	var acct RemoteAccountResponse
 	rec := do(s, http.MethodGet, "/api/remote/account", "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &acct); err != nil || acct.CLIInstalled || !acct.CanInstallCLI {
@@ -154,7 +154,7 @@ func TestRemoteCLIRouteInstallsAndTheNextLookupFindsIt(t *testing.T) {
 func TestRemoteCLIRouteReportsAFailedInstall(t *testing.T) {
 	in, _ := testInstaller(t, caskFor(t, fakeCLIBin), []byte("tampered"))
 	rd := NewRemoteDevices(func() string { return "" }, func(string, string) {}, nil)
-	rd.SetCLIInstaller(in)
+	rd.SetAndroidTools(NewAndroidTools(AndroidToolsConfig{Installer: in, FindCLI: func() string { return "" }}))
 	s := &Server{mgr: NewManager(target.Options{})}
 	s.SetRemoteDevices(rd)
 	do(s, http.MethodPost, "/api/remote/cli", "")

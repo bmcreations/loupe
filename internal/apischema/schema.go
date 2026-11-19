@@ -143,6 +143,15 @@ var endpoints = []endpoint{
 	{"GET /api/avds/profiles", dirResponse, httpapi.AVDProfilesResponse{}},
 	{"POST /api/avds request", dirRequest, httpapi.CreateAVDRequest{}},
 	{"POST /api/avds 202", dirResponse, httpapi.CreateAVDResponse{}},
+	// The android CLI and adb, for a Mac with no SDK. 404 when this server
+	// cannot install them.
+	{"GET /api/android/cli", dirResponse, httpapi.AndroidCLIResponse{}},
+	// 202 when an install started, 200 when nothing was missing. 409 with
+	// code "installing" while one runs, from here or POST /api/remote/cli;
+	// 501 when the CLI is missing and this server cannot install it.
+	{"POST /api/android/cli 202", dirResponse, httpapi.AndroidCLIResponse{}},
+	{"POST /api/android/cli 200", dirResponse, httpapi.AndroidCLIResponse{}},
+	{"POST /api/android/cli 409", dirResponse, httpapi.ErrorResponse{}},
 	// Firebase remote devices, reserved through the android CLI. 404 on all
 	// of these when the CLI is not installed.
 	{"GET /api/remote", dirResponse, httpapi.RemoteListResponse{}},
@@ -162,6 +171,24 @@ var endpoints = []endpoint{
 	{"POST /api/remote/cli 202", dirResponse, httpapi.RemoteAccountResponse{}},
 	{"GET /api/remote/models", dirResponse, httpapi.RemoteModelsResponse{}},
 	{"GET /api/remote/models 502", dirResponse, httpapi.RemoteModelsError{}},
+	// Revyl cloud devices, through the user's revyl CLI. 503 while the CLI
+	// is missing, except GET /api/revyl and the account.
+	// ?sync=1 first reads the account's sessions from Revyl.
+	{"GET /api/revyl", dirResponse, httpapi.RevylListResponse{}},
+	{"POST /api/revyl request", dirRequest, httpapi.StartRevylRequest{}},
+	// 409 while another device is starting.
+	{"POST /api/revyl 202", dirResponse, httpapi.StartRevylResponse{}},
+	// ?key= or ?target=. 409 while it is starting, 502 when Revyl did not
+	// confirm; the row is forgotten either way.
+	{"DELETE /api/revyl", dirResponse, httpapi.RevylListResponse{}},
+	{"GET /api/revyl/account", dirResponse, httpapi.RevylAccountResponse{}},
+	// POST starts `revyl auth login` and answers once its approval URL and
+	// code are read; 200 when already signed in. Poll GET until signedIn.
+	{"POST /api/revyl/account 202", dirResponse, httpapi.RevylAccountResponse{}},
+	// DELETE cancels a login and signs out; 409 while loupe holds a device.
+	{"DELETE /api/revyl/account", dirResponse, httpapi.RevylAccountResponse{}},
+	{"POST /api/revyl/cli 202", dirResponse, httpapi.RevylAccountResponse{}},
+	{"GET /api/revyl/targets", dirResponse, httpapi.RevylTargetsResponse{}},
 	{"GET /api/devices/options", dirResponse, httpapi.DeviceOptionsResponse{}},
 	{"POST /api/devices request", dirRequest, httpapi.CreateDeviceRequest{}},
 	{"POST /api/devices 202", dirResponse, httpapi.CreateDeviceResponse{}},

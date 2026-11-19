@@ -174,6 +174,10 @@ func (a *avdList) Set(v string) error { *a = append(*a, v); return nil }
 // build says dev.
 var version = "dev"
 
+// loupeVersion is version, for main, where the scrcpy server's version
+// takes the name.
+func loupeVersion() string { return version }
+
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "-version" || os.Args[1] == "--version") {
 		fmt.Println(version)
@@ -222,6 +226,7 @@ func main() {
 		androidSDK    = flag.String("android-sdk", "", "Android SDK root (default: ANDROID_HOME, ANDROID_SDK_ROOT, then ~/Library/Android/sdk)")
 		avdManager    = flag.String("android-avdmanager", "", "path to avdmanager, which creates AVDs from installed system images (default: cmdline-tools/*/bin in the Android SDK)")
 		androidCLI    = flag.String("android-cli", "", "path to Google's android CLI, which creates AVDs from the picker (default: /usr/local/bin/android, then /opt/homebrew/bin/android)")
+		revylCLI      = flag.String("revyl-cli", "", "path to the revyl CLI, which starts Revyl cloud devices on your own account (default: ~/.revyl/bin/revyl, /opt/homebrew/bin, /usr/local/bin, then loupe's own download)")
 		gpu           = flag.String("gpu", "host", "emulator -gpu mode; only 'host' reaches 60fps")
 		synthetic     = flag.Bool("synthetic", false, "register a synthetic 60fps test pattern target")
 		syntheticIdle = flag.Bool("synthetic-fallback", true, "register the synthetic target when no device, emulator or simulator is found; Handset turns this off so a Mac with none shows none")
@@ -409,11 +414,30 @@ func main() {
 	// supervisor restarts on every build.
 	watcherDone := make(chan struct{})
 
-	if needScrcpy {
-		emu := *emulatorPath
-		if emu == "" {
-			emu = target.EmulatorBinary(target.SDKRoot(*androidSDK))
+	// The android CLI and the SDK are looked up per call, so either one
+	// installed while loupe runs (POST /api/android/cli, or the CLI fetching
+	// the emulator for its first AVD) needs no restart.
+	findCLI := func() string { return target.AndroidCLI(*androidCLI) }
+	sdkRoot := func() string { return target.SDKRoot(*androidSDK) }
+	// adbKick cuts the device watcher's wait short once adb is installed or
+	// an AVD create has brought it, so adb reads as reachable at once and not
+	// up to 30s later.
+	adbKick := make(chan struct{}, 1)
+	kickADB := func() {
+		select {
+		case adbKick <- struct{}{}:
+		default:
 		}
+	}
+	emulatorBin := func() string {
+		if *emulatorPath != "" {
+			return *emulatorPath
+		}
+		return target.EmulatorBinary(sdkRoot())
+	}
+
+	if needScrcpy {
+		emu := emulatorBin()
 		scannedAt := time.Now()
 		installed, err := target.ScanAVDs(target.AVDHome())
 		if err != nil {
@@ -429,6 +453,9 @@ func main() {
 			// Serialized: the rescan runs from request handlers.
 			registerMu.Lock()
 			defer registerMu.Unlock()
+			// Resolved per scan: on a Mac with no SDK the first AVD the CLI
+			// creates brings the emulator with it.
+			emu := emulatorBin()
 			for _, a := range installed {
 				if mgr.Registered("avd:" + a.Name) {
 					continue
@@ -526,7 +553,7 @@ func main() {
 		mgr.SyncDevices(devices, build)
 		go func() {
 			defer close(watcherDone)
-			watchDevices(ctx, adb, names, mgr, build, tracer)
+			watchDevices(ctx, adb, names, mgr, build, tracer, adbKick)
 		}()
 	} else {
 		close(watcherDone)
@@ -673,38 +700,68 @@ func main() {
 	}
 	if registerAVDs != nil {
 		// The CLI ignores ANDROID_AVD_HOME, so with it pointing elsewhere an
-		// AVD would land where loupe never looks. Offer no create then.
-		cli := target.AndroidCLI(*androidCLI)
-		switch {
-		case cli == "":
-		case filepath.Clean(target.AVDHome()) != filepath.Clean(target.CLIAVDHome()):
-			fmt.Fprintf(os.Stderr, "warning: not offering the android CLI's New device profiles: AVDs are read from %s and the android CLI creates them in %s\n", target.AVDHome(), target.CLIAVDHome())
-		default:
-			api.SetAVDCreator(httpapi.NewAVDCreator(cli, target.SDKRoot(*androidSDK), target.AVDHome(), registerAVDs, tracer.Record))
+		// AVD would land where loupe never looks. The creator offers no
+		// create then, checked per request like the CLI itself.
+		if findCLI() != "" && filepath.Clean(target.AVDHome()) != filepath.Clean(target.CLIAVDHome()) {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", httpapi.AVDHomeMismatch(target.AVDHome(), target.CLIAVDHome()))
 		}
+		api.SetAVDCreator(httpapi.NewAVDCreator(httpapi.AVDCreatorConfig{
+			FindCLI: findCLI, SDK: sdkRoot,
+			AVDHome: target.AVDHome(), CLIAVDHome: target.CLIAVDHome,
+			Registered: func(at time.Time, avds []target.AVD) {
+				registerAVDs(at, avds)
+				// A first create on a Mac with no SDK brings adb too.
+				kickADB()
+			},
+			Trace: tracer.Record,
+		}))
 	}
+	// The android CLI and adb, for a Mac with neither Android Studio nor an
+	// SDK. One install at a time, shared by /api/android/cli and
+	// /api/remote/cli.
+	androidTools := httpapi.NewAndroidTools(httpapi.AndroidToolsConfig{
+		Installer: httpapi.NewCLIInstaller(target.PrivateAndroidCLI()),
+		FindCLI:   findCLI, SDK: sdkRoot,
+		FindADB:      func() string { return target.FindADB(*adbPath) },
+		ADBInstalled: kickADB,
+		Trace:        tracer.Record,
+	})
+	api.SetAndroidTools(androidTools)
 	// Firebase remote devices, reserved through the same CLI. Independent of
 	// where AVDs live. Whatever a previous run left reserved is released now.
 	// The CLI is looked up per call: one installed later needs no restart.
-	remoteDevs := httpapi.NewRemoteDevices(func() string { return target.AndroidCLI(*androidCLI) }, func(id, reason string) {
+	remoteDevs := httpapi.NewRemoteDevices(findCLI, func(id, reason string) {
 		mgr.UnregisterAs(id, reason)
 	}, tracer.Record)
 	if err := remoteDevs.Load(filepath.Join(filepath.Dir(cfgPath), "remote-devices.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: remote device reservations unreadable, starting with none: %v\n", err)
 	}
-	remoteDevs.SetCLIInstaller(httpapi.NewCLIInstaller(target.PrivateAndroidCLI()))
+	remoteDevs.SetAndroidTools(androidTools)
 	api.SetRemoteDevices(remoteDevs)
 	go remoteDevs.Watch(ctx)
+	// Revyl cloud devices, through the user's own revyl CLI and account. The
+	// CLI is looked up per call too. Sessions on the account are listed as
+	// targets; the ones loupe starts are stopped at exit.
+	revylDevs := httpapi.NewRevylDevices(func() string { return target.FindRevylCLI(*revylCLI) }, target.RevylWorkDir(),
+		mgr.Register, mgr.UnregisterAs, tracer.Record)
+	revylDevs.SetInstaller(httpapi.NewRevylInstaller(target.PrivateRevylCLI()))
+	revylDevs.SetREST(target.NewRevylREST(loupeVersion()))
+	api.SetRevylDevices(revylDevs)
+	go revylDevs.Watch(ctx)
 	// New device… from installed images. It does not depend on device
 	// discovery for iOS (simcapBin), and avdmanager follows ANDROID_AVD_HOME,
 	// so unlike the android CLI it needs no AVD-home check.
-	sdkRoot := target.SDKRoot(*androidSDK)
+	// Unlike the CLI, avdmanager and the SDK it lists images from are found
+	// once. avdmanager ships in cmdline-tools, which neither the CLI's create
+	// nor /api/android/cli installs, so a Mac set up by the CLI alone gets
+	// New device from the CLI's profiles (profilesFallback) instead.
+	sdkAtStart := sdkRoot()
 	avdMgr := ""
 	if registerAVDs != nil {
-		avdMgr = target.AVDManagerBinary(sdkRoot, *avdManager)
+		avdMgr = target.AVDManagerBinary(sdkAtStart, *avdManager)
 	}
 	if dc := httpapi.NewDeviceCreator(httpapi.DeviceCreatorConfig{
-		Manager: mgr, SDK: sdkRoot, AVDManager: avdMgr, AVDHome: target.AVDHome(),
+		Manager: mgr, SDK: sdkAtStart, AVDManager: avdMgr, AVDHome: target.AVDHome(),
 		RegisterAVDs: registerAVDs, Simcap: simcapBin, Trace: tracer.Record,
 	}); dc != nil {
 		api.SetDeviceCreator(dc)
@@ -844,6 +901,16 @@ func main() {
 	<-sig
 
 	fmt.Println("\nshutting down")
+	// Cloud devices bill until they stop, and launchd SIGKILLs loupe a few
+	// seconds after its SIGTERM, so their stops start first, alongside the
+	// HTTP shutdown, and finish before sessions close.
+	billCtx, billCancel := context.WithTimeout(context.Background(), httpapi.ExitStopBudget)
+	defer billCancel()
+	billed := make(chan struct{})
+	go func() {
+		httpapi.StopBilledDevices(billCtx, remoteDevs, revylDevs)
+		close(billed)
+	}()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
@@ -853,11 +920,7 @@ func main() {
 	if wtSrv != nil {
 		_ = wtSrv.Close()
 	}
-	// Before sessions close, so a reserved device stops billing even if the
-	// rest of shutdown is cut short.
-	if remoteDevs != nil {
-		remoteDevs.ReleaseAll()
-	}
+	<-billed
 	cancel()
 	mgr.Shutdown()
 	// Sessions closing end every recording as sessionEnded; this waits for
@@ -1079,8 +1142,9 @@ func watchIOSDevices(ctx context.Context, mgr *httpapi.Manager) {
 // does not recover from a server that is running and resets every
 // connection, which is what target.ADBHealth is for: after a few failures in
 // a row adb targets are reported unavailable with the reason, and after a
-// few more the server is restarted.
-func watchDevices(ctx context.Context, adb target.ADB, names func(context.Context, []target.DeviceInfo) []target.DeviceInfo, mgr *httpapi.Manager, build func(target.DeviceInfo) target.Target, tr *trace.Writer) {
+// few more the server is restarted. A receive on kick ends the wait between
+// tries early, for adb that has just been installed.
+func watchDevices(ctx context.Context, adb target.ADB, names func(context.Context, []target.DeviceInfo) []target.DeviceInfo, mgr *httpapi.Manager, build func(target.DeviceInfo) target.Target, tr *trace.Writer, kick <-chan struct{}) {
 	health := target.NewADBHealth()
 	backoff := time.Second
 	for {
@@ -1130,6 +1194,8 @@ func watchDevices(ctx context.Context, adb target.ADB, names func(context.Contex
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
+		case <-kick:
+			backoff = time.Second
 		}
 	}
 }

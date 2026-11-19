@@ -36,12 +36,15 @@ type fakeRemoteCLI struct {
 	fail    map[string]string
 	// list, when set, is what list prints instead.
 	list string
+	// removeHold, when set, holds `device remote remove` until it is
+	// closed or the call's context ends.
+	removeHold chan struct{}
 
 	mu    sync.Mutex
 	calls []string
 }
 
-func (f *fakeRemoteCLI) run(_ context.Context, args ...string) ([]byte, []byte, error) {
+func (f *fakeRemoteCLI) run(ctx context.Context, args ...string) ([]byte, []byte, error) {
 	line := strings.Join(args, " ")
 	f.mu.Lock()
 	f.calls = append(f.calls, line)
@@ -53,6 +56,12 @@ func (f *fakeRemoteCLI) run(_ context.Context, args ...string) ([]byte, []byte, 
 		}
 	}
 	switch {
+	case strings.HasPrefix(line, "device remote remove") && f.removeHold != nil:
+		select {
+		case <-f.removeHold:
+		case <-ctx.Done():
+			return nil, []byte("signal: killed\n"), ctx.Err()
+		}
 	case strings.HasPrefix(line, "device remote create"):
 		if f.release != nil {
 			<-f.release
@@ -280,7 +289,7 @@ func TestExitReleasesAndARestartReleasesWhatACrashLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rig.rd.ReleaseAll()
+	rig.rd.ReleaseAll(context.Background())
 	if got := rig.only(t); got.State != remoteEnded || got.Reason != "released" {
 		t.Errorf("after ReleaseAll = %+v", got)
 	}
@@ -366,7 +375,7 @@ func TestExitWaitsForAReserveInFlightThenReleasesIt(t *testing.T) {
 	rig.reserve(t)
 
 	exited := make(chan struct{})
-	go func() { rig.rd.ReleaseAll(); close(exited) }()
+	go func() { rig.rd.ReleaseAll(context.Background()); close(exited) }()
 	select {
 	case <-exited:
 		t.Fatal("exit did not wait for the reserve; its device would bill until it expired")
@@ -567,7 +576,7 @@ func TestExitRetriesAReleaseGoogleRefusedEarlier(t *testing.T) {
 	}
 	cli.setFail(nil)
 
-	rig.rd.ReleaseAll()
+	rig.rd.ReleaseAll(context.Background())
 	if n := cli.count(removeCall); n != 2 {
 		t.Errorf("removes = %d, want 2; ran %v", n, cli.ran())
 	}

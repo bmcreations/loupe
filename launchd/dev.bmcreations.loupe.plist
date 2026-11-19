@@ -26,6 +26,12 @@
   <key>ThrottleInterval</key>
   <integer>10</integer>
 
+  <!-- How long launchd waits after SIGTERM before SIGKILL. The default is
+       5 s, and loupe's exit stops cloud devices (Revyl, Firebase) on a 10 s
+       budget, then closes sessions and recordings. -->
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
   <!-- Files the supervisor and the server create are the owner's alone:
        rotated traces, the .run copy, sessions and peers. launchd opens
        StandardOutPath itself and ignores this for it, so the supervisor

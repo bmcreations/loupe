@@ -126,17 +126,17 @@ type RemoteDevices struct {
 	path  string
 	items []*RemoteReservation
 	// creating counts reserves still inside the CLI, so exit can wait for
-	// their ids.
+	// their ids. closing is set by ReleaseAll, after which none begins.
 	creating sync.WaitGroup
+	closing  bool
 	// releasing holds the keys whose release is in the CLI right now, so a
 	// DELETE, the start's retry and exit do not run the same one twice.
 	releasing map[string]bool
 	// signingIn is true while `android auth login` waits on the browser.
 	signingIn bool
-	// installer installs the CLI on request; nil means it cannot.
-	installer  *CLIInstaller
-	installing bool
-	installErr string
+	// tools installs the CLI on request, sharing one install at a time with
+	// /api/android/cli; nil means it cannot.
+	tools *AndroidTools
 }
 
 // NewRemoteDevices takes the CLI lookup, not a path: the CLI may be installed
@@ -154,6 +154,11 @@ var errNoCLI = errors.New("the android CLI is not installed")
 func (r *RemoteDevices) Installed() bool {
 	return r.run != nil || (r.find != nil && r.find() != "")
 }
+
+// SetAndroidTools lets POST /api/remote/cli install the CLI. Without it the
+// route answers 501. Pass the Server's own, so the two routes share one
+// install.
+func (r *RemoteDevices) SetAndroidTools(t *AndroidTools) { r.tools = t }
 
 // SetRemoteDevices enables /api/remote. Nil leaves its routes answering 404.
 func (s *Server) SetRemoteDevices(r *RemoteDevices) { s.remote = r }
@@ -224,7 +229,7 @@ func (r *RemoteDevices) Load(path string) error {
 	go func() {
 		for _, it := range retry {
 			rec := map[string]any{"action": "reconcile", "reservation": it.Reservation, "project": it.Project}
-			if err := r.release(it.Key); err != nil {
+			if err := r.release(context.Background(), it.Key); err != nil {
 				rec["error"] = err.Error()
 			}
 			r.record(rec)
@@ -261,6 +266,10 @@ func (r *RemoteDevices) Reserve(project, codename string, api int, model string)
 		return "", errNoCLI
 	}
 	r.mu.Lock()
+	if r.closing {
+		r.mu.Unlock()
+		return "", errClosing
+	}
 	for _, it := range r.items {
 		if it.State == remoteReserving {
 			r.mu.Unlock()
@@ -273,13 +282,17 @@ func (r *RemoteDevices) Reserve(project, codename string, api int, model string)
 	}
 	r.items = append(r.items, it)
 	r.saveLocked()
-	r.mu.Unlock()
+	// Under the lock, so ReleaseAll's wait sees every reserve it lets begin.
 	r.creating.Add(1)
+	r.mu.Unlock()
 	go r.create(it.Key, project, codename, api)
 	return it.Key, nil
 }
 
-var errBusy = errors.New("another reservation is being made")
+var (
+	errBusy    = errors.New("another reservation is being made")
+	errClosing = errors.New("loupe is shutting down")
+)
 
 var errHolding = errors.New("release the reserved device before signing out")
 
@@ -337,7 +350,8 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 	r.mu.Unlock()
 
 	if cp.State == remoteReleasing {
-		_ = r.release(key)
+		// Not ctx: a create that timed out has already spent it.
+		_ = r.release(context.Background(), key)
 	}
 	rec := map[string]any{"action": "reserve", "project": project, "device": codename, "api": api, "reservation": cp.Reservation, "tookMs": now.Sub(cp.StartedAt).Milliseconds()}
 	if failure != "" {
@@ -395,8 +409,8 @@ func (r *RemoteDevices) findLocked(key string) *RemoteReservation {
 // releaseAtGoogle disconnects, then removes, and is nil once Google no longer
 // holds the reservation. The connect daemon is a process of its own and
 // outlives loupe, so removing alone would leave it running.
-func (r *RemoteDevices) releaseAtGoogle(it *RemoteReservation) error {
-	ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
+func (r *RemoteDevices) releaseAtGoogle(ctx context.Context, it *RemoteReservation) error {
+	ctx, cancel := context.WithTimeout(ctx, remoteCallTimeout)
 	defer cancel()
 	_, _, _ = r.exec(ctx, "device", "remote", "disconnect", "--project="+it.Project, it.Reservation)
 	out, stderr, err := r.exec(ctx, "device", "remote", "remove", "--project="+it.Project, it.Reservation)
@@ -424,9 +438,9 @@ func (r *RemoteDevices) releaseAtGoogle(it *RemoteReservation) error {
 // releaseMidReserve releases what a reserve made before its process quit,
 // with no id recorded: what the project holds now and did not hold when that
 // reserve began, less the ids loupe's other rows own.
-func (r *RemoteDevices) releaseMidReserve(it *RemoteReservation) error {
-	ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
-	ids, err := r.held(ctx, it.Project)
+func (r *RemoteDevices) releaseMidReserve(ctx context.Context, it *RemoteReservation) error {
+	listCtx, cancel := context.WithTimeout(ctx, remoteCallTimeout)
+	ids, err := r.held(listCtx, it.Project)
 	cancel()
 	if err != nil {
 		return err
@@ -452,7 +466,7 @@ func (r *RemoteDevices) releaseMidReserve(it *RemoteReservation) error {
 		}
 		cp := *it
 		cp.Reservation = id
-		err := r.releaseAtGoogle(&cp)
+		err := r.releaseAtGoogle(ctx, &cp)
 		rec := map[string]any{"action": "reconcile", "reservation": id, "project": it.Project, "midReserve": true}
 		if err != nil {
 			rec["error"] = err.Error()
@@ -467,7 +481,7 @@ func (r *RemoteDevices) releaseMidReserve(it *RemoteReservation) error {
 
 // release asks Google to end a releasing row and marks it ended once Google
 // has. Until then the row stays releasing, saved, with the reason.
-func (r *RemoteDevices) release(key string) error {
+func (r *RemoteDevices) release(ctx context.Context, key string) error {
 	r.mu.Lock()
 	it := r.findLocked(key)
 	if it == nil || it.State != remoteReleasing {
@@ -487,9 +501,9 @@ func (r *RemoteDevices) release(key string) error {
 
 	var err error
 	if cp.Reservation == "" {
-		err = r.releaseMidReserve(&cp)
+		err = r.releaseMidReserve(ctx, &cp)
 	} else {
-		err = r.releaseAtGoogle(&cp)
+		err = r.releaseAtGoogle(ctx, &cp)
 	}
 
 	r.mu.Lock()
@@ -511,9 +525,11 @@ var errReleaseRunning = errors.New("a release of this reservation is already run
 // Release ends a reservation now, or tries again to release one Google has
 // not confirmed. The row stays releasing until Google confirms, and the error
 // says why it has not.
-func (r *RemoteDevices) Release(key string) error { return r.end(key, "released") }
+func (r *RemoteDevices) Release(key string) error {
+	return r.end(context.Background(), key, "released")
+}
 
-func (r *RemoteDevices) end(key, reason string) error {
+func (r *RemoteDevices) end(ctx context.Context, key, reason string) error {
 	r.mu.Lock()
 	it := r.findLocked(key)
 	if it == nil {
@@ -539,7 +555,7 @@ func (r *RemoteDevices) end(key, reason string) error {
 	if wasActive && r.endTarget != nil && cp.Target != "" {
 		r.endTarget(cp.Target, reason)
 	}
-	err := r.release(key)
+	err := r.release(ctx, key)
 	rec := map[string]any{"action": reason, "reservation": cp.Reservation, "project": cp.Project, "heldMs": cp.EndedAt.Sub(cp.ActiveAt).Milliseconds()}
 	if err != nil {
 		rec["error"] = err.Error()
@@ -605,7 +621,7 @@ func (r *RemoteDevices) ExpireDue() {
 	}
 	r.mu.Unlock()
 	for _, key := range due {
-		_ = r.end(key, "expired")
+		_ = r.end(context.Background(), key, "expired")
 	}
 }
 
@@ -623,31 +639,40 @@ func (r *RemoteDevices) Watch(ctx context.Context) {
 	}
 }
 
-// ReleaseAll releases every reservation this loupe holds. Called at exit.
-func (r *RemoteDevices) ReleaseAll() {
+// ReleaseAll releases every reservation this loupe holds, all at once.
+// Called at exit; no reserve begins after. It returns when they are
+// released or ctx ends.
+func (r *RemoteDevices) ReleaseAll(ctx context.Context) {
+	r.mu.Lock()
+	r.closing = true
+	r.mu.Unlock()
 	// A reserve in flight has no id to release yet. Wait for it: quitting
-	// now would leave the device billing until it expired.
+	// now would leave the device billing until it expired. If ctx ends
+	// first, the next start's Load releases what it made.
 	done := make(chan struct{})
 	go func() { r.creating.Wait(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(remoteCreateTimeout):
+	case <-ctx.Done():
 	}
-	// Held devices first, then releases Google has not confirmed yet.
+	// Held devices, and releases Google has not confirmed yet.
 	r.mu.Lock()
-	var active, releasing []string
+	var keys []string
 	for _, it := range r.items {
-		switch it.State {
-		case remoteActive:
-			active = append(active, it.Key)
-		case remoteReleasing:
-			releasing = append(releasing, it.Key)
+		if it.State == remoteActive || it.State == remoteReleasing {
+			keys = append(keys, it.Key)
 		}
 	}
 	r.mu.Unlock()
-	for _, key := range append(active, releasing...) {
-		_ = r.end(key, "released")
+	var wg sync.WaitGroup
+	for _, key := range keys {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = r.end(ctx, key, "released")
+		}()
 	}
+	wg.Wait()
 }
 
 // List returns the reservations still held, and those that ended in the last
@@ -946,9 +971,9 @@ type RemoteAccountResponse struct {
 
 func (r *RemoteDevices) account(ctx context.Context) RemoteAccountResponse {
 	r.mu.Lock()
-	acct := RemoteAccountResponse{SigningIn: r.signingIn, Projects: []string{},
-		CanInstallCLI: r.installer != nil, CLIInstalling: r.installing, CLIInstallError: r.installErr}
+	acct := RemoteAccountResponse{SigningIn: r.signingIn, Projects: []string{}, CanInstallCLI: r.tools.canInstallCLI()}
 	r.mu.Unlock()
+	acct.CLIInstalling, acct.CLIInstallError = r.tools.cliState()
 	if acct.CLIInstalled = r.Installed(); !acct.CLIInstalled {
 		return acct
 	}
@@ -1009,7 +1034,7 @@ func (s *Server) handleRemote(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		if errors.Is(err, errNoCLI) {
+		if errors.Is(err, errNoCLI) || errors.Is(err, errClosing) {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}

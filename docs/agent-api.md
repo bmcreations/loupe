@@ -46,6 +46,8 @@ Common refusals on routes that change a device:
 | `GET /api/camera/sources` | The Mac cameras an AVD can use as its back camera |
 | `DELETE /api/camera/feed` | Blank Handset Camera's live feed and keep it as the AVD's camera |
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
+| `GET`, `POST /api/android/cli` | Install the android CLI and adb on a Mac with no SDK ([targets](targets.md#without-an-sdk)) |
+| `GET`, `POST`, `DELETE /api/revyl`, `/api/revyl/account`, `GET /api/revyl/targets`, `POST /api/revyl/cli` | Revyl cloud devices on the user's account |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
 | `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture, hinge angle, app language, location |
@@ -512,8 +514,8 @@ This is a sketch and has not been exercised in an app.
 ## Device lifecycle
 
 These routes take an `avd:` or `sim:` target that is available and not
-`creating`. Anything else (a `device`, `iosDevice`, `synthetic`, `sim-new:` or
-bare `emulator-NNNN` row, or an unknown id) is 422 `notSupported` with the
+`creating`. Anything else (a `device`, `iosDevice`, `revyl`, `synthetic`,
+`sim-new:` or bare `emulator-NNNN` row, or an unknown id) is 422 `notSupported` with the
 reason. They are arbitrated like `launch`, so `humanHeld`, `claimedBy` and
 `handsOff` apply.
 
@@ -562,6 +564,36 @@ Viewers get `MsgEnded` before the session closes. An AVD booted this way is
 paused and shut down by the idle clock like any other. With
 `emulatorKeepState` on, shutdown saves the AVD's state first. A boot lifts the
 reopen guard that a shutdown set, as `start=1` does.
+
+## Revyl cloud devices
+
+Starts and stops Revyl devices on the user's own account through the `revyl`
+CLI. How they behave as targets is in [targets.md](targets.md#revyl-cloud-devices).
+Not yet run against a live account. Without `SetRevylDevices` every route
+answers 404; with no CLI found, the routes that run it answer 503.
+
+| Route | Effect | Answer |
+|---|---|---|
+| `GET /api/revyl[?sync=1]` | The devices loupe started or adopted. `sync=1` first reads the account's sessions with `revyl device list`. | 200 `{"devices":[RevylDevice]}` |
+| `POST /api/revyl {"platform","model","osVersion"}` | Starts a device in the background. `platform` is `android` or `ios`; `model` and `osVersion` are optional names from `/api/revyl/targets`. | 202 `{"key"}`; 409 while another starts; 400 for a bad body |
+| `DELETE /api/revyl?key=` or `?target=revyl:<id>` | Runs `revyl device stop`; the device shows as `stopping` until it answers, then its target and sessions end. A failed row is forgotten. | 200 `{"devices":[…]}`; 409 while it is still starting or already stopping; 404 unknown (until loupe has read the account once, it runs `revyl device list` first, and answers 502 if that fails, or 409 while a start runs); 502 when Revyl did not confirm, leaving it `active` with `stopError` |
+| `GET /api/revyl/targets` | Models and OS versions per platform, from `revyl device targets`. | 200 `{"platforms":{"android":[{"model","runtime"}]}}` |
+| `GET /api/revyl/account` | Whether the CLI is installed and signed in, and how. | 200 `RevylAccountResponse` |
+| `POST /api/revyl/account` | Runs `revyl auth login` and answers once it prints the approval URL and code (at most 15 s). Open `loginURL`, check `loginCode`, then poll `GET` until `signedIn`. The login waits up to 15 minutes. | 202 with `signingIn`, `loginURL`, `loginCode`, or `loginError` when the CLI exited first; 200 when already signed in; 502 when it could not run |
+| `DELETE /api/revyl/account` | Cancels a login, then runs `revyl auth logout`. | 200; 409 while a device loupe started is running or starting |
+| `POST /api/revyl/cli` | Downloads the pinned CLI when none is found. | 202 `RevylAccountResponse` with `cliInstalling`; 501 when the server cannot install |
+
+`RevylDevice` has `key`, `sessionId` and `target` once started, `platform`,
+`model`, `osVersion`, `state` (`starting`, `active`, `stopping`, `failed`),
+`error`, `stopError` (why the last stop failed; still billing),
+`adopted` (found on the account; left running at exit), `startedAt` and
+`idleTimeoutSec`. `RevylAccountResponse` has `cliInstalled`, `canInstallCLI`,
+`cliInstalling`, `cliInstallError`, `signedIn`, `email`, `org`, `authMethod`,
+`signingIn`, `loginURL`, `loginCode` and `loginError`. Neither carries the API
+key or the session's WHEP URL.
+
+A Revyl target streams to viewers and takes their touches, but `/api/input`,
+`/api/sequence`, `/api/ui` and `/api/screenshot` answer 501 for it.
 
 ## Logs and crashes
 

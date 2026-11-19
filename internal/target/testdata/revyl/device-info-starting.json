@@ -1,0 +1,11 @@
+{
+  "index": 0,
+  "session_id": "5b0c9f7e-2d55-4c4b-9a43-0d6f3f1f2a10",
+  "workflow_run_id": "wfr-test",
+  "worker_base_url": "https://worker-test.revyl.invalid",
+  "viewer_url": "https://app.revyl.invalid/devices/5b0c9f7e",
+  "platform": "android",
+  "started_at": "2026-11-18T15:00:00Z",
+  "last_activity": "2026-11-18T15:00:00Z",
+  "idle_timeout": 900000000000
+}

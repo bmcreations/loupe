@@ -2,6 +2,7 @@ package target
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -71,4 +72,21 @@ func AndroidCLI(explicit string) string {
 		}
 	}
 	return ""
+}
+
+// FindADB is the adb loupe would run, resolved the way exec resolves it: the
+// explicit -adb when it is an executable file or a name on PATH, else adb on
+// PATH. It returns "" when that finds nothing. It does not look in
+// the SDK: ADB runs a bare "adb" when no path is given, so an adb only under
+// platform-tools would be reported here yet fail every call.
+func FindADB(explicit string) string {
+	name := "adb"
+	if explicit != "" {
+		name = explicit
+	}
+	p, err := exec.LookPath(name)
+	if err != nil {
+		return ""
+	}
+	return p
 }

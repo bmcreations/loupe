@@ -5,11 +5,12 @@ server. The simulators on a Mac mini then show up on the MacBook or the
 phone with the same 60fps video, live input, agent API and claims as a
 local target. The client protocol (`docs/protocol.md`) does not change.
 
-Peer servers are the only remote backend that exists. Any machine that can
-run loupe can be one: a second Mac, a Linux box with emulators, a cloud VM.
-iOS simulators can only be reached this way, since they need macOS and
-simcap beside them. A remote adb serial and cloud device services are not
-built.
+Peer servers are the only way to reach another machine's targets. Any
+machine that can run loupe can be one: a second Mac, a Linux box with
+emulators, a cloud VM. A simulator on another Mac can only be reached this
+way, since it needs macOS and simcap beside it. A remote adb serial is not
+built. Revyl cloud devices are a target kind of their own, in
+[targets.md](targets.md#revyl-cloud-devices).
 
 ## Peer servers
 
