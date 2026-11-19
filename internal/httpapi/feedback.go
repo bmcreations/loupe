@@ -81,8 +81,8 @@ type WebhookFeedback struct {
 }
 
 // FeedbackRelayURL is where reports go with feedbackRelay on and no feedback
-// entry: loupe's maintainer's relay, which files each one as an issue.
-const FeedbackRelayURL = "https://feedback.loupe.bmcreations.dev/v1/feedback"
+// entry: loupe's maintainer's relay, which files each one as a public issue on bmcreations/loupe.
+const FeedbackRelayURL = "https://loupe-feedback-relay.brandon-92b.workers.dev/v1/feedback"
 
 // RelayFeedback is the body POSTed to the relay: the report's own words and
 // loupe's version. The device, the agent's session and local paths stay here.
