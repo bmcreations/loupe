@@ -194,14 +194,14 @@ func TestDeviceOptions404AndProfilesFallback(t *testing.T) {
 	}
 	// avdmanager absent, android CLI present, iOS available.
 	e := devServer(t, false, true)
-	e.s.SetAVDCreator(NewAVDCreator("android", "/sdk", e.home, func(time.Time, []target.AVD) {}, nil))
+	e.s.SetAVDCreator(testAVDCreator(e.home, nil))
 	r := decodeOptions(t, e.s)
 	if !r.ProfilesFallback || len(r.Platforms) != 1 || r.Platforms[0].ID != "ios" {
 		t.Errorf("fallback = %v platforms = %+v", r.ProfilesFallback, r.Platforms)
 	}
 	// CLI only: 200 with no platforms.
 	only := &Server{mgr: NewManager(target.Options{})}
-	only.SetAVDCreator(NewAVDCreator("android", "/sdk", t.TempDir(), func(time.Time, []target.AVD) {}, nil))
+	only.SetAVDCreator(testAVDCreator(t.TempDir(), nil))
 	r = decodeOptions(t, only)
 	if !r.ProfilesFallback || len(r.Platforms) != 0 {
 		t.Errorf("cli only = %+v", r)
@@ -359,7 +359,7 @@ func TestCreateSimulatorFailureUsesStdoutMessage(t *testing.T) {
 func TestCreationIsOneAtATimeAcrossAvdsAndDevices(t *testing.T) {
 	e := devServer(t, true, true)
 	cli := &fakeCLI{home: e.home, release: make(chan struct{})}
-	avds := NewAVDCreator("android", "/sdk", e.home, func(time.Time, []target.AVD) {}, nil)
+	avds := testAVDCreator(e.home, nil)
 	avds.run = cli.run
 	e.s.SetAVDCreator(avds)
 	if rec := do(e.s, http.MethodPost, "/api/avds", `{"profile":"small_phone"}`); rec.Code != 202 {

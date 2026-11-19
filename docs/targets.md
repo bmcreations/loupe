@@ -130,9 +130,9 @@ installed. Nothing is downloaded.
 - `POST /api/devices {platform, os, device, name}` answers 202 with the row id:
   `avd:<name>`, or `sim-new:<name>` for a simulator, which has no UDID yet. The
   finished job reports `createdId` as `sim:<udid>`.
-- Android is offered when `avdmanager` is found (`-android-avdmanager`, then
-  `cmdline-tools/*/bin` in the SDK). iOS is offered when `simctl` lists
-  simulators and simcap runs.
+- Android is offered when `avdmanager` is found at startup
+  (`-android-avdmanager`, then `cmdline-tools/*/bin` in the SDK). iOS is
+  offered when `simctl` lists simulators and simcap runs.
 - `/api/avds` and `/api/devices` share one slot. A create on either answers 409
   `creating` while the other runs, and 409 `avdExists` when a device of that
   name exists on that platform.
@@ -161,9 +161,15 @@ With no avdmanager, `profilesFallback` is true and the client uses Google's
 - `GET /api/avds/profiles` lists the CLI's profiles (`small_phone`,
   `medium_phone`, `medium_tablet` and three desktops), each with `exists`.
 - `POST /api/avds {"profile"}` answers 202 and creates in the background.
-- The CLI is found by `-android-cli`, then `/usr/local/bin` and
-  `/opt/homebrew/bin`. Without it both endpoints answer 404 and the picker hides
-  the entry.
+- The CLI is found by `-android-cli`, then `/usr/local/bin`,
+  `/opt/homebrew/bin` and loupe's own download (below). It is looked up on
+  every request, so a CLI installed while loupe runs is offered without a
+  restart. Without it both endpoints answer 404, `profilesFallback` is false,
+  and the picker hides the entry.
+- `--sdk` is the SDK root as found on that request. With none, the CLI uses
+  `~/Library/Android/sdk`.
+- The profile list is kept once a listing names profiles. A failed or empty
+  listing is asked again on the next request.
 - The AVD is named after the profile, so a profile makes one AVD. A profile
   whose `avd:<name>` is already a target answers 409 `avdExists`. One create
   runs at a time; another answers 409 `creating`.
@@ -175,7 +181,46 @@ With no avdmanager, `profilesFallback` is true and the client uses Google's
 - The first create downloads the system image (2.3 GB for API 36.1, about 4.6
   minutes). With the image already installed a create took under a second.
 - The CLI ignores `ANDROID_AVD_HOME`. With it set elsewhere, a created AVD
-  would never appear, so loupe offers no create and says so at startup.
+  would never appear, so loupe offers no create: both endpoints answer 404
+  with both paths, checked per request, and startup logs the same warning.
+- AVDs registered after startup get the emulator from the SDK as found then,
+  so an AVD whose create brought the emulator boots without a restart.
+
+#### Without an SDK
+
+A Mac with neither Android Studio nor an SDK needs only the CLI. On a macOS
+27.2.1 VM with no SDK, `android info` reported `~/Library/Android/sdk` as the
+SDK root, and the first `android emulator create small_phone` fetched
+platform-tools, the emulator and the system image into it (37 MB, 1.2 GB and
+2.3 GB, in 2m25s). Phones and Firebase devices need adb with no create, so
+`/api/android/cli` installs the CLI and adb. It sits beside `/api/avds`
+rather than under `/api/remote` because emulators need the CLI with no
+Firebase account.
+
+- `GET` reports `installed` and `path` for the CLI, `adbInstalled` and
+  `adbPath`, `canInstall`, `installing` with `step` (`cli`, then
+  `platform-tools`), and `error` from the last install.
+- `POST` installs whatever is missing in the background and answers 202, or
+  200 when nothing is. A missing CLI that this server cannot install is 501.
+- The CLI comes from Homebrew's `android-cli` cask when brew is installed, else
+  as a checksum-verified download into
+  `~/Library/Application Support/loupe/bin/android`, which needs no admin.
+- adb comes from `android sdk install platform-tools`, with the same `--sdk` as
+  a create. The verdict is adb being found and no `Error:` line, not the exit
+  status.
+- One install runs at a time, shared with `POST /api/remote/cli`. During either
+  one, `POST /api/android/cli` answers 409 `installing`. `/api/remote/cli`
+  still answers 202 and reports the running CLI step as `cliInstalling`.
+- adb counts as installed only where loupe runs it from: `-adb`, else `PATH`.
+  The Handset Mac app launches loupe with `<sdk>/platform-tools` on `PATH`
+  before it exists. A loupe started without that gets an `error` naming the
+  path to pass as `-adb`.
+- With no adb, every AVD reads `adbUnreachable` after 3 track-devices failures
+  and the watcher retries at most every 30s. A finished `platform-tools` step
+  or AVD create cuts that wait short, so the first AVD can open at once.
+
+The route, the per-request lookup and the cut-short wait have run only against
+fakes.
 
 ### When adb is wedged
 

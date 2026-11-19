@@ -143,6 +143,15 @@ var endpoints = []endpoint{
 	{"GET /api/avds/profiles", dirResponse, httpapi.AVDProfilesResponse{}},
 	{"POST /api/avds request", dirRequest, httpapi.CreateAVDRequest{}},
 	{"POST /api/avds 202", dirResponse, httpapi.CreateAVDResponse{}},
+	// The android CLI and adb, for a Mac with no SDK. 404 when this server
+	// cannot install them.
+	{"GET /api/android/cli", dirResponse, httpapi.AndroidCLIResponse{}},
+	// 202 when an install started, 200 when nothing was missing. 409 with
+	// code "installing" while one runs, from here or POST /api/remote/cli;
+	// 501 when the CLI is missing and this server cannot install it.
+	{"POST /api/android/cli 202", dirResponse, httpapi.AndroidCLIResponse{}},
+	{"POST /api/android/cli 200", dirResponse, httpapi.AndroidCLIResponse{}},
+	{"POST /api/android/cli 409", dirResponse, httpapi.ErrorResponse{}},
 	// Firebase remote devices, reserved through the android CLI. 404 on all
 	// of these when the CLI is not installed.
 	{"GET /api/remote", dirResponse, httpapi.RemoteListResponse{}},

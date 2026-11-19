@@ -178,48 +178,20 @@ func brewFailure(out []byte, err error) string {
 	return err.Error()
 }
 
-// SetCLIInstaller lets POST /api/remote/cli install the CLI. Without one the
-// route answers 501.
-func (r *RemoteDevices) SetCLIInstaller(in *CLIInstaller) { r.installer = in }
-
-// installCLI starts an install and returns at once; /api/remote/account
-// reports cliInstalling and, after a failure, cliInstallError.
-func (r *RemoteDevices) installCLI() {
-	r.mu.Lock()
-	if r.installing {
-		r.mu.Unlock()
-		return
-	}
-	r.installing, r.installErr = true, ""
-	r.mu.Unlock()
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), cliInstallTimeout)
-		defer cancel()
-		how, err := r.installer.Install(ctx)
-		rec := map[string]any{"action": "install-cli", "how": how}
-		r.mu.Lock()
-		r.installing = false
-		if err != nil {
-			r.installErr = err.Error()
-			rec["error"] = r.installErr
-		}
-		r.mu.Unlock()
-		r.record(rec)
-	}()
-}
-
 func (s *Server) handleRemoteCLI(w http.ResponseWriter, r *http.Request) {
 	rd := s.remote
 	if rd == nil {
 		http.NotFound(w, r)
 		return
 	}
-	if rd.installer == nil {
+	if !rd.tools.canInstallCLI() {
 		http.Error(w, "this server cannot install the android CLI", http.StatusNotImplemented)
 		return
 	}
+	// An install already running, from here or /api/android/cli, is left to
+	// finish; the 202 reports it either way.
 	if !rd.Installed() {
-		rd.installCLI()
+		rd.tools.installCLI()
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), remoteCallTimeout)
 	defer cancel()
