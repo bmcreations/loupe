@@ -346,22 +346,41 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 	r.record(rec)
 }
 
-// held is the ids of the project's reservations right now, never nil. The
-// error is set unless the CLI printed a list it recognises, so an empty
-// answer is never taken for an empty project.
+// held is the ids of the project's reservations right now, never nil, and
+// the error from listProject.
 func (r *RemoteDevices) held(ctx context.Context, project string) ([]string, error) {
-	out, stderr, err := r.exec(ctx, "device", "remote", "list", "--project="+project)
+	out, err := r.listProject(ctx, project)
 	ids := []string{}
-	if err != nil {
-		return ids, errors.New(remoteFailure(string(out), string(stderr), err))
-	}
-	if !strings.Contains(string(out), "No reservations found") && !reListHeader.Match(out) {
-		return ids, errors.New("the CLI printed no reservation list")
-	}
-	for _, row := range parseRemoteList(string(out)) {
+	for _, row := range parseRemoteList(out) {
 		ids = append(ids, row.id)
 	}
-	return ids, nil
+	return ids, err
+}
+
+// listProject is what `device remote list` printed for project. The error is
+// set unless the CLI printed a list it recognises, so an empty answer is never
+// taken for an empty project.
+func (r *RemoteDevices) listProject(ctx context.Context, project string) (string, error) {
+	out, stderr, err := r.exec(ctx, "device", "remote", "list", "--project="+project)
+	if err != nil {
+		return "", errors.New(remoteFailure(string(out), string(stderr), err))
+	}
+	if !strings.Contains(string(out), "No reservations found") && !reListHeader.Match(out) {
+		return "", errors.New("the CLI printed no reservation list")
+	}
+	return string(out), nil
+}
+
+// listsID reports whether any line of a list starts with id. It reads the raw
+// line, not parseRemoteList's row, so a row with a column missing still
+// counts as held.
+func listsID(out, id string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) > 0 && f[0] == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *RemoteDevices) findLocked(key string) *RemoteReservation {
@@ -385,12 +404,13 @@ func (r *RemoteDevices) releaseAtGoogle(it *RemoteReservation) error {
 		return nil
 	}
 	failure := remoteFailure(string(out), string(stderr), err)
-	// The CLI's answer to a reservation Google does not have (gRPC
-	// NOT_FOUND), and its answer to one that has ended.
+	// "Could not find reservation" is the CLI's message for gRPC NOT_FOUND.
+	// "It has already ended" is its message for an ended reservation, seen
+	// in the connect path; what remove says for one is not on record.
 	if text := string(out) + string(stderr); strings.Contains(text, "Could not find reservation") || strings.Contains(text, "It has already ended") {
 		return nil
 	}
-	if ids, lerr := r.held(ctx, it.Project); lerr == nil && !slices.Contains(ids, it.Reservation) {
+	if list, lerr := r.listProject(ctx, it.Project); lerr == nil && !listsID(list, it.Reservation) {
 		return nil
 	}
 	// It cannot outlive its expiry. This also ends the retries for one
@@ -414,6 +434,12 @@ func (r *RemoteDevices) releaseMidReserve(it *RemoteReservation) error {
 	r.mu.Lock()
 	var known []string
 	for _, other := range r.items {
+		// A reserve in flight has no id on its row yet, so the device it is
+		// making would look like this one's.
+		if other.State == remoteReserving {
+			r.mu.Unlock()
+			return errBusy
+		}
 		if other.Reservation != "" {
 			known = append(known, other.Reservation)
 		}
@@ -998,7 +1024,7 @@ func (s *Server) handleRemote(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		if errors.Is(err, errReleaseRunning) {
+		if errors.Is(err, errReleaseRunning) || errors.Is(err, errBusy) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}

@@ -34,6 +34,8 @@ type fakeRemoteCLI struct {
 	// otherwise the project holds nothing until create returns.
 	holding bool
 	fail    map[string]string
+	// list, when set, is what list prints instead.
+	list string
 
 	mu    sync.Mutex
 	calls []string
@@ -61,8 +63,11 @@ func (f *fakeRemoteCLI) run(_ context.Context, args ...string) ([]byte, []byte, 
 		return remoteFixture(f.t, "create.txt"), nil, nil
 	case strings.HasPrefix(line, "device remote list"):
 		f.mu.Lock()
-		holding := f.holding
+		holding, list := f.holding, f.list
 		f.mu.Unlock()
+		if list != "" {
+			return []byte(list), nil, nil
+		}
 		if !holding {
 			return []byte("No reservations found.\n"), nil, nil
 		}
@@ -585,6 +590,7 @@ func TestAFailedRemoveIsDoneOnlyWhenTheReservationIsGone(t *testing.T) {
 		{"gone from the list", map[string]string{"device remote remove": "Error: UNAVAILABLE"}, false, false, remoteEnded},
 		{"past its expiry", map[string]string{"device remote remove": "Error: UNAVAILABLE", "device remote list": "Error: UNAVAILABLE"}, true, true, remoteEnded},
 		{"still listed", map[string]string{"device remote remove": "Error: UNAVAILABLE"}, true, false, "releasing"},
+		{"listed with a blank column", map[string]string{"device remote remove": "Error: UNAVAILABLE"}, false, false, "releasing"},
 		{"list fails", map[string]string{"device remote remove": "Error: UNAVAILABLE", "device remote list": "Error: not signed in"}, false, false, "releasing"},
 		{"some other not found", map[string]string{"device remote remove": "Error: host not found"}, true, false, "releasing"},
 	} {
@@ -595,6 +601,9 @@ func TestAFailedRemoveIsDoneOnlyWhenTheReservationIsGone(t *testing.T) {
 			waitFor(t, func() bool { return rig.only(t).State == remoteActive })
 			cli.mu.Lock()
 			cli.holding = tc.listed
+			if tc.name == "listed with a blank column" {
+				cli.list = blankExpiryList
+			}
 			cli.mu.Unlock()
 			cli.setFail(tc.fail)
 			if tc.expired {
@@ -627,8 +636,7 @@ func TestARestartThatCannotReadTheProjectKeepsAMidReserveRow(t *testing.T) {
 	}
 	offline := &fakeRemoteCLI{t: t, fail: map[string]string{"device remote list": "Error: UNAVAILABLE"}}
 	load(offline)
-	waitFor(t, func() bool { return offline.count("device remote list") == 1 })
-	time.Sleep(50 * time.Millisecond)
+	waitFor(t, func() bool { return onDisk(t, path, "k1").ReleaseError != "" })
 	if got := onDisk(t, path, "k1"); got.State != "releasing" {
 		t.Fatalf("after an unreadable project = %+v", got)
 	}
@@ -638,5 +646,54 @@ func TestARestartThatCannotReadTheProjectKeepsAMidReserveRow(t *testing.T) {
 	waitFor(t, func() bool { l := rd.List(); return len(l) == 1 && l[0].State == remoteEnded })
 	if n := online.count(removeCall); n != 1 {
 		t.Errorf("second start ran %v", online.ran())
+	}
+}
+
+// blankExpiryList lists the reservation with no expiry, one column short of
+// what parseRemoteList reads.
+const blankExpiryList = "Reservation    State   Expires   Manufacturer  Model    Codename  API Level\n" +
+	"21kulawh96ut3  ENDING            Google        Pixel 9  tokay     36\n"
+
+// A row left by a quit mid-reserve releases what the project holds beyond its
+// Before list. While a reserve runs, the device that reserve is making has no
+// id on its row yet, so the retry must wait rather than release it.
+func TestAMidReserveRetryWaitsForAReserveInFlight(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote-devices.json")
+	left := []RemoteReservation{{Key: "k1", Project: "demo-project", Codename: "tokay", API: 36, State: "releasing", Reason: "released", Before: []string{}}}
+	raw, _ := json.Marshal(left)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cli := &fakeRemoteCLI{t: t, release: make(chan struct{}), fail: map[string]string{"device remote list": "Error: UNAVAILABLE"}}
+	rd := NewRemoteDevices(func() string { return "android" }, nil, nil)
+	rd.run = cli.run
+	if err := rd.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return onDisk(t, path, "k1").ReleaseError != "" })
+
+	cli.setFail(nil)
+	cli.mu.Lock()
+	cli.list = "No reservations found.\n"
+	cli.mu.Unlock()
+	key, err := rd.Reserve("demo-project", "tokay", 36, "Pixel 9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return cli.count("device remote create") == 1 })
+	// Google has made the device; the reserve has not returned its id.
+	cli.mu.Lock()
+	cli.list = string(remoteFixture(t, "remote-list.txt"))
+	cli.mu.Unlock()
+
+	err = rd.Release("k1")
+	close(cli.release)
+	// The reserve saves the state file once it returns.
+	waitFor(t, func() bool { return onDisk(t, path, key).State == remoteActive })
+	if n := cli.count(removeCall); n != 0 {
+		t.Errorf("released the device a reserve in flight is making; ran %v", cli.ran())
+	}
+	if err == nil {
+		t.Error("release during a reserve = nil, want an error")
 	}
 }
