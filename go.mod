@@ -3,6 +3,7 @@ module github.com/bmcreations/loupe
 go 1.26.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pion/interceptor v0.1.51
 	github.com/pion/rtcp v1.2.20

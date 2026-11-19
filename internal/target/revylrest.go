@@ -231,6 +231,71 @@ func (r *RevylREST) do(ctx context.Context, key, runID, action string, body any)
 	return revylRESTResult{DeviceMs: out.LatencyMs}, nil
 }
 
+// workerSocket asks the backend for the session's worker websocket, the
+// one Revyl's browser viewer sends live touches on:
+//
+//	GET <base>/api/v1/execution/streaming/worker-connection/<workflow_run_id>
+//
+// answers {"status": "ready", "worker_ws_url": "wss://...?token=...", ...}.
+// The endpoint is not documented; its shape was read from a live account
+// on 2026-11-19. The URL carries a token: it is never logged or put in an
+// error, and the error holds no URL, key or run id.
+func (r *RevylREST) workerSocket(ctx context.Context, key, runID string) (string, error) {
+	fail := func(msg string) (string, error) {
+		msg = strings.ReplaceAll(revylRedact(msg, key), runID, "<run>")
+		return "", errors.New("revyl worker-connection: " + msg)
+	}
+	timeout := r.Timeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	u := strings.TrimRight(r.BaseURL, "/") + "/api/v1/execution/streaming/worker-connection/" + url.PathEscape(runID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return fail("the backend URL is not usable")
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", r.UserAgent)
+	resp, err := r.httpClient().Do(req)
+	if err != nil {
+		return fail(revylTransportError(ctx, err))
+	}
+	defer resp.Body.Close()
+	data, rerr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 256<<10))
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg := "status " + fmt.Sprint(resp.StatusCode)
+		if c := revylErrorCode(data); c != "" {
+			msg += " " + c
+		}
+		return fail(msg)
+	}
+	if rerr != nil {
+		return fail("reading the answer: " + revylTransportError(ctx, rerr))
+	}
+	var out struct {
+		Status string `json:"status"`
+		URL    string `json:"worker_ws_url"`
+	}
+	if json.Unmarshal(data, &out) != nil {
+		return fail("the answer is not JSON")
+	}
+	if out.Status != "ready" {
+		msg := "the worker is not ready"
+		if revylCode.MatchString(out.Status) {
+			msg += ": " + out.Status
+		}
+		return fail(msg)
+	}
+	if p, err := url.Parse(out.URL); err != nil || (p.Scheme != "wss" && p.Scheme != "ws") || p.Host == "" {
+		return fail("the answer has no websocket URL")
+	}
+	return out.URL, nil
+}
+
 // revylTransportError describes a failed round trip without its URL: a
 // *url.Error's message quotes the whole request URL.
 func revylTransportError(ctx context.Context, err error) string {
