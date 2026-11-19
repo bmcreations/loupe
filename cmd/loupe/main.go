@@ -916,7 +916,9 @@ func main() {
 		remoteDevs.ReleaseAll()
 	}
 	if revylDevs != nil {
-		revylDevs.StopAll()
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		revylDevs.StopAll(ctx)
+		cancel()
 	}
 	cancel()
 	mgr.Shutdown()

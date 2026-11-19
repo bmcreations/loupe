@@ -64,7 +64,10 @@ func (c RevylCLI) Run(ctx context.Context, extra []string, args ...string) ([]by
 	if c.Path == "" {
 		return nil, errors.New("revyl: CLI not installed")
 	}
-	cmd := c.Command(ctx, extra, args...)
+	return c.run(c.Command(ctx, extra, args...), args)
+}
+
+func (c RevylCLI) run(cmd *exec.Cmd, args []string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -164,6 +167,9 @@ type RevylStart struct {
 	// IdleTimeout is how long Revyl keeps an untouched device. Zero leaves
 	// the CLI's default, 900 s.
 	IdleTimeout time.Duration
+	// Grace is how long the CLI has to cancel the device once ctx ends,
+	// before it is killed. Zero is 5 s.
+	Grace time.Duration
 }
 
 // Start starts a cloud device and waits for it, from `revyl device start
@@ -171,9 +177,20 @@ type RevylStart struct {
 // session). --open=false keeps it from opening Revyl's own viewer in a
 // browser, and --computer none from running inside a Revyl computer that
 // REVYL_COMPUTER_ID names.
+//
+// When ctx ends the CLI gets SIGINT rather than SIGKILL: `device start`
+// catches it and cancels the device at Revyl (cmd/revyl/device.go:1111,
+// internal/mcp/device_session.go:759 and :777) instead of leaving it to
+// come up. It is killed if it is still running Grace later. A start
+// interrupted just after it finished still prints its session, and Start
+// returns that session with the error: the caller owns a device it must
+// stop.
 func (c RevylCLI) Start(ctx context.Context, s RevylStart) (RevylSession, error) {
 	if s.Platform != "android" && s.Platform != "ios" {
 		return RevylSession{}, fmt.Errorf("revyl: platform %q, want android or ios", s.Platform)
+	}
+	if c.Path == "" {
+		return RevylSession{}, errors.New("revyl: CLI not installed")
 	}
 	args := []string{"device", "start", "--platform", s.Platform, "--json", "--open=false", "--computer", "none"}
 	if s.Model != "" {
@@ -185,15 +202,21 @@ func (c RevylCLI) Start(ctx context.Context, s RevylStart) (RevylSession, error)
 	if s.IdleTimeout > 0 {
 		args = append(args, "--timeout", strconv.Itoa(int(s.IdleTimeout/time.Second)))
 	}
-	out, err := c.Run(ctx, nil, args...)
-	if err != nil {
-		return RevylSession{}, err
+	cmd := c.Command(ctx, nil, args...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = s.Grace
+	if cmd.WaitDelay <= 0 {
+		cmd.WaitDelay = 5 * time.Second
 	}
+	out, err := c.run(cmd, args)
 	var sess RevylSession
-	if err := json.Unmarshal(out, &sess); err != nil || sess.SessionID == "" {
+	if json.Unmarshal(out, &sess) != nil || sess.SessionID == "" {
+		if err != nil {
+			return RevylSession{}, err
+		}
 		return RevylSession{}, errors.New("revyl device start: no session in its output")
 	}
-	return sess, nil
+	return sess, err
 }
 
 // Info reads one session, from `revyl device info --json`. A session that

@@ -29,7 +29,10 @@ const (
 
 	// revylStartTimeout covers a queued device: `revyl device start` waits
 	// for the device itself.
-	revylStartTimeout  = 6 * time.Minute
+	revylStartTimeout = 6 * time.Minute
+	// revylStartGrace is how long an interrupted `revyl device start` has
+	// to cancel its device at Revyl before it is killed.
+	revylStartGrace    = 5 * time.Second
 	revylCallTimeout   = 45 * time.Second
 	revylSignInTimeout = 15 * time.Minute
 	// revylLoginWait is how long POST /api/revyl/account waits for the CLI
@@ -56,6 +59,7 @@ var (
 	errRevylNoDevice = errors.New("no such Revyl device")
 	errRevylStarting = errors.New("the Revyl device is still starting; stop it once it is up")
 	errRevylHolding  = errors.New("stop the Revyl devices loupe started before signing out")
+	errRevylClosing  = errors.New("loupe is shutting down")
 )
 
 // RevylDevice is one Revyl session loupe started or found on the account.
@@ -149,10 +153,20 @@ type RevylDevices struct {
 
 	// listGrace is revylListGrace; tests shorten it.
 	listGrace time.Duration
+	// startGrace is revylStartGrace; tests shorten it.
+	startGrace time.Duration
 
 	mu       sync.Mutex
 	items    []*RevylDevice
 	starting bool
+	// cancelStart interrupts the start in flight, and startDone closes
+	// once it has finished, including stopping a device it was left with.
+	cancelStart context.CancelFunc
+	startDone   chan struct{}
+	// closing is set by StopAll, after which no start begins. exitCtx is
+	// StopAll's, and bounds the stop of a device a start brings up after.
+	closing bool
+	exitCtx context.Context
 	// stopped is when loupe stopped each session, so Sync does not adopt
 	// one the list still shows.
 	stopped      map[string]time.Time
@@ -179,7 +193,7 @@ type revylLogin struct {
 // (target.RevylWorkDir).
 func NewRevylDevices(find func() string, dir string, register func(target.Target), unregister func(id, reason string), trace func(map[string]any)) *RevylDevices {
 	r := &RevylDevices{find: find, dir: dir, register: register, unregister: unregister, trace: trace,
-		listGrace: revylListGrace, stopped: map[string]time.Time{}}
+		listGrace: revylListGrace, startGrace: revylStartGrace, stopped: map[string]time.Time{}}
 	r.newTarget = func(cli target.RevylCLI, s target.RevylSession, model, os string) target.Target {
 		return &target.RevylTarget{CLI: cli, Session: s, Model: model, OSVersion: os, REST: r.rest, Trace: r.record}
 	}
@@ -238,30 +252,54 @@ func (r *RevylDevices) Start(req StartRevylRequest) (string, error) {
 		return "", errRevylNoCLI
 	}
 	r.mu.Lock()
+	if r.closing {
+		r.mu.Unlock()
+		return "", errRevylClosing
+	}
 	if r.starting {
 		r.mu.Unlock()
 		return "", errRevylBusy
 	}
 	r.starting = true
+	ctx, cancel := context.WithTimeout(context.Background(), revylStartTimeout)
+	r.cancelStart, r.startDone = cancel, make(chan struct{})
 	it := &RevylDevice{Key: newRevylKey(), Platform: req.Platform, Model: req.Model, OSVersion: req.OSVersion,
 		State: revylStarting, StartedAt: time.Now()}
 	r.items = append(r.items, it)
+	done := r.startDone
 	r.mu.Unlock()
-	go r.start(cli, it.Key, req)
+	go r.start(ctx, cancel, done, cli, it.Key, req)
 	return it.Key, nil
 }
 
-func (r *RevylDevices) start(cli target.RevylCLI, key string, req StartRevylRequest) {
-	ctx, cancel := context.WithTimeout(context.Background(), revylStartTimeout)
+func (r *RevylDevices) start(ctx context.Context, cancel context.CancelFunc, done chan struct{}, cli target.RevylCLI, key string, req StartRevylRequest) {
+	defer close(done)
 	defer cancel()
 	began := time.Now()
-	sess, err := cli.Start(ctx, target.RevylStart{Platform: req.Platform, Model: req.Model, OSVersion: req.OSVersion})
+	sess, err := cli.Start(ctx, target.RevylStart{Platform: req.Platform, Model: req.Model, OSVersion: req.OSVersion, Grace: r.startGrace})
 	rec := map[string]any{"action": "start", "platform": req.Platform, "model": req.Model, "tookMs": time.Since(began).Milliseconds()}
 	r.mu.Lock()
 	r.starting = false
+	r.cancelStart, r.startDone = nil, nil
 	it := r.findLocked(key)
 	var t target.Target
+	var leftover string
+	stopCtx := r.exitCtx
 	switch {
+	case sess.SessionID != "" && (err != nil || r.closing || it == nil):
+		// The device came up, but the start was cut short, loupe is
+		// exiting, or the row is gone. Nothing will hold it, so stop it
+		// rather than leave it billing until it idles out.
+		leftover = sess.SessionID
+		r.stopped[leftover] = time.Now()
+		msg := errRevylClosing.Error()
+		if err != nil {
+			msg = err.Error()
+		}
+		if it != nil {
+			it.State, it.Error = revylFailed, msg
+		}
+		rec["error"], rec["target"] = msg, "revyl:"+leftover
 	case it == nil:
 		// Forgotten while starting; nothing to attach the session to.
 	case err != nil:
@@ -279,6 +317,19 @@ func (r *RevylDevices) start(cli target.RevylCLI, key string, req StartRevylRequ
 		r.register(t)
 	}
 	r.record(rec)
+	if leftover == "" {
+		return
+	}
+	if stopCtx == nil {
+		c, cancel := context.WithTimeout(context.Background(), revylCallTimeout)
+		defer cancel()
+		stopCtx = c
+	}
+	stop := map[string]any{"action": "stop", "target": "revyl:" + leftover}
+	if err := cli.Stop(stopCtx, leftover); err != nil {
+		stop["error"] = err.Error()
+	}
+	r.record(stop)
 }
 
 func (r *RevylDevices) findLocked(key string) *RevylDevice {
@@ -464,25 +515,37 @@ func (r *RevylDevices) holding(startedOnly bool) bool {
 }
 
 // StopAll stops every device loupe started, at shutdown, so none keeps
-// billing until its idle timeout. Adopted ones are left running.
-func (r *RevylDevices) StopAll() {
+// billing until its idle timeout. Adopted ones are left running. A start
+// in flight is interrupted rather than waited out, since Revyl's queue can
+// hold it for minutes, and a device it brings up anyway is stopped. No
+// start begins after. It returns when all of that is done or ctx ends.
+func (r *RevylDevices) StopAll(ctx context.Context) {
 	r.mu.Lock()
+	r.closing, r.exitCtx = true, ctx
 	var keys []string
 	for _, it := range r.items {
 		if it.State == revylActive && !it.Adopted {
 			keys = append(keys, it.Key)
 		}
 	}
+	cancelStart, startDone := r.cancelStart, r.startDone
 	r.mu.Unlock()
+	if cancelStart != nil {
+		cancelStart()
+	}
 	var wg sync.WaitGroup
 	for _, k := range keys {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
 			_ = r.Stop(ctx, k)
 		}()
+	}
+	if startDone != nil {
+		select {
+		case <-startDone:
+		case <-ctx.Done():
+		}
 	}
 	wg.Wait()
 }
@@ -680,7 +743,7 @@ func (s *Server) handleRevyl(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, errRevylBusy):
 			http.Error(w, err.Error(), http.StatusConflict)
-		case errors.Is(err, errRevylNoCLI):
+		case errors.Is(err, errRevylNoCLI), errors.Is(err, errRevylClosing):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		case err != nil:
 			http.Error(w, err.Error(), http.StatusBadRequest)

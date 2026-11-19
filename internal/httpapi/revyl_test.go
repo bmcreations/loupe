@@ -24,8 +24,22 @@ import (
 // waits for a <cmd>-<sub>.hold file to go away first. `auth login` prints
 // what revyl-cli v0.2.27 prints (cmd/revyl/auth.go:370-373) to stderr and
 // then waits for "approve", as the real one waits for the browser.
+//
+// With a <cmd>-<sub>.int file it catches SIGINT, as `device start` does
+// (revyl-cli v0.2.27 cmd/revyl/device.go:1111), and logs it to
+// interrupted.log. Then it exits 1, or with "finish" in the file prints
+// its JSON and exits 0, as a start interrupted just after it finished
+// does. With "ignore" it carries on as if nothing happened.
 const fakeRevylScript = `#!/bin/sh
 dir="$(dirname "$0")"
+# Before argv.log, so a test that waits for argv knows the trap is set.
+if [ -f "$dir/$1-$2.int" ]; then
+  case "$(cat "$dir/$1-$2.int")" in
+  ignore) trap 'echo "$1 $2" >> "$dir/interrupted.log"' INT ;;
+  finish) trap 'echo "$1 $2" >> "$dir/interrupted.log"; cat "$dir/$1-$2.json"; exit 0' INT ;;
+  *) trap 'echo "$1 $2" >> "$dir/interrupted.log"; echo "Error: cancelled while waiting for device to connect: context canceled" >&2; exit 1' INT ;;
+  esac
+fi
 printf '%s\037' "$@" >> "$dir/argv.log"
 printf '\n' >> "$dir/argv.log"
 while [ -f "$dir/$1-$2.hold" ]; do sleep 0.02; done
@@ -375,7 +389,7 @@ func TestRevylSyncAdoptsAccountSessionsAndDropsEndedOnes(t *testing.T) {
 	}
 
 	// Exit leaves adopted devices running.
-	rig.rv.StopAll()
+	rig.rv.StopAll(context.Background())
 	if rig.ran("device", "stop") != nil {
 		t.Error("exit stopped a device loupe did not start")
 	}
@@ -409,9 +423,92 @@ func TestRevylExitStopsTheDevicesLoupeStarted(t *testing.T) {
 		l := rig.list()
 		return len(l) == 1 && l[0].State == revylActive
 	})
-	rig.rv.StopAll()
+	rig.rv.StopAll(context.Background())
 	if rig.ran("device", "stop") == nil {
 		t.Error("exit left a started device running")
+	}
+}
+
+func (r *revylRig) interrupted() string {
+	b, _ := os.ReadFile(filepath.Join(r.dir, "interrupted.log"))
+	return string(b)
+}
+
+// startHeld starts a device and waits for `revyl device start` to be
+// running and held there, as one queued at Revyl is.
+func (r *revylRig) startHeld(onInterrupt string) {
+	r.t.Helper()
+	r.file("device-start.json", revylStartJSON)
+	r.file("device-start.hold", "")
+	r.file("device-start.int", onInterrupt)
+	if rec := do(r.s, http.MethodPost, "/api/revyl", `{"platform":"android"}`); rec.Code != http.StatusAccepted {
+		r.t.Fatalf("start = %d %s", rec.Code, rec.Body)
+	}
+	r.waitFor("the start to be running", func() bool { return r.ran("device", "start") != nil })
+}
+
+// Exit can't wait out a start: Revyl's queue can hold one for minutes.
+// The CLI is interrupted instead, so it cancels the device at Revyl, and
+// no start begins after.
+func TestRevylExitInterruptsAStartInFlight(t *testing.T) {
+	rig := revylServer(t)
+	rig.startHeld("")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rig.rv.StopAll(ctx)
+	// Were the start still running, its device would come up now.
+	rig.remove("device-start.hold")
+	if got := rig.interrupted(); got != "device start\n" {
+		t.Fatalf("interrupted = %q; exit left the start running, and its device bills until it idles out", got)
+	}
+	if l := rig.list(); len(l) != 1 || l[0].State != revylFailed {
+		t.Errorf("after exit = %+v", l)
+	}
+	if rec := do(rig.s, http.MethodPost, "/api/revyl", `{"platform":"android"}`); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("start after exit = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// A start interrupted just as it finished prints its session anyway. Exit
+// stops that device rather than leave it billing.
+func TestRevylExitStopsTheDeviceAnInterruptedStartBroughtUp(t *testing.T) {
+	rig := revylServer(t)
+	rig.file("device-stop.json", `{"stopped":true}`)
+	rig.startHeld("finish")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rig.rv.StopAll(ctx)
+	rig.remove("device-start.hold")
+	want := []string{"device", "stop", "--session-id", "6f1c2a8e-3b4d-4e5f-9a0b-1c2d3e4f5a6b", "--json"}
+	if a := rig.ran("device", "stop"); !reflect.DeepEqual(a, want) {
+		t.Errorf("stop argv = %q, want %q", a, want)
+	}
+	if _, ok := targetRow(t, rig.s, "revyl:6f1c2a8e-3b4d-4e5f-9a0b-1c2d3e4f5a6b"); ok {
+		t.Error("the device was registered after exit")
+	}
+	if l := rig.list(); len(l) != 1 || l[0].State != revylFailed {
+		t.Errorf("after exit = %+v", l)
+	}
+}
+
+// A CLI that ignores the interrupt is killed after startGrace, so exit
+// still ends within its budget.
+func TestRevylExitKillsAStartThatIgnoresTheInterrupt(t *testing.T) {
+	rig := revylServer(t)
+	rig.rv.startGrace = 100 * time.Millisecond
+	rig.startHeld("ignore")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	began := time.Now()
+	rig.rv.StopAll(ctx)
+	if took := time.Since(began); took > 2*time.Second {
+		t.Errorf("exit took %v", took)
+	}
+	if got := rig.interrupted(); got != "device start\n" {
+		t.Errorf("interrupted = %q", got)
+	}
+	if l := rig.list(); len(l) != 1 || l[0].State != revylFailed {
+		t.Errorf("after exit = %+v; the start outlived exit", l)
 	}
 }
 

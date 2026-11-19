@@ -291,6 +291,13 @@ v0.2.18.
   account's sessions from `revyl device list`. A session it did not start is
   adopted as a target and left running when loupe exits. One loupe started
   is stopped at exit. A session that leaves the list leaves the picker.
+- A start still running at exit is not waited out. The CLI gets SIGINT,
+  which `revyl device start` catches to cancel the device at Revyl
+  (revyl-cli v0.2.27 `cmd/revyl/device.go:1111`), and is killed 5 seconds
+  later if it is still running. A start that finishes anyway prints its
+  session, and loupe stops that device. Once loupe is shutting down,
+  `POST /api/revyl` answers 503. A `DELETE /api/revyl` for a device still
+  starting answers 409.
 - `DELETE /api/revyl` runs `revyl device stop` for up to 45 seconds whether
   or not the client waits for the answer, so a client that hangs up or times
   out does not leave the device billing.
