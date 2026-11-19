@@ -58,6 +58,12 @@ POLL=2             # seconds between liveness and hash checks
 CERT_MAX_AGE=30    # days before the tailnet cert is reissued
 FAST_EXIT=15       # a child gone sooner than this counts as a crash loop
 BACKOFF_MAX=60
+# Seconds loupe gets to exit after SIGTERM before it is SIGKILLed. Exit stops
+# cloud devices that bill until stopped (internal/httpapi/exit.go), so this has
+# to cover that budget, and it has to fit inside the plist's ExitTimeOut (30 s):
+# launchd's TERM reaches loupe only once the current `sleep $POLL` ends, up to
+# POLL seconds later, and launchd kills this script when ExitTimeOut runs out.
+STOP_GRACE=25
 
 log() { printf '%s loupe-supervisor: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
@@ -76,7 +82,7 @@ stop_child() {
   kill -0 "$CHILD" 2>/dev/null || { CHILD=""; return 0; }
   log "stopping child pid=$CHILD"
   kill -TERM "$CHILD" 2>/dev/null
-  for _ in $(seq 1 20); do
+  for _ in $(seq 1 $(( STOP_GRACE * 4 ))); do
     kill -0 "$CHILD" 2>/dev/null || break
     sleep 0.25
   done

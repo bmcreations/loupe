@@ -1,0 +1,18 @@
+{
+  "android": [
+    {
+      "Model": "Pixel 7",
+      "Runtime": "Android 14"
+    },
+    {
+      "Model": "Pixel Tablet",
+      "Runtime": "Android 14"
+    }
+  ],
+  "ios": [
+    {
+      "Model": "iPhone 16",
+      "Runtime": "iOS 18.5"
+    }
+  ]
+}

@@ -174,6 +174,10 @@ func (a *avdList) Set(v string) error { *a = append(*a, v); return nil }
 // build says dev.
 var version = "dev"
 
+// loupeVersion is version, for main, where the scrcpy server's version
+// takes the name.
+func loupeVersion() string { return version }
+
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "-version" || os.Args[1] == "--version") {
 		fmt.Println(version)
@@ -222,6 +226,7 @@ func main() {
 		androidSDK    = flag.String("android-sdk", "", "Android SDK root (default: ANDROID_HOME, ANDROID_SDK_ROOT, then ~/Library/Android/sdk)")
 		avdManager    = flag.String("android-avdmanager", "", "path to avdmanager, which creates AVDs from installed system images (default: cmdline-tools/*/bin in the Android SDK)")
 		androidCLI    = flag.String("android-cli", "", "path to Google's android CLI, which creates AVDs from the picker (default: /usr/local/bin/android, then /opt/homebrew/bin/android)")
+		revylCLI      = flag.String("revyl-cli", "", "path to the revyl CLI, which starts Revyl cloud devices on your own account (default: ~/.revyl/bin/revyl, /opt/homebrew/bin, /usr/local/bin, then loupe's own download)")
 		gpu           = flag.String("gpu", "host", "emulator -gpu mode; only 'host' reaches 60fps")
 		synthetic     = flag.Bool("synthetic", false, "register a synthetic 60fps test pattern target")
 		syntheticIdle = flag.Bool("synthetic-fallback", true, "register the synthetic target when no device, emulator or simulator is found; Handset turns this off so a Mac with none shows none")
@@ -734,6 +739,15 @@ func main() {
 	remoteDevs.SetAndroidTools(androidTools)
 	api.SetRemoteDevices(remoteDevs)
 	go remoteDevs.Watch(ctx)
+	// Revyl cloud devices, through the user's own revyl CLI and account. The
+	// CLI is looked up per call too. Sessions on the account are listed as
+	// targets; the ones loupe starts are stopped at exit.
+	revylDevs := httpapi.NewRevylDevices(func() string { return target.FindRevylCLI(*revylCLI) }, target.RevylWorkDir(),
+		mgr.Register, mgr.UnregisterAs, tracer.Record)
+	revylDevs.SetInstaller(httpapi.NewRevylInstaller(target.PrivateRevylCLI()))
+	revylDevs.SetREST(target.NewRevylREST(loupeVersion()))
+	api.SetRevylDevices(revylDevs)
+	go revylDevs.Watch(ctx)
 	// New device… from installed images. It does not depend on device
 	// discovery for iOS (simcapBin), and avdmanager follows ANDROID_AVD_HOME,
 	// so unlike the android CLI it needs no AVD-home check.
@@ -887,6 +901,16 @@ func main() {
 	<-sig
 
 	fmt.Println("\nshutting down")
+	// Cloud devices bill until they stop, and launchd SIGKILLs loupe a few
+	// seconds after its SIGTERM, so their stops start first, alongside the
+	// HTTP shutdown, and finish before sessions close.
+	billCtx, billCancel := context.WithTimeout(context.Background(), httpapi.ExitStopBudget)
+	defer billCancel()
+	billed := make(chan struct{})
+	go func() {
+		httpapi.StopBilledDevices(billCtx, remoteDevs, revylDevs)
+		close(billed)
+	}()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
@@ -896,11 +920,7 @@ func main() {
 	if wtSrv != nil {
 		_ = wtSrv.Close()
 	}
-	// Before sessions close, so a reserved device stops billing even if the
-	// rest of shutdown is cut short.
-	if remoteDevs != nil {
-		remoteDevs.ReleaseAll()
-	}
+	<-billed
 	cancel()
 	mgr.Shutdown()
 	// Sessions closing end every recording as sessionEnded; this waits for

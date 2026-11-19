@@ -33,6 +33,12 @@
     "DELETE /api/remote/account": {
       "$ref": "#/$defs/httpapi.RemoteAccountResponse"
     },
+    "DELETE /api/revyl": {
+      "$ref": "#/$defs/httpapi.RevylListResponse"
+    },
+    "DELETE /api/revyl/account": {
+      "$ref": "#/$defs/httpapi.RevylAccountResponse"
+    },
     "DELETE /api/servers 404": {
       "$ref": "#/$defs/httpapi.ErrorResponse"
     },
@@ -155,6 +161,15 @@
     },
     "GET /api/remote/models 502": {
       "$ref": "#/$defs/httpapi.RemoteModelsError"
+    },
+    "GET /api/revyl": {
+      "$ref": "#/$defs/httpapi.RevylListResponse"
+    },
+    "GET /api/revyl/account": {
+      "$ref": "#/$defs/httpapi.RevylAccountResponse"
+    },
+    "GET /api/revyl/targets": {
+      "$ref": "#/$defs/httpapi.RevylTargetsResponse"
     },
     "GET /api/servers": {
       "items": {
@@ -362,6 +377,18 @@
     },
     "POST /api/remote/extend request": {
       "$ref": "#/$defs/httpapi.ExtendRemoteRequest"
+    },
+    "POST /api/revyl 202": {
+      "$ref": "#/$defs/httpapi.StartRevylResponse"
+    },
+    "POST /api/revyl request": {
+      "$ref": "#/$defs/httpapi.StartRevylRequest"
+    },
+    "POST /api/revyl/account 202": {
+      "$ref": "#/$defs/httpapi.RevylAccountResponse"
+    },
+    "POST /api/revyl/cli 202": {
+      "$ref": "#/$defs/httpapi.RevylAccountResponse"
     },
     "POST /api/sequence 200": {
       "$ref": "#/$defs/httpapi.SequenceResponse"
@@ -4258,6 +4285,145 @@
       ],
       "type": "object"
     },
+    "httpapi.RevylAccountResponse": {
+      "properties": {
+        "authMethod": {
+          "type": "string"
+        },
+        "canInstallCLI": {
+          "type": "boolean"
+        },
+        "cliInstallError": {
+          "type": "string"
+        },
+        "cliInstalled": {
+          "type": "boolean"
+        },
+        "cliInstalling": {
+          "type": "boolean"
+        },
+        "email": {
+          "type": "string"
+        },
+        "loginCode": {
+          "type": "string"
+        },
+        "loginError": {
+          "type": "string"
+        },
+        "loginURL": {
+          "type": "string"
+        },
+        "org": {
+          "type": "string"
+        },
+        "signedIn": {
+          "type": "boolean"
+        },
+        "signingIn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cliInstalled",
+        "signedIn"
+      ],
+      "type": "object"
+    },
+    "httpapi.RevylDevice": {
+      "properties": {
+        "adopted": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "idleTimeoutSec": {
+          "type": "integer"
+        },
+        "key": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "osVersion": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "startedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "stopError": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "platform",
+        "state",
+        "startedAt"
+      ],
+      "type": "object"
+    },
+    "httpapi.RevylListResponse": {
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/httpapi.RevylDevice"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "devices"
+      ],
+      "type": "object"
+    },
+    "httpapi.RevylModel": {
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "runtime"
+      ],
+      "type": "object"
+    },
+    "httpapi.RevylTargetsResponse": {
+      "properties": {
+        "platforms": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/httpapi.RevylModel"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "platforms"
+      ],
+      "type": "object"
+    },
     "httpapi.SequenceRequest": {
       "properties": {
         "steps": {
@@ -4510,6 +4676,34 @@
       },
       "required": [
         "text"
+      ],
+      "type": "object"
+    },
+    "httpapi.StartRevylRequest": {
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "osVersion": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "platform"
+      ],
+      "type": "object"
+    },
+    "httpapi.StartRevylResponse": {
+      "properties": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
       ],
       "type": "object"
     },

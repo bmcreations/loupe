@@ -116,8 +116,9 @@ type RemoteDevices struct {
 	path  string
 	items []*RemoteReservation
 	// creating counts reserves still inside the CLI, so exit can wait for
-	// their ids.
+	// their ids. closing is set by ReleaseAll, after which none begins.
 	creating sync.WaitGroup
+	closing  bool
 	// signingIn is true while `android auth login` waits on the browser.
 	signingIn bool
 	// tools installs the CLI on request, sharing one install at a time with
@@ -215,7 +216,7 @@ func (r *RemoteDevices) Load(path string) error {
 	r.mu.Unlock()
 	go func() {
 		for _, it := range orphans {
-			r.releaseAtGoogle(it)
+			r.releaseAtGoogle(context.Background(), it)
 			r.record(map[string]any{"action": "reconcile", "reservation": it.Reservation, "project": it.Project})
 		}
 		// The old process quit mid-reserve. What the project holds now and
@@ -230,7 +231,7 @@ func (r *RemoteDevices) Load(path string) error {
 				}
 				cp := *it
 				cp.Reservation = id
-				r.releaseAtGoogle(&cp)
+				r.releaseAtGoogle(context.Background(), &cp)
 				r.record(map[string]any{"action": "reconcile", "reservation": id, "project": it.Project, "midReserve": true})
 			}
 		}
@@ -266,6 +267,10 @@ func (r *RemoteDevices) Reserve(project, codename string, api int, model string)
 		return "", errNoCLI
 	}
 	r.mu.Lock()
+	if r.closing {
+		r.mu.Unlock()
+		return "", errClosing
+	}
 	for _, it := range r.items {
 		if it.State == remoteReserving {
 			r.mu.Unlock()
@@ -278,13 +283,17 @@ func (r *RemoteDevices) Reserve(project, codename string, api int, model string)
 	}
 	r.items = append(r.items, it)
 	r.saveLocked()
-	r.mu.Unlock()
+	// Under the lock, so ReleaseAll's wait sees every reserve it lets begin.
 	r.creating.Add(1)
+	r.mu.Unlock()
 	go r.create(it.Key, project, codename, api)
 	return it.Key, nil
 }
 
-var errBusy = errors.New("another reservation is being made")
+var (
+	errBusy    = errors.New("another reservation is being made")
+	errClosing = errors.New("loupe is shutting down")
+)
 
 var errHolding = errors.New("release the reserved device before signing out")
 
@@ -335,7 +344,7 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 
 	if failure != "" && cp.Reservation != "" {
 		// Reserved but never connected: it would bill until it expired.
-		r.releaseAtGoogle(&cp)
+		r.releaseAtGoogle(context.Background(), &cp)
 	}
 	rec := map[string]any{"action": "reserve", "project": project, "device": codename, "api": api, "reservation": cp.Reservation, "tookMs": now.Sub(cp.StartedAt).Milliseconds()}
 	if failure != "" {
@@ -365,8 +374,8 @@ func (r *RemoteDevices) findLocked(key string) *RemoteReservation {
 
 // releaseAtGoogle disconnects, then removes. The connect daemon is a process
 // of its own and outlives loupe, so removing alone would leave it running.
-func (r *RemoteDevices) releaseAtGoogle(it *RemoteReservation) error {
-	ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
+func (r *RemoteDevices) releaseAtGoogle(ctx context.Context, it *RemoteReservation) error {
+	ctx, cancel := context.WithTimeout(ctx, remoteCallTimeout)
 	defer cancel()
 	_, _, _ = r.exec(ctx, "device", "remote", "disconnect", "--project="+it.Project, it.Reservation)
 	out, stderr, err := r.exec(ctx, "device", "remote", "remove", "--project="+it.Project, it.Reservation)
@@ -378,9 +387,11 @@ func (r *RemoteDevices) releaseAtGoogle(it *RemoteReservation) error {
 
 // Release ends a reservation now. The row is forgotten whether or not Google
 // answered, and the error says when it did not.
-func (r *RemoteDevices) Release(key string) error { return r.end(key, "released") }
+func (r *RemoteDevices) Release(key string) error {
+	return r.end(context.Background(), key, "released")
+}
 
-func (r *RemoteDevices) end(key, reason string) error {
+func (r *RemoteDevices) end(ctx context.Context, key, reason string) error {
 	r.mu.Lock()
 	it := r.findLocked(key)
 	if it == nil {
@@ -402,7 +413,7 @@ func (r *RemoteDevices) end(key, reason string) error {
 	if r.endTarget != nil && cp.Target != "" {
 		r.endTarget(cp.Target, reason)
 	}
-	err := r.releaseAtGoogle(&cp)
+	err := r.releaseAtGoogle(ctx, &cp)
 	rec := map[string]any{"action": reason, "reservation": cp.Reservation, "project": cp.Project, "heldMs": cp.EndedAt.Sub(cp.ActiveAt).Milliseconds()}
 	if err != nil {
 		rec["error"] = err.Error()
@@ -468,7 +479,7 @@ func (r *RemoteDevices) ExpireDue() {
 	}
 	r.mu.Unlock()
 	for _, key := range due {
-		_ = r.end(key, "expired")
+		_ = r.end(context.Background(), key, "expired")
 	}
 }
 
@@ -486,15 +497,21 @@ func (r *RemoteDevices) Watch(ctx context.Context) {
 	}
 }
 
-// ReleaseAll releases every reservation this loupe holds. Called at exit.
-func (r *RemoteDevices) ReleaseAll() {
+// ReleaseAll releases every reservation this loupe holds, all at once.
+// Called at exit; no reserve begins after. It returns when they are
+// released or ctx ends.
+func (r *RemoteDevices) ReleaseAll(ctx context.Context) {
+	r.mu.Lock()
+	r.closing = true
+	r.mu.Unlock()
 	// A reserve in flight has no id to release yet. Wait for it: quitting
-	// now would leave the device billing until it expired.
+	// now would leave the device billing until it expired. If ctx ends
+	// first, the next start's Load releases what it made.
 	done := make(chan struct{})
 	go func() { r.creating.Wait(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(remoteCreateTimeout):
+	case <-ctx.Done():
 	}
 	r.mu.Lock()
 	var keys []string
@@ -504,9 +521,15 @@ func (r *RemoteDevices) ReleaseAll() {
 		}
 	}
 	r.mu.Unlock()
+	var wg sync.WaitGroup
 	for _, key := range keys {
-		_ = r.end(key, "released")
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = r.end(ctx, key, "released")
+		}()
 	}
+	wg.Wait()
 }
 
 // List returns the reservations still held, and those that ended in the last
@@ -865,7 +888,7 @@ func (s *Server) handleRemote(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		if errors.Is(err, errNoCLI) {
+		if errors.Is(err, errNoCLI) || errors.Is(err, errClosing) {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}

@@ -102,6 +102,9 @@ type Server struct {
 	// /api/remote/account then reports cliInstalled false and the routes
 	// that need the CLI answer 503.
 	remote *RemoteDevices
+	// revyl starts Revyl cloud devices through the user's revyl CLI
+	// (revyl.go). Nil answers 404 on /api/revyl*.
+	revyl *RevylDevices
 	// devs creates AVDs through avdmanager and simulators through simctl
 	// from what is installed. Nil when neither can, and /api/devices then
 	// answers 404.
@@ -331,6 +334,10 @@ var routes = []route{
 	{"/api/remote/account", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRemoteAccount, ""},
 	{"/api/remote/cli", []string{http.MethodPost}, (*Server).handleRemoteCLI, ""},
 	{"/api/remote/models", []string{http.MethodGet}, (*Server).handleRemoteModels, ""},
+	{"/api/revyl", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRevyl, ""},
+	{"/api/revyl/account", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRevylAccount, ""},
+	{"/api/revyl/cli", []string{http.MethodPost}, (*Server).handleRevylCLI, ""},
+	{"/api/revyl/targets", []string{http.MethodGet}, (*Server).handleRevylTargets, ""},
 	{"/api/devices/options", []string{http.MethodGet}, (*Server).handleDeviceOptions, ""},
 	{"/api/devices/shutdown", []string{http.MethodPost}, (*Server).handleDeviceShutdown, ""},
 	{"/api/devices/boot", []string{http.MethodGet, http.MethodPost}, (*Server).handleDeviceBoot, ""},
@@ -480,7 +487,7 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("local") == "1" {
 		rows = s.mgr.LocalTargets
 	}
-	targets := s.remote.decorate(s.slot.withCreation(rows(r.Context())))
+	targets := s.revyl.decorate(s.remote.decorate(s.slot.withCreation(rows(r.Context()))))
 	s.claims.decorate(targets)
 	ids := make([]string, 0, len(targets))
 	for _, t := range targets {

@@ -1,7 +1,7 @@
 # Targets
 
-AVDs, the Android phone keyboard, the clipboard and device frames. iOS
-simulators and physical iPhones are in `docs/ios.md`.
+AVDs, Revyl cloud devices, the Android phone keyboard, the clipboard and
+device frames. iOS simulators and physical iPhones are in `docs/ios.md`.
 
 ## AVD targets
 
@@ -242,6 +242,164 @@ The restart has only run under unit tests, not against a wedged server.
 ### No devices
 
 With no targets at all, the picker shows New device and How to connect a phone.
+
+## Revyl cloud devices
+
+A cloud Android emulator or iOS simulator on the user's own Revyl
+(revyl.com) account is a target with the id `revyl:<sessionId>` and kind
+`revyl`. loupe drives it through Revyl's `revyl` CLI, except input, which
+goes over the device-proxy endpoint the CLI itself uses (see
+[Input](#input)). The flags and `--json` shapes come from revyl-cli v0.2.27
+(commit `35b06ed8`). It is all tested against a fake CLI, a fake device
+proxy and a local WHEP server. On 2026-11-18 the device-proxy input,
+`revyl device tap`, and the `workflow_run_id` that `device start` and
+`device info` report were checked against a live account, with revyl-cli
+v0.2.18.
+
+### CLI and account
+
+- The CLI is found by `-revyl-cli`, then `~/.revyl/bin/revyl` (where Revyl's
+  install script puts it), `/opt/homebrew/bin`, `/usr/local/bin`, PATH, then
+  loupe's own copy at `~/Library/Application Support/loupe/bin/revyl`. It is
+  looked up on every request, so one installed later needs no restart.
+- With none, `POST /api/revyl/cli` downloads the v0.2.27 release binary for
+  the Mac's architecture into loupe's path and checks its SHA-256 against
+  the value pinned in loupe. No Homebrew and no admin.
+- Sign-in is the user's: `revyl auth login` stores `~/.revyl/credentials.json`,
+  or `REVYL_API_KEY` is in loupe's environment. `POST /api/revyl/account`
+  runs the login and answers with its approval URL and code once the CLI
+  prints them. The CLI also opens the URL in the Mac's browser, and has no
+  flag to stop it. The URL and code stay out of the trace.
+- loupe reads the key for input over the device proxy: `REVYL_API_KEY`
+  first, else `api_key` in `~/.revyl/credentials.json`, read again for every
+  gesture so a new sign-in needs no restart. The key stays out of errors,
+  the trace and every API response.
+- Every run sets `REVYL_TELEMETRY_DISABLED=1` and `REVYL_NO_UPDATE_NOTIFIER=1`,
+  and runs in `~/Library/Application Support/loupe/revyl`, so a project's
+  `.revyl/config.yaml` in loupe's start directory is not read.
+
+### Sessions
+
+- `POST /api/revyl` starts one device at a time; another start answers 409.
+  While it starts, `/api/targets` has a `revyl-starting:<key>` row with state
+  `starting` and transport `cloud`. The start waits for Revyl's queue, up to
+  6 minutes.
+- Revyl bills from the start until the device stops or goes 900 seconds
+  without a command (`--timeout`, the CLI's default). Whether a WHEP viewer
+  alone keeps it alive is unknown.
+- At startup, and every minute while loupe holds a device, loupe reads the
+  account's sessions from `revyl device list`. A session it did not start is
+  adopted as a target and left running when loupe exits. One loupe started
+  is stopped at exit. A session that leaves the list leaves the picker.
+- A start still running at exit is not waited out. The CLI gets SIGINT,
+  which `revyl device start` catches to cancel the device at Revyl
+  (revyl-cli v0.2.27 `cmd/revyl/device.go:1111`), and is killed 5 seconds
+  later if it is still running. A start that finishes anyway prints its
+  session, and loupe stops that device. Once loupe is shutting down,
+  `POST /api/revyl` answers 503. A `DELETE /api/revyl` for a device still
+  starting answers 409.
+- Exit runs these stops first, at the same time as the Firebase releases
+  and the HTTP shutdown, and gives them 10 seconds from the signal; the
+  5-second SIGINT wait comes out of those 10. Under launchd the window can
+  be shorter: launchd SIGKILLs a job ExitTimeOut after its SIGTERM, and
+  `launchctl print` shows 5 seconds for a job whose plist sets none.
+  loupe's own plist sets 30, and `loupe-supervisor.sh` passes the SIGTERM
+  on within 2 seconds and gives loupe 25 seconds to exit, so the whole
+  budget applies there. With 5 seconds the SIGINT wait can use all of it,
+  so the stop of a device whose start finished anyway runs only with a
+  longer window. A stop still running at the cutoff is abandoned, and whether
+  Revyl acted on its request is not known. A device that comes up after
+  loupe has gone is adopted by the next loupe and runs until it is stopped
+  or Revyl's 900-second idle timeout ends it. Once exit begins,
+  `POST /api/remote` answers 503 too.
+- `DELETE /api/revyl` runs `revyl device stop` for up to 45 seconds whether
+  or not the client waits for the answer, so a client that hangs up or times
+  out does not leave the device billing. Until the CLI confirms, the device
+  stays in `/api/revyl` as `stopping` and keeps its target, and a second
+  `DELETE` answers 409. A stop that fails or runs out of time answers 502
+  and puts the device back to `active` with `stopError`, so it can be
+  stopped again. Exit waits for a stop in progress, within its 10 seconds.
+- Until loupe has read the account's sessions once, it does not know a
+  device left running before it restarted. Until then, a `DELETE /api/revyl`
+  for a device it does not know runs `revyl device list` first, so that one is
+  found and stopped instead of answered 404. If the list fails, the answer
+  is 502, not 404. While a start runs, the list leaves sessions loupe does
+  not know to the start, so the answer is 409 until the start is up.
+- The WHEP, viewer and worker URLs Revyl returns are kept out of
+  `/api/targets`, `/api/revyl` and the trace, and any URL in the CLI's
+  error output is cut before it reaches either.
+- For 2 minutes after loupe starts or stops a session, `revyl device list`
+  is not trusted over loupe, in case it lags.
+
+### Video
+
+`revyl device info` gives the session's `whep_url`. loupe is a WHEP client:
+it offers a receive-only H.264 track, assembles RTP into access units on the
+marker bit, and hands them to the normal session, so viewers, recording and
+the agent stream work unchanged. `Meta` takes the size from the SPS, and
+`Open` returns only once the first SPS has arrived. A keyframe request is an
+RTCP PLI. No header is sent with the offer; whether Revyl needs one is
+unknown.
+
+### Input
+
+Revyl takes whole gestures, not touch events.
+
+- A press is buffered from down to up and sent when the finger lifts: a tap,
+  a long-press when held 500 ms or more, otherwise a drag from where it
+  started to where it ended. A drag shows on the device only after the lift.
+- Only the first finger is tracked. Multi-touch, pinch, scroll and live drag
+  tracking are not supported.
+- Android takes pixels and iOS points. Stream pixels are scaled by the
+  session's `screen_width` and `screen_height`. An iOS session that reports
+  no size refuses input rather than guess the scale.
+- Keys: Home, Back (Android only), Enter and Backspace. Revyl's phones take
+  no other key.
+- Text is typed at the last tap, so tap the field first. It does not clear
+  the field.
+- Gestures go one at a time, in order, each a round trip to Revyl, so input
+  lags the finger by at least that. The input methods return at once. Up to
+  32 gestures wait, and past that a gesture is refused, but text never is:
+  typing that waits at the same point joins into one call, so a burst of
+  keystrokes is one request.
+
+Each gesture is a `POST` to
+`https://backend.revyl.ai/api/v1/execution/device-proxy/<workflow_run_id>/<action>`
+(revyl-cli `internal/api/client.go:6603`), with the session's
+`workflow_run_id` from `revyl device info`. Revyl does not document this
+endpoint. The actions are `tap`, `drag`, `longpress`, `go_home`, `back`,
+`key` (`ENTER` or `BACKSPACE`) and `input`, with the bodies the CLI's MCP
+tools send. On 2026-11-18, against revyl-cli v0.2.18, a tap took a median of
+500 to 640 ms over one kept-alive HTTPS connection, against 860 to 1100 ms
+for `revyl device tap`. The device's own part was about 6 ms.
+
+- The request sends `Authorization: Bearer <key>` and `User-Agent:
+  loupe/<version>`. A request that claimed to be the CLI, with
+  `X-Revyl-Client: cli` and no CLI version, was refused with 426
+  `cli_upgrade_required`.
+- The CLI sends the gesture instead when there is no key or no
+  `workflow_run_id`, or when Revyl did not act on the request: it was never
+  sent, the backend refused it with 401, 403, 404 or 426, or the proxy
+  answered a 5xx with code `worker_gone`, which the Revyl CLI documents as
+  the action never reaching the device. After a 426 the
+  stream stops trying the proxy; after a 401 or 403 it stops until the key
+  changes.
+- A gesture is not resent after any other 5xx, a timeout or a dropped connection
+  once the request went out, or when the device answers `success: false`. The device
+  may already have acted, and a tap sent twice lands twice.
+- The trace has one `input` record per gesture: the gesture, `via` (`rest`
+  or `cli`), `ms`, and why the proxy was skipped or failed. The key, the URL
+  and typed text stay out of it.
+- The proxy URL is fixed. The CLI's own overrides, such as
+  `REVYL_BACKEND_URL`, move the CLI fallback but not the proxy.
+
+### What it does not do
+
+`/api/input` and `/api/sequence` answer 501, since a Revyl target has no
+`Actuator`. `/api/ui`, `/api/screenshot`, `/api/install`, logcat, crashes,
+settings and the clipboard answer 501. The lifecycle routes under
+`/api/devices` answer 422 `notSupported`; stop a device with `DELETE
+/api/revyl`.
 
 ## Phone keyboard on Android
 
