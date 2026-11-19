@@ -354,13 +354,17 @@ unknown.
 
 ### Input
 
-Revyl takes whole gestures, not touch events.
+On Android, a viewer's press goes to the device as it happens while Revyl's
+worker socket is open (see [Live touch](#live-touch)), so a drag moves the
+screen while the finger is down. Otherwise, and always on iOS, Revyl takes
+whole gestures.
 
-- A press is buffered from down to up and sent when the finger lifts: a tap,
-  a long-press when held 500 ms or more, otherwise a drag from where it
-  started to where it ended. A drag shows on the device only after the lift.
-- Only the first finger is tracked. Multi-touch, pinch, scroll and live drag
-  tracking are not supported.
+- A whole gesture is a press buffered from down to up and sent when the
+  finger lifts: a tap, a long-press when held 500 ms or more, otherwise a
+  drag from where it started to where it ended. Such a drag shows on the
+  device only after the lift.
+- Only the first finger is tracked. Multi-touch, pinch and scroll are not
+  supported.
 - Android takes pixels and iOS points. Stream pixels are scaled by the
   session's `screen_width` and `screen_height`. An iOS session that reports
   no size refuses input rather than guess the scale.
@@ -403,6 +407,44 @@ for `revyl device tap`. The device's own part was about 6 ms.
   and typed text stay out of it.
 - The proxy URL is fixed. The CLI's own overrides, such as
   `REVYL_BACKEND_URL`, move the CLI fallback but not the proxy.
+
+### Live touch
+
+An Android viewer's touches go over the websocket Revyl's browser viewer
+uses. Revyl does not document it; its shape was read from Revyl's viewer and
+a live session on 2026-11-19. Every failure falls back to whole gestures.
+
+- When the stream opens, loupe asks
+  `GET https://backend.revyl.ai/api/v1/execution/streaming/worker-connection/<workflow_run_id>`,
+  with the same bearer key, for `worker_ws_url`, and dials it with
+  `Origin: https://app.revyl.ai`. The URL carries a token, so it stays out of
+  the trace and errors.
+- Touches are text frames `{"event_type": "STREAM", "action":
+  "MANUAL_TOUCH_DOWN" | "MANUAL_TOUCH_MOVE" | "MANUAL_TOUCH_UP", "action_id",
+  "client_sent_at_ms", "x", "y"}` in device pixels. The up adds `gesture`
+  (`tap`, `long_press` or `drag`) and `duration_ms`. Moves are joined to the
+  newest point, at most one every 16 ms.
+- The worker opens with a `DEVICE_INIT_STATUS` frame, and a press goes live
+  only once its `manual_input_ready` is true. It answers each touch with
+  `ACTION_RECEIVED` and the up with `ACTION_ACK`, carrying the up's
+  `action_id` and `success`. The next gesture waits up to 3 s for that ack,
+  so it cannot reach the device before the lift.
+- A live press holds the queue from down to lift, so an agent's gesture
+  waits behind it. A press nothing is heard of for 30 s is lifted. A drag or
+  long-press that waited behind other gestures until its finger had lifted
+  goes as one gesture, since its moves would otherwise land at once.
+- A cancelled or quiet press whose down already went out is lifted where
+  it is, so one that had not moved lands as a tap or long-press. A whole
+  gesture that is cancelled is dropped instead.
+- With no socket, a press goes as one gesture and a later press tries the
+  socket again: 2 s after a failure, doubling to a minute. If the socket
+  fails partway through a press, the rest goes over the proxy at the lift:
+  the whole gesture when nothing was sent, or a drag from the last point sent
+  to the lift. A tap or long-press whose down already went out is not sent
+  again, since it would land twice.
+- A live press has one `input` record with `via: ws`, `frames`, and `ack`
+  when no ack came. A whole gesture's record gives, under `live`, why the
+  last try at the socket failed.
 
 ### Agent input
 

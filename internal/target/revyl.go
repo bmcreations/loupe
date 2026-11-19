@@ -632,16 +632,21 @@ const (
 
 // revylInput turns loupe's touch stream into Revyl gestures.
 //
-// Revyl takes whole gestures, not pointer events, so a press is buffered
-// from Down to Up and sent as one tap, long-press or drag when it ends: a
-// drag shows on the device only after the finger lifts. Only the first
-// pointer is tracked; a second finger is ignored.
+// On Android, a viewer's press goes to the device as it happens, over the
+// worker websocket Revyl's own viewer uses (revyllive.go), so a drag moves
+// the screen while the finger is down. Otherwise, and whenever that socket
+// is not open, a press is buffered from Down to Up and sent as one tap,
+// long-press or drag when it ends: the drag shows on the device only after
+// the finger lifts. Only the first pointer is tracked; a second finger is
+// ignored.
 //
 // Each gesture is a network round trip, so gestures queue for one worker
 // that sends them one at a time, in order, and the input methods return at
 // once instead of holding up the viewer that sent them. The worker sends
-// over the device proxy when it can and through the CLI otherwise. An
-// agent's gesture (the agent* methods) joins the same queue but waits for
+// over the device proxy when it can and through the CLI otherwise. A live
+// press is one job too: the worker stays on it from the down to the lift,
+// so nothing else reaches the device mid-press. An agent's gesture (the
+// agent* methods) joins the same queue as a finished gesture and waits for
 // Revyl's answer, which the worker gives back on the job's done channel.
 type revylInput struct {
 	cli      RevylCLI
@@ -676,6 +681,20 @@ type revylInput struct {
 	restOff     bool
 	refusedKey  [32]byte
 	haveRefused bool
+
+	// The worker socket for live presses, Android only. lmu is taken
+	// alone, or after mu.
+	lmu        sync.Mutex
+	live       *revylLiveConn
+	dialing    bool
+	liveClosed bool
+	backoff    time.Duration
+	retryAt    time.Time
+	liveErr    string // why the last try at the socket failed, for the trace
+	// liveIdle lets go of a press nothing has been heard of for this long;
+	// revylLiveIdle, shorter in tests.
+	liveIdle time.Duration
+	dials    sync.WaitGroup
 }
 
 type revylPress struct {
@@ -683,6 +702,7 @@ type revylPress struct {
 	x0, y0 int32
 	x, y   int32
 	at     time.Time
+	live   *revylLivePress // nil: sent as one gesture at the lift
 }
 
 // revylJob is one gesture. It holds what the gesture is rather than a
@@ -701,6 +721,8 @@ type revylJob struct {
 	// that result, so neither waits on a caller that gave up. Nil for a
 	// viewer's gesture, which nobody waits on.
 	done chan error
+	// live is a viewer's press sent as it happens, action "live".
+	live *revylLivePress
 }
 
 // body is the device-proxy request body, as the CLI's MCP tools build it
@@ -764,9 +786,10 @@ func newRevylInput(cli RevylCLI, rest *RevylREST, s RevylSession, trace func(map
 		cli: cli, rest: rest, runID: s.WorkflowRunID, session: s.SessionID, platform: s.Platform,
 		screenW: s.ScreenWidth, screenH: s.ScreenHeight, trace: trace,
 		ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), stopped: make(chan struct{}),
-		now: time.Now,
+		now: time.Now, liveIdle: revylLiveIdle,
 	}
 	go in.work()
+	in.liveFor() // open the socket now, so the first press can go live
 	return in
 }
 
@@ -808,7 +831,21 @@ func (in *revylInput) next() *revylJob {
 
 // run sends one gesture and records how it went.
 func (in *revylInput) run(j *revylJob) {
+	if j.live != nil {
+		in.runLive(j)
+		return
+	}
 	rec := map[string]any{"action": "input", "gesture": j.action}
+	if j.done == nil {
+		if why := in.noLive(); why != "" {
+			rec["live"] = why
+		}
+	}
+	in.finish(j, rec)
+}
+
+// finish sends a finished gesture over the device proxy or the CLI.
+func (in *revylInput) finish(j *revylJob, rec map[string]any) {
 	done, err := in.sendREST(j, rec)
 	if !done {
 		env, args := j.argv()
@@ -818,8 +855,16 @@ func (in *revylInput) run(j *revylJob) {
 		cancel()
 		rec["via"], rec["ms"] = "cli", time.Since(t0).Milliseconds()
 	}
+	in.done(j, rec, err)
+}
+
+// done records a gesture's result and hands it to an agent waiting on it.
+// j is nil for a live press's frames.
+func (in *revylInput) done(j *revylJob, rec map[string]any, err error) {
 	if err != nil {
-		err = revylHideText(err, j.text)
+		if j != nil {
+			err = revylHideText(err, j.text)
+		}
 		rec["error"] = err.Error()
 	}
 	in.mu.Lock()
@@ -828,7 +873,7 @@ func (in *revylInput) run(j *revylJob) {
 	if in.trace != nil {
 		in.trace(rec)
 	}
-	if j.done != nil {
+	if j != nil && j.done != nil {
 		if err != nil && in.ctx.Err() != nil {
 			err = errRevylClosedInFlight
 		}
@@ -908,9 +953,13 @@ func (in *revylInput) close() {
 				j.done <- errRevylClosed
 			}
 		}
+		in.lmu.Lock()
+		in.liveClosed = true
+		in.lmu.Unlock()
 		in.cancel()
 	})
 	<-in.stopped
+	in.closeLive()
 }
 
 // enqueue queues a gesture against this session. A viewer's typing joins
@@ -988,15 +1037,24 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 			return nil // a second finger: multi-touch is not supported
 		}
 		in.press = &revylPress{id: t.PointerID, x0: t.X, y0: t.Y, x: t.X, y: t.Y, at: in.now()}
+		in.goLive(in.press, m)
 		return nil
 	case TouchMove:
-		if in.press != nil && in.press.id == t.PointerID {
-			in.press.x, in.press.y = t.X, t.Y
+		if p := in.press; p != nil && p.id == t.PointerID {
+			p.x, p.y = t.X, t.Y
+			if p.live != nil {
+				if x, y, err := in.toDevice(t.X, t.Y, m); err == nil {
+					p.live.move(x, y)
+				}
+			}
 		}
 		return nil
 	case TouchCancel:
-		if in.press != nil && in.press.id == t.PointerID {
+		if p := in.press; p != nil && p.id == t.PointerID {
 			in.press = nil
+			if p.live != nil {
+				p.live.cancel(in.now().Sub(p.at))
+			}
 		}
 		return nil
 	case TouchUp:
@@ -1009,24 +1067,68 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 	}
 	in.press = nil
 	p.x, p.y = t.X, t.Y
-	x0, y0, err := in.toDevice(p.x0, p.y0, m)
+	held := in.now().Sub(p.at)
+	j, err := in.lifted(p, m, held)
+	if p.live != nil {
+		if err != nil {
+			p.live.cancel(held)
+			return err
+		}
+		x, y, err := in.toDevice(p.x, p.y, m)
+		if err != nil {
+			p.live.cancel(held)
+			return err
+		}
+		gesture := j.action
+		if gesture == "longpress" {
+			gesture = "long_press"
+		}
+		p.live.lift(x, y, gesture, held, j)
+		return nil
+	}
 	if err != nil {
 		return err
+	}
+	return in.enqueue(j)
+}
+
+// lifted is a press that ended as one gesture: a drag when it moved past
+// the slop, else a long-press or a tap, which is where typing goes next.
+func (in *revylInput) lifted(p *revylPress, m Meta, held time.Duration) (*revylJob, error) {
+	x0, y0, err := in.toDevice(p.x0, p.y0, m)
+	if err != nil {
+		return nil, err
 	}
 	slop := max(6, min(m.Width, m.Height)/50)
 	moved := math.Hypot(float64(p.x-p.x0), float64(p.y-p.y0))
 	if moved >= float64(slop) {
 		x1, y1, err := in.toDevice(p.x, p.y, m)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return in.enqueue(&revylJob{action: "drag", x: x0, y: y0, x1: x1, y1: y1})
+		return &revylJob{action: "drag", x: x0, y: y0, x1: x1, y1: y1}, nil
 	}
 	in.tapX, in.tapY, in.haveTap = x0, y0, true
-	if held := in.now().Sub(p.at); held >= revylLongPress {
-		return in.enqueue(&revylJob{action: "longpress", x: x0, y: y0, ms: int(held / time.Millisecond)})
+	if held >= revylLongPress {
+		return &revylJob{action: "longpress", x: x0, y: y0, ms: int(held / time.Millisecond)}, nil
 	}
-	return in.enqueue(&revylJob{action: "tap", x: x0, y: y0})
+	return &revylJob{action: "tap", x: x0, y: y0}, nil
+}
+
+// goLive queues a press to be sent as it happens, when the worker socket
+// is open. Otherwise the press goes as one gesture at the lift.
+func (in *revylInput) goLive(p *revylPress, m Meta) {
+	if in.liveFor() == nil {
+		return
+	}
+	x, y, err := in.toDevice(p.x0, p.y0, m)
+	if err != nil {
+		return
+	}
+	lp := &revylLivePress{x0: x, y0: y, x: x, y: y, start: p.at, heard: time.Now(), nudge: make(chan struct{}, 1)}
+	if in.enqueue(&revylJob{action: "live", live: lp}) == nil {
+		p.live = lp
+	}
 }
 
 // key sends a key on its down event; the up is ignored, since Revyl takes

@@ -35,9 +35,11 @@ type fakeProxy struct {
 	reply func(action string) (status int, body string)
 	// hold, when set, is called before answering and may block.
 	hold func(action string, r *http.Request)
+	// live serves the worker websocket's paths, which are not recorded:
+	// every Android input with a key asks for the socket. Nil answers 404.
+	live http.Handler
 
 	inflight, maxInflight atomic.Int32
-	conns                 atomic.Int32
 	got                   chan string // each request's action, once recorded
 }
 
@@ -45,6 +47,7 @@ type proxyReq struct {
 	method, path string
 	header       http.Header
 	raw          string
+	remote       string // the client's address, one per connection
 }
 
 func (r proxyReq) action() string { return r.path[strings.LastIndex(r.path, "/")+1:] }
@@ -61,18 +64,23 @@ func (r proxyReq) body(t *testing.T) map[string]any {
 func newFakeProxy(t *testing.T) *fakeProxy {
 	t.Helper()
 	p := &fakeProxy{t: t, got: make(chan string, 256)}
-	p.srv = httptest.NewUnstartedServer(http.HandlerFunc(p.serve))
-	p.srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
-		if s == http.StateNew {
-			p.conns.Add(1)
-		}
-	}
-	p.srv.Start()
+	p.srv = httptest.NewServer(http.HandlerFunc(p.serve))
 	t.Cleanup(p.srv.Close)
 	return p
 }
 
 func (p *fakeProxy) serve(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/execution/streaming/") || strings.HasPrefix(r.URL.Path, "/ws/") {
+		p.mu.Lock()
+		live := p.live
+		p.mu.Unlock()
+		if live == nil {
+			http.NotFound(w, r)
+			return
+		}
+		live.ServeHTTP(w, r)
+		return
+	}
 	n := p.inflight.Add(1)
 	defer p.inflight.Add(-1)
 	for {
@@ -82,7 +90,7 @@ func (p *fakeProxy) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b, _ := io.ReadAll(r.Body)
-	req := proxyReq{method: r.Method, path: r.URL.Path, header: r.Header.Clone(), raw: string(b)}
+	req := proxyReq{method: r.Method, path: r.URL.Path, header: r.Header.Clone(), raw: string(b), remote: r.RemoteAddr}
 	p.mu.Lock()
 	p.reqs = append(p.reqs, req)
 	reply, hold := p.reply, p.hold
@@ -177,6 +185,9 @@ func restGestures(t *testing.T, f *fakeRevyl, baseURL, platform string, screenW,
 	g.in = newRevylInput(f.cli, g.rest, RevylSession{SessionID: testSession, WorkflowRunID: testRunID,
 		Platform: platform, ScreenWidth: screenW, ScreenHeight: screenH}, g.log.record)
 	t.Cleanup(g.in.close)
+	// The input looks for its worker socket as it opens; let that settle
+	// before a test changes the client under it.
+	g.in.dials.Wait()
 	g.clk = &fixedClock{t: time.Unix(1_700_000_000, 0)}
 	g.in.now = g.clk.now
 	return g
@@ -351,8 +362,14 @@ func TestRevylRESTKeepsOrderUnderABurst(t *testing.T) {
 	if got := p.maxInflight.Load(); got != 1 {
 		t.Fatalf("%d requests in flight at once, want 1", got)
 	}
-	if got := p.conns.Load(); got != 1 {
-		t.Fatalf("%d connections for %d taps, want one kept alive", got, n)
+	// Counted per gesture request: the worker-connection lookup the input
+	// makes as it opens may take a connection of its own.
+	conns := map[string]bool{}
+	for _, r := range reqs {
+		conns[r.remote] = true
+	}
+	if len(conns) != 1 {
+		t.Fatalf("%d connections for %d taps, want one kept alive", len(conns), n)
 	}
 }
 
