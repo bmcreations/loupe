@@ -697,3 +697,112 @@ func TestRevylStartErrorsCarryNoURL(t *testing.T) {
 		t.Errorf("error = %q, trace = %s", e, trace)
 	}
 }
+
+func (r *revylRig) started() RevylDevice {
+	r.t.Helper()
+	r.file("device-start.json", revylStartJSON)
+	if rec := do(r.s, http.MethodPost, "/api/revyl", `{"platform":"android"}`); rec.Code != http.StatusAccepted {
+		r.t.Fatalf("start = %d %s", rec.Code, rec.Body)
+	}
+	r.waitFor("the device to start", func() bool {
+		l := r.list()
+		return len(l) == 1 && l[0].State == revylActive
+	})
+	return r.list()[0]
+}
+
+// A stop that fails leaves the device billing, so it must stay where a
+// client can see it and stop it again.
+func TestRevylAFailedStopKeepsTheDeviceForARetry(t *testing.T) {
+	rig := revylServer(t)
+	dev := rig.started()
+	rig.file("device-stop.fail", "Error: network unreachable\n")
+	if rec := do(rig.s, http.MethodDelete, "/api/revyl?target="+dev.Target, ""); rec.Code != http.StatusBadGateway {
+		t.Fatalf("failed stop = %d %s", rec.Code, rec.Body)
+	}
+	l := rig.list()
+	if len(l) != 1 || l[0].State != revylActive || !strings.Contains(l[0].StopError, "network unreachable") {
+		t.Fatalf("list after a failed stop = %+v", l)
+	}
+	if _, ok := targetRow(t, rig.s, dev.Target); !ok {
+		t.Fatal("a failed stop dropped the target")
+	}
+
+	rig.remove("device-stop.fail")
+	rig.file("device-stop.json", `{"stopped":true}`)
+	if rec := do(rig.s, http.MethodDelete, "/api/revyl?target="+dev.Target, ""); rec.Code != http.StatusOK {
+		t.Fatalf("retried stop = %d %s", rec.Code, rec.Body)
+	}
+	if l := rig.list(); len(l) != 0 {
+		t.Errorf("list after the retry = %+v", l)
+	}
+	if _, ok := targetRow(t, rig.s, dev.Target); ok {
+		t.Error("the target outlived the stop")
+	}
+}
+
+// A client can wait on a stop: GET /api/revyl shows it until it ends, and
+// a second stop meanwhile is refused rather than run twice.
+func TestRevylAStopInProgressShowsAsStopping(t *testing.T) {
+	rig := revylServer(t)
+	dev := rig.started()
+	rig.file("device-stop.json", `{"stopped":true}`)
+	rig.file("device-stop.hold", "")
+	answered := make(chan int, 1)
+	go func() { answered <- do(rig.s, http.MethodDelete, "/api/revyl?target="+dev.Target, "").Code }()
+	rig.waitFor("the row to show the stop", func() bool {
+		l := rig.list()
+		return len(l) == 1 && l[0].State == revylStopping
+	})
+	if rec := do(rig.s, http.MethodDelete, "/api/revyl?target="+dev.Target, ""); rec.Code != http.StatusConflict {
+		t.Errorf("second stop = %d %s", rec.Code, rec.Body)
+	}
+	rig.remove("device-stop.hold")
+	if code := <-answered; code != http.StatusOK {
+		t.Fatalf("stop = %d", code)
+	}
+	if l := rig.list(); len(l) != 0 {
+		t.Errorf("list after the stop = %+v", l)
+	}
+	if n := len(rig.argvMatching("device", "stop")); n != 1 {
+		t.Errorf("ran device stop %d times", n)
+	}
+}
+
+// Exit waits for a stop a client asked for, within its budget, rather
+// than quitting with the CLI mid-stop.
+func TestRevylExitWaitsForAStopInProgress(t *testing.T) {
+	rig := revylServer(t)
+	dev := rig.started()
+	rig.file("device-stop.json", `{"stopped":true}`)
+	rig.file("device-stop.hold", "")
+	go func() { _ = do(rig.s, http.MethodDelete, "/api/revyl?target="+dev.Target, "") }()
+	rig.waitFor("the stop to be running", func() bool { return rig.ran("device", "stop") != nil })
+
+	exited := make(chan struct{})
+	go func() {
+		rig.rv.StopAll(context.Background())
+		close(exited)
+	}()
+	select {
+	case <-exited:
+		t.Fatal("exit did not wait for the stop in progress")
+	case <-time.After(200 * time.Millisecond):
+	}
+	rig.remove("device-stop.hold")
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("exit never returned")
+	}
+}
+
+func (r *revylRig) argvMatching(prefix ...string) [][]string {
+	var out [][]string
+	for _, a := range r.argv() {
+		if len(a) >= len(prefix) && reflect.DeepEqual(a[:len(prefix)], prefix) {
+			out = append(out, a)
+		}
+	}
+	return out
+}

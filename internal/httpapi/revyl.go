@@ -26,6 +26,7 @@ const (
 	revylStarting = "starting"
 	revylActive   = "active"
 	revylFailed   = "failed"
+	revylStopping = "stopping"
 
 	// revylStartTimeout covers a queued device: `revyl device start` waits
 	// for the device itself.
@@ -60,6 +61,7 @@ var (
 	errRevylStarting = errors.New("the Revyl device is still starting; stop it once it is up")
 	errRevylHolding  = errors.New("stop the Revyl devices loupe started before signing out")
 	errRevylClosing  = errors.New("loupe is shutting down")
+	errRevylStopping = errors.New("the device is already stopping")
 )
 
 // RevylDevice is one Revyl session loupe started or found on the account.
@@ -73,9 +75,12 @@ type RevylDevice struct {
 	Platform  string `json:"platform"`
 	Model     string `json:"model,omitempty"`
 	OSVersion string `json:"osVersion,omitempty"`
-	// State is "starting", "active" or "failed"; Error says why for failed.
-	State string `json:"state"`
-	Error string `json:"error,omitempty"`
+	// State is "starting", "active", "stopping" or "failed"; Error says
+	// why for failed. StopError says why the last stop failed; the device
+	// is still active and can be stopped again.
+	State     string `json:"state"`
+	Error     string `json:"error,omitempty"`
+	StopError string `json:"stopError,omitempty"`
 	// Adopted is true for a session loupe found on the account rather than
 	// started. loupe leaves it running when it exits.
 	Adopted   bool      `json:"adopted,omitempty"`
@@ -83,8 +88,10 @@ type RevylDevice struct {
 	// IdleTimeoutSec is how long Revyl keeps the device without a command.
 	IdleTimeoutSec int `json:"idleTimeoutSec,omitempty"`
 
-	// activated is when the row became active, for Sync.
+	// activated is when the row became active, for Sync. stopDone closes
+	// when the stop in progress ends.
 	activated time.Time
+	stopDone  chan struct{}
 }
 
 // RevylListResponse is GET /api/revyl.
@@ -341,8 +348,10 @@ func (r *RevylDevices) findLocked(key string) *RevylDevice {
 	return nil
 }
 
-// Stop ends a device by key or target ID. A failed row is forgotten. The
-// target goes first, so its sessions end before the device does.
+// Stop ends a device by key or target ID. A failed row is forgotten. An
+// active one shows as stopping until the CLI answers; the row and the
+// target go once it confirms, and a stop that fails leaves both, active
+// with StopError.
 func (r *RevylDevices) Stop(ctx context.Context, key string) error {
 	r.mu.Lock()
 	var it *RevylDevice
@@ -355,26 +364,45 @@ func (r *RevylDevices) Stop(ctx context.Context, key string) error {
 		r.mu.Unlock()
 		return errRevylNoDevice
 	}
-	if it.State == revylStarting {
+	switch it.State {
+	case revylStarting:
 		r.mu.Unlock()
 		return errRevylStarting
-	}
-	r.removeLocked(it)
-	if it.State == revylActive {
-		r.stopped[it.SessionID] = time.Now()
-	}
-	r.mu.Unlock()
-	if it.State != revylActive {
+	case revylStopping:
+		r.mu.Unlock()
+		return errRevylStopping
+	case revylActive:
+	default:
+		// Failed: nothing runs at Revyl.
+		r.removeLocked(it)
+		r.mu.Unlock()
 		return nil
 	}
-	if r.unregister != nil {
-		r.unregister(it.Target, "stopped")
-	}
+	// The row and the target stay until the CLI reports the stop, so one
+	// that fails or is cut short leaves the device where a client can see
+	// it and stop it again.
+	it.State, it.StopError = revylStopping, ""
+	done := make(chan struct{})
+	it.stopDone = done
+	sessionID, tid := it.SessionID, it.Target
+	r.mu.Unlock()
+	defer close(done)
+
 	cli, _ := r.cli()
-	err := cli.Stop(ctx, it.SessionID)
-	rec := map[string]any{"action": "stop", "target": it.Target}
+	err := cli.Stop(ctx, sessionID)
+	rec := map[string]any{"action": "stop", "target": tid}
+	r.mu.Lock()
+	it.stopDone = nil
 	if err != nil {
+		it.State, it.StopError = revylActive, err.Error()
 		rec["error"] = err.Error()
+	} else {
+		r.removeLocked(it)
+		r.stopped[sessionID] = time.Now()
+	}
+	r.mu.Unlock()
+	if err == nil && r.unregister != nil {
+		r.unregister(tid, "stopped")
 	}
 	r.record(rec)
 	return err
@@ -430,6 +458,11 @@ func (r *RevylDevices) Sync(ctx context.Context) {
 	}
 	known := map[string]bool{}
 	for _, it := range append([]*RevylDevice(nil), r.items...) {
+		if it.State == revylStopping {
+			// Its stop removes it, or puts it back to active if it fails.
+			known[it.SessionID] = true
+			continue
+		}
 		if it.State != revylActive {
 			continue
 		}
@@ -501,13 +534,14 @@ func (r *RevylDevices) Watch(ctx context.Context) {
 	}
 }
 
-// holding reports whether any device is active, or with startedOnly, any
-// loupe started itself.
+// holding reports whether any device is active or stopping, or with
+// startedOnly, any loupe started itself.
 func (r *RevylDevices) holding(startedOnly bool) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, it := range r.items {
-		if (it.State == revylActive && (!startedOnly || !it.Adopted)) || it.State == revylStarting {
+		live := it.State == revylActive || it.State == revylStopping
+		if (live && (!startedOnly || !it.Adopted)) || it.State == revylStarting {
 			return true
 		}
 	}
@@ -523,9 +557,14 @@ func (r *RevylDevices) StopAll(ctx context.Context) {
 	r.mu.Lock()
 	r.closing, r.exitCtx = true, ctx
 	var keys []string
+	var stopping []chan struct{}
 	for _, it := range r.items {
-		if it.State == revylActive && !it.Adopted {
+		switch {
+		case it.State == revylActive && !it.Adopted:
 			keys = append(keys, it.Key)
+		case it.State == revylStopping:
+			// A client's stop, on its own context: wait for it too.
+			stopping = append(stopping, it.stopDone)
 		}
 	}
 	cancelStart, startDone := r.cancelStart, r.startDone
@@ -541,9 +580,12 @@ func (r *RevylDevices) StopAll(ctx context.Context) {
 			_ = r.Stop(ctx, k)
 		}()
 	}
-	if startDone != nil {
+	for _, done := range append(stopping, startDone) {
+		if done == nil {
+			continue
+		}
 		select {
-		case <-startDone:
+		case <-done:
 		case <-ctx.Done():
 		}
 	}
@@ -755,16 +797,15 @@ func (s *Server) handleRevyl(w http.ResponseWriter, r *http.Request) {
 		if key == "" {
 			key = r.URL.Query().Get("target")
 		}
-		// Not cancelled with the request: by the time the CLI runs, the row
-		// and the target are gone, so a client that hangs up mid-stop
-		// would leave the device billing with nothing left to stop it.
+		// Not cancelled with the request, so a client that hangs up
+		// mid-stop does not cut the stop short and leave the device billing.
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), revylCallTimeout)
 		defer cancel()
 		err := rv.Stop(ctx, key)
 		switch {
 		case errors.Is(err, errRevylNoDevice):
 			http.Error(w, err.Error(), http.StatusNotFound)
-		case errors.Is(err, errRevylStarting):
+		case errors.Is(err, errRevylStarting), errors.Is(err, errRevylStopping):
 			http.Error(w, err.Error(), http.StatusConflict)
 		case err != nil:
 			http.Error(w, err.Error(), http.StatusBadGateway)

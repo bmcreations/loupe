@@ -312,7 +312,11 @@ v0.2.18.
   `POST /api/remote` answers 503 too.
 - `DELETE /api/revyl` runs `revyl device stop` for up to 45 seconds whether
   or not the client waits for the answer, so a client that hangs up or times
-  out does not leave the device billing.
+  out does not leave the device billing. Until the CLI confirms, the device
+  stays in `/api/revyl` as `stopping` and keeps its target, and a second
+  `DELETE` answers 409. A stop that fails or runs out of time answers 502
+  and puts the device back to `active` with `stopError`, so it can be
+  stopped again. Exit waits for a stop in progress, within its 10 seconds.
 - The WHEP, viewer and worker URLs Revyl returns are kept out of
   `/api/targets`, `/api/revyl` and the trace, and any URL in the CLI's
   error output is cut before it reaches either.

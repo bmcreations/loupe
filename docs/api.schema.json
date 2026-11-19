@@ -4363,6 +4363,9 @@
         "state": {
           "type": "string"
         },
+        "stopError": {
+          "type": "string"
+        },
         "target": {
           "type": "string"
         }
