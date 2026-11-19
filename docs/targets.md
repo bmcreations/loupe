@@ -131,11 +131,16 @@ installed. Nothing is downloaded.
   `avd:<name>`, or `sim-new:<name>` for a simulator, which has no UDID yet. The
   finished job reports `createdId` as `sim:<udid>`.
 - Android is offered when `avdmanager` is found at startup
-  (`-android-avdmanager`, then `cmdline-tools/*/bin` in the SDK). iOS is
-  offered when `simctl` lists simulators and simcap runs.
+  (`-android-avdmanager`, then `cmdline-tools/*/bin` in the SDK) and runs.
+  Startup runs `avdmanager list device -c` once to check, since avdmanager
+  is a script that starts Java. iOS is offered when `simctl` lists
+  simulators and simcap runs.
 - `/api/avds` and `/api/devices` share one slot. A create on either answers 409
   `creating` while the other runs, and 409 `avdExists` when a device of that
   name exists on that platform.
+- A failed create's row stays in `/api/targets` as `createFailed` until the
+  next create on either route, or a restart: the slot is in memory only. No
+  target is behind the row, so `DELETE /api/devices` answers 404 for it.
 - Only valid pairs are offered. TV, Wear, automotive and desktop devices are
   never listed, a device is not offered on an image older than its API floor
   (`pixel_fold` needs 34, `pixel_9` 35), and a tablet image takes tablets only.
@@ -155,8 +160,14 @@ SDK and Xcode, and the create paths against fakes.
 
 #### Without avdmanager
 
-With no avdmanager, `profilesFallback` is true and the client uses Google's
-`android` CLI through `/api/avds/*`.
+With no avdmanager, or one that does not run, `profilesFallback` is true and
+the client uses Google's `android` CLI through `/api/avds/*`.
+
+- avdmanager that does not run is the usual case on a Mac set up by the CLI
+  alone that still has `cmdline-tools` from an old Android Studio and no Java
+  runtime. There avdmanager exits 1 with `Unable to locate a Java Runtime`,
+  and startup logs `warning: New device is not using <path>, which does not
+  run` with that message.
 
 - `GET /api/avds/profiles` lists the CLI's profiles (`small_phone`,
   `medium_phone`, `medium_tablet` and three desktops), each with `exists`.

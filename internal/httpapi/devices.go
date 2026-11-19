@@ -83,8 +83,9 @@ type DeviceOptionsResponse struct {
 	Platforms     []DevicePlatform    `json:"platforms"`
 	ExistingNames map[string][]string `json:"existingNames"`
 	Job           *DeviceJob          `json:"job,omitempty"`
-	// ProfilesFallback is true when avdmanager is absent and the android CLI
-	// is not: the client then offers /api/avds/profiles for Android.
+	// ProfilesFallback is true when avdmanager is absent or does not run, and
+	// the android CLI is there: the client then offers /api/avds/profiles for
+	// Android.
 	ProfilesFallback bool `json:"profilesFallback"`
 }
 
@@ -108,7 +109,8 @@ type DeviceCreatorConfig struct {
 	Manager *Manager
 	// SDK is the Android SDK root; AVDManager is the avdmanager binary, ""
 	// when there is none, and AVDHome where AVDs are installed. Android is
-	// offered when AVDManager and RegisterAVDs are both set.
+	// offered when AVDManager and RegisterAVDs are both set and AVDManager
+	// runs (NewDeviceCreator checks).
 	SDK        string
 	AVDManager string
 	AVDHome    string
@@ -140,7 +142,16 @@ type DeviceCreator struct {
 }
 
 // NewDeviceCreator returns a creator, or nil when neither platform can create.
+// It runs avdmanager once, and leaves out one that does not run, so Android
+// falls to the android CLI's profiles (profilesFallback) rather than offering
+// a create that fails every time.
 func NewDeviceCreator(cfg DeviceCreatorConfig) *DeviceCreator {
+	if cfg.AVDManager != "" && cfg.RegisterAVDs != nil {
+		if why := avdManagerFailure(cfg.AVDManager, cfg.AVDHome); why != "" {
+			fmt.Fprintf(os.Stderr, "warning: New device is not using %s, which does not run: %s\n", cfg.AVDManager, why)
+			cfg.AVDManager = ""
+		}
+	}
 	androidOK := cfg.AVDManager != "" && cfg.RegisterAVDs != nil
 	if !androidOK && cfg.Simcap == "" {
 		return nil
@@ -182,6 +193,33 @@ func runTool(ctx context.Context, env []string, name string, args ...string) ([]
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
 	return out.Bytes(), errb.Bytes(), err
+}
+
+// avdManagerCheckTimeout bounds the startup run of avdmanager, which starts a
+// JVM. One that does not finish in it is left out like one that fails.
+const avdManagerCheckTimeout = 20 * time.Second
+
+// avdManagerFailure is why avdmanager does not run, or "" when it does.
+// avdmanager is a script that starts Java: JAVA_HOME's, else `java` on PATH,
+// and only 17 or later. On a Mac with cmdline-tools left by an old Android
+// Studio and no Java runtime, it is found and fails every create with "Unable
+// to locate a Java Runtime". Running it, with the env a create gets, is the
+// one check that agrees with the script; `list device -c` only lists the
+// device definitions.
+func avdManagerFailure(avdmanager, avdHome string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), avdManagerCheckTimeout)
+	defer cancel()
+	out, errOut, err := runTool(ctx, []string{"ANDROID_AVD_HOME=" + avdHome}, avdmanager, "list", "device", "-c")
+	switch {
+	case err == nil:
+		return ""
+	case ctx.Err() != nil:
+		return fmt.Sprintf("`avdmanager list device` did not finish in %s", avdManagerCheckTimeout)
+	}
+	if msg := toolMessage(out, errOut); msg != "" {
+		return msg
+	}
+	return err.Error()
 }
 
 func (c *DeviceCreator) androidOffered() bool { return c.cfg.AVDManager != "" }
