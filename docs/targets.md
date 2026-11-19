@@ -298,6 +298,18 @@ v0.2.18.
   session, and loupe stops that device. Once loupe is shutting down,
   `POST /api/revyl` answers 503. A `DELETE /api/revyl` for a device still
   starting answers 409.
+- Exit runs these stops first, at the same time as the Firebase releases
+  and the HTTP shutdown, and gives them 10 seconds from the signal; the
+  5-second SIGINT wait comes out of those 10. Under launchd the window is
+  shorter: launchd SIGKILLs loupe ExitTimeOut after its SIGTERM, neither
+  login item's plist sets one, and `launchctl print` shows the default as
+  5 seconds. The SIGINT wait can use all of that, so the stop of a device
+  whose start finished anyway runs only outside launchd or with a longer
+  ExitTimeOut. A stop still running at the cutoff is abandoned, and whether
+  Revyl acted on its request is not known. A device that comes up after
+  loupe has gone is adopted by the next loupe and runs until it is stopped
+  or Revyl's 900-second idle timeout ends it. Once exit begins,
+  `POST /api/remote` answers 503 too.
 - `DELETE /api/revyl` runs `revyl device stop` for up to 45 seconds whether
   or not the client waits for the answer, so a client that hangs up or times
   out does not leave the device billing.
