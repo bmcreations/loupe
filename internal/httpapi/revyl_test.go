@@ -21,7 +21,7 @@ import (
 // fakeRevylScript stands in for the revyl CLI. It logs argv, prints
 // <cmd>-<sub>.json from its directory, fails with <cmd>-<sub>.fail, and
 // waits for a <cmd>-<sub>.hold file to go away first. `auth login` prints
-// what revyl-cli v0.2.18 prints (cmd/revyl/auth.go:370-373) to stderr and
+// what revyl-cli v0.2.27 prints (cmd/revyl/auth.go:370-373) to stderr and
 // then waits for "approve", as the real one waits for the browser.
 const fakeRevylScript = `#!/bin/sh
 dir="$(dirname "$0")"
@@ -122,8 +122,8 @@ func (r *revylRig) waitFor(what string, ok func() bool) {
 	}
 }
 
-// Shaped from mcp.DeviceSession (internal/mcp/device_session.go:107) and
-// deviceStartOutput (cmd/revyl/device.go:174), not recorded.
+// Shaped from mcp.DeviceSession (internal/mcp/device_session.go:109) and
+// deviceStartOutput (cmd/revyl/device.go:185), not recorded.
 const revylStartJSON = `{
   "index": 0,
   "session_id": "6f1c2a8e-3b4d-4e5f-9a0b-1c2d3e4f5a6b",
@@ -353,7 +353,7 @@ func TestRevylSignOutIsRefusedWhileLoupeHoldsADevice(t *testing.T) {
 
 func TestRevylSyncAdoptsAccountSessionsAndDropsEndedOnes(t *testing.T) {
 	rig := revylServer(t)
-	// `device list --json` is []deviceListEntry (cmd/revyl/device.go:3219).
+	// `device list --json` is []deviceListEntry (cmd/revyl/device.go:3296).
 	rig.file("device-list.json", `[`+revylStartJSON+`,{"index":-1,"session_id":"queued-1","platform":"ios","started_at":"2026-11-18T15:01:00Z","idle_timeout":900000000000,"status":"queued"},{"index":-1,"session_id":"web-1","platform":"web","started_at":"2026-11-18T15:01:00Z"}]`)
 	if rec := do(rig.s, http.MethodGet, "/api/revyl?sync=1", ""); rec.Code != http.StatusOK {
 		t.Fatalf("sync = %d", rec.Code)
@@ -432,7 +432,7 @@ func TestRevylInstallerDownloadsThePinnedBinaryAndChecksIt(t *testing.T) {
 	if _, err := os.Stat(path); err == nil {
 		t.Error("a binary that failed its checksum was installed")
 	}
-	if want := "https://github.com/RevylAI/revyl-cli/releases/download/v0.2.18/revyl-darwin-arm64"; len(asked) != 1 || asked[0] != want {
+	if want := "https://github.com/RevylAI/revyl-cli/releases/download/v0.2.27/revyl-darwin-arm64"; len(asked) != 1 || asked[0] != want {
 		t.Errorf("fetched %q", asked)
 	}
 

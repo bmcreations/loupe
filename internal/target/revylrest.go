@@ -22,11 +22,11 @@ import (
 
 // RevylREST sends gestures to a Revyl session over the backend's
 // device-proxy endpoint, the one revyl-cli's own device commands use
-// (internal/mcp/device_session.go:3498 proxyWorkerRequestForSession):
+// (internal/mcp/device_session.go:3547 proxyWorkerRequestForSession):
 //
 //	POST <base>/api/v1/execution/device-proxy/<workflow_run_id>/<action>
 //
-// (internal/api/client.go:6438). The endpoint is not documented. Its shape
+// (internal/api/client.go:6603). The endpoint is not documented. Its shape
 // was checked against a live account on 2026-11-18 with revyl-cli v0.2.18
 // (commit 381c4fcf): a tap took a median of 500 to 640 ms on one kept-alive
 // HTTPS connection, against 860 to 1100 ms for one `revyl device tap`.
@@ -51,7 +51,7 @@ type RevylREST struct {
 	client *http.Client
 }
 
-// revylBackendURL is the CLI's DefaultBaseURL (internal/api/client.go:70).
+// revylBackendURL is the CLI's DefaultBaseURL (internal/api/client.go:71).
 const revylBackendURL = "https://backend.revyl.ai"
 
 // NewRevylREST returns the client loupe uses, reading the key as the CLI
@@ -66,7 +66,7 @@ func NewRevylREST(version string) *RevylREST {
 }
 
 // revylCredentialsPath is where `revyl auth login` stores the account
-// (internal/auth/manager.go:213 and :232).
+// (internal/auth/manager.go:216 and :235).
 func revylCredentialsPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -76,7 +76,7 @@ func revylCredentialsPath() string {
 }
 
 // revylAPIKey reads the key the CLI would use: REVYL_API_KEY first, then
-// api_key in the credentials file (internal/auth/manager.go:357
+// api_key in the credentials file (internal/auth/manager.go:360
 // ResolveCredentials). It is read on every call rather than kept.
 func revylAPIKey(path string) string {
 	if k := strings.TrimSpace(os.Getenv("REVYL_API_KEY")); k != "" {

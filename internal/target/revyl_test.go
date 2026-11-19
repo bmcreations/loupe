@@ -13,7 +13,7 @@ import (
 
 // fakeRevyl is a revyl stand-in: a shell script that logs its argv and
 // prints testdata/revyl/<cmd>-<sub>.json. The JSON is shaped from revyl-cli
-// v0.2.18's structs (see revyl.go for the file paths), not recorded from a
+// v0.2.27's structs (see revyl.go for the file paths), not recorded from a
 // live account. A <cmd>-<sub>.json.first file is printed once, before the
 // plain one, so a test can show a session changing between two reads.
 type fakeRevyl struct {

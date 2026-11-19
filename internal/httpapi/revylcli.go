@@ -18,20 +18,20 @@ import (
 // Homebrew cask, so the version and checksums are pinned here rather than
 // read from a cask record as the android CLI's are (remotecli.go). The
 // asset names come from revyl-cli's scripts/build-all.sh:63 and
-// scripts/install.sh:223 at v0.2.18; the sums are that release's
+// scripts/install.sh:255 at v0.2.27; the sums are that release's
 // checksums.txt.
 const (
-	revylCLIVersion = "v0.2.18"
+	revylCLIVersion = "v0.2.27"
 	revylCLIBase    = "https://github.com/RevylAI/revyl-cli/releases/download/" + revylCLIVersion + "/"
-	// revylCLIMaxBytes is above the 46.6 MB arm64 and 49.3 MB amd64
+	// revylCLIMaxBytes is above the 46.8 MB arm64 and 49.5 MB amd64
 	// binaries with room for a few releases, and below anything a
 	// misdirected download should be allowed to fill memory with.
 	revylCLIMaxBytes = 128 << 20
 )
 
 var revylCLISums = map[string]string{
-	"arm64": "6b927ec1a8a6f145b50f129aaf79481671b75fa5add72109bbbfd20333299734",
-	"amd64": "b1dc86cfbb56ead6cc35bd03df46049bc3269936117f36ebce04e38037046df7",
+	"arm64": "96e20b13e1ec8efc231c1ffea08d7c19d62cc49b9820775744169aa25c399369",
+	"amd64": "92f8e2b9cb2feea12cbf3d1563821c35a68ce13b0830fe7191b66ec4c342b0f7",
 }
 
 // RevylInstaller downloads the pinned revyl CLI into loupe's own bin

@@ -19,7 +19,7 @@ import (
 
 // Revyl cloud devices: a session started through the user's own revyl CLI
 // and account becomes a target.RevylTarget. The CLI's shapes are read from
-// revyl-cli v0.2.18; internal/target/revyl.go says which were checked
+// revyl-cli v0.2.27; internal/target/revyl.go says which were checked
 // against a live account.
 
 const (

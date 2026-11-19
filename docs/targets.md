@@ -249,11 +249,12 @@ A cloud Android emulator or iOS simulator on the user's own Revyl
 (revyl.com) account is a target with the id `revyl:<sessionId>` and kind
 `revyl`. loupe drives it through Revyl's `revyl` CLI, except input, which
 goes over the device-proxy endpoint the CLI itself uses (see
-[Input](#input)). The flags and `--json` shapes come from revyl-cli v0.2.18
-(commit `381c4fcf`). It is all tested against a fake CLI, a fake device
+[Input](#input)). The flags and `--json` shapes come from revyl-cli v0.2.27
+(commit `35b06ed8`). It is all tested against a fake CLI, a fake device
 proxy and a local WHEP server. On 2026-11-18 the device-proxy input,
 `revyl device tap`, and the `workflow_run_id` that `device start` and
-`device info` report were checked against a live account.
+`device info` report were checked against a live account, with revyl-cli
+v0.2.18.
 
 ### CLI and account
 
@@ -261,7 +262,7 @@ proxy and a local WHEP server. On 2026-11-18 the device-proxy input,
   install script puts it), `/opt/homebrew/bin`, `/usr/local/bin`, PATH, then
   loupe's own copy at `~/Library/Application Support/loupe/bin/revyl`. It is
   looked up on every request, so one installed later needs no restart.
-- With none, `POST /api/revyl/cli` downloads the v0.2.18 release binary for
+- With none, `POST /api/revyl/cli` downloads the v0.2.27 release binary for
   the Mac's architecture into loupe's path and checks its SHA-256 against
   the value pinned in loupe. No Homebrew and no admin.
 - Sign-in is the user's: `revyl auth login` stores `~/.revyl/credentials.json`,
@@ -330,7 +331,7 @@ Revyl takes whole gestures, not touch events.
 
 Each gesture is a `POST` to
 `https://backend.revyl.ai/api/v1/execution/device-proxy/<workflow_run_id>/<action>`
-(revyl-cli `internal/api/client.go:6438`), with the session's
+(revyl-cli `internal/api/client.go:6603`), with the session's
 `workflow_run_id` from `revyl device info`. Revyl does not document this
 endpoint. The actions are `tap`, `drag`, `longpress`, `go_home`, `back`,
 `key` (`ENTER` or `BACKSPACE`) and `input`, with the bodies the CLI's MCP

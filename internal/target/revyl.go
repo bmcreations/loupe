@@ -25,11 +25,12 @@ import (
 // local, so it has no adb serial and no simctl UDID.
 const KindRevyl Kind = "revyl"
 
-// The shapes and flags below are read from revyl-cli v0.2.18
-// (github.com/RevylAI/revyl-cli, tag v0.2.18, commit 381c4fcf). Paths in the
+// The shapes and flags below are read from revyl-cli v0.2.27
+// (github.com/RevylAI/revyl-cli, tag v0.2.27, commit 35b06ed8). Paths in the
 // comments are into that tree. The device-proxy input in revylrest.go, the
 // workflow_run_id it needs from `device start` and `device info`, and
-// `device tap` were checked against a live account on 2026-11-18.
+// `device tap` were checked against a live account on 2026-11-18, with
+// v0.2.18.
 
 // RevylCLI runs the revyl binary.
 type RevylCLI struct {
@@ -37,7 +38,7 @@ type RevylCLI struct {
 	Path string
 	// Dir is the working directory. revyl reads a project's .revyl/config.yaml
 	// from the directory it runs in and caches sessions in
-	// .revyl/device-sessions.json there (internal/mcp/device_session.go:2258),
+	// .revyl/device-sessions.json there (internal/mcp/device_session.go:2263),
 	// so it runs in loupe's own directory rather than wherever loupe started.
 	Dir string
 }
@@ -57,7 +58,7 @@ func (c RevylCLI) Command(ctx context.Context, extra []string, args ...string) *
 }
 
 // Run runs revyl and returns its stdout. --json output goes to stdout and
-// progress to stderr (cmd/revyl/device.go:250 jsonOrPrint), so stderr is
+// progress to stderr (cmd/revyl/device.go:264 jsonOrPrint), so stderr is
 // only read for the error.
 func (c RevylCLI) Run(ctx context.Context, extra []string, args ...string) ([]byte, error) {
 	if c.Path == "" {
@@ -98,12 +99,12 @@ func revylVerb(args []string) string {
 }
 
 // RevylSession is one cloud device session, as `revyl device start|info
-// --json` print it: mcp.DeviceSession, internal/mcp/device_session.go:107.
+// --json` print it: mcp.DeviceSession, internal/mcp/device_session.go:109.
 // Only the fields loupe reads are kept.
 type RevylSession struct {
 	SessionID string `json:"session_id"`
 	// WorkflowRunID names the session to Revyl's device proxy
-	// (internal/mcp/device_session.go:123), which input goes through. It
+	// (internal/mcp/device_session.go:125), which input goes through. It
 	// is not the session ID.
 	WorkflowRunID string `json:"workflow_run_id"`
 	WorkerBaseURL string `json:"worker_base_url"`
@@ -124,7 +125,7 @@ type RevylSession struct {
 	// after this long without a command.
 	IdleTimeout time.Duration `json:"idle_timeout"`
 	// Status is set by `device list` for a session that is not attached
-	// yet, such as "queued" or "starting" (cmd/revyl/device.go:3219).
+	// yet, such as "queued" or "starting" (cmd/revyl/device.go:3296).
 	Status string `json:"status,omitempty"`
 }
 
@@ -142,7 +143,7 @@ type RevylDeviceTarget struct {
 }
 
 // Targets lists the models and OS versions per platform, from `revyl device
-// targets --json` (cmd/revyl/device.go:2687): {"android":[...],"ios":[...]}.
+// targets --json` (cmd/revyl/device.go:2708): {"android":[...],"ios":[...]}.
 func (c RevylCLI) Targets(ctx context.Context) (map[string][]RevylDeviceTarget, error) {
 	out, err := c.Run(ctx, nil, "device", "targets", "--json")
 	if err != nil {
@@ -166,7 +167,7 @@ type RevylStart struct {
 }
 
 // Start starts a cloud device and waits for it, from `revyl device start
-// --json` (cmd/revyl/device.go:174 deviceStartOutput, which embeds the
+// --json` (cmd/revyl/device.go:185 deviceStartOutput, which embeds the
 // session). --open=false keeps it from opening Revyl's own viewer in a
 // browser, and --computer none from running inside a Revyl computer that
 // REVYL_COMPUTER_ID names.
@@ -196,7 +197,7 @@ func (c RevylCLI) Start(ctx context.Context, s RevylStart) (RevylSession, error)
 }
 
 // Info reads one session, from `revyl device info --json`. A session that
-// has ended prints {"active":false,...} (cmd/revyl/device.go:3053), which
+// has ended prints {"active":false,...} (cmd/revyl/device.go:3130), which
 // is reported as ok == false.
 func (c RevylCLI) Info(ctx context.Context, sessionID string) (s RevylSession, ok bool, err error) {
 	out, err := c.Run(ctx, nil, "device", "info", "--session-id", sessionID, "--json")
@@ -210,7 +211,7 @@ func (c RevylCLI) Info(ctx context.Context, sessionID string) (s RevylSession, o
 }
 
 // List reads the sessions the account has open, from `revyl device list
-// --json` (cmd/revyl/device.go:3162).
+// --json` (cmd/revyl/device.go:3239).
 func (c RevylCLI) List(ctx context.Context) ([]RevylSession, error) {
 	out, err := c.Run(ctx, nil, "device", "list", "--json")
 	if err != nil {
@@ -468,9 +469,9 @@ type revylJob struct {
 }
 
 // body is the device-proxy request body, as the CLI's MCP tools build it
-// (internal/mcp/device_tools.go): tap :1440, longpress :1509, input :1590,
-// drag :1690, and key in internal/mcp/device_web_actions.go:84. go_home
-// (:2554) and back (:1854) send none.
+// (internal/mcp/device_tools.go): tap :1450, longpress :1519, input :1600,
+// drag :1700, and key in internal/mcp/device_web_actions.go:84. go_home
+// (:2564) and back (:1864) send none.
 func (j *revylJob) body() any {
 	switch j.action {
 	case "tap":
@@ -496,9 +497,9 @@ func (j *revylJob) body() any {
 
 // argv is the same gesture as a CLI command, without --session-id. Typed
 // text goes in the environment, so it is never in argv where ps shows it:
-// `device type --text-env` (cmd/revyl/device.go:3960,
-// internal/mcp/device_tools.go:1539). `device type` needs a point to focus
-// first (cmd/revyl/device.go:1824), and its --clear-first defaults to true.
+// `device type --text-env` (cmd/revyl/device.go:4039,
+// internal/mcp/device_tools.go:1549). `device type` needs a point to focus
+// first (cmd/revyl/device.go:1836), and its --clear-first defaults to true.
 func (j *revylJob) argv() (env, args []string) {
 	x, y := strconv.Itoa(j.x), strconv.Itoa(j.y)
 	switch j.action {
@@ -694,7 +695,7 @@ func (in *revylInput) enqueue(j *revylJob) error {
 var errRevylNoPoints = errors.New("revyl: the session reports no screen size, so a stream pixel cannot be turned into an iOS point")
 
 // toDevice maps a stream pixel to Revyl's device units: pixels on Android,
-// points on iOS (the flags' help text, cmd/revyl/device.go:3935).
+// points on iOS (the flags' help text, cmd/revyl/device.go:4014).
 func (in *revylInput) toDevice(x, y int32, m Meta) (int, int, error) {
 	if m.Width <= 0 || m.Height <= 0 {
 		return 0, 0, errors.New("revyl: stream size not known yet")
