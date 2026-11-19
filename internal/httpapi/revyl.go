@@ -44,6 +44,9 @@ const (
 	// revylListGrace is how long Sync trusts loupe over `revyl device
 	// list` after a start or a stop, in case the list lags either.
 	revylListGrace = 2 * time.Minute
+	// revylBillingTTL is how long one `revyl billing status` answers GET
+	// /api/revyl/billing.
+	revylBillingTTL = 30 * time.Second
 )
 
 var (
@@ -148,6 +151,43 @@ type RevylTargetsResponse struct {
 	Platforms map[string][]RevylModel `json:"platforms"`
 }
 
+// RevylBillingResponse is GET /api/revyl/billing: the account's plan, the
+// free minutes it has left this period, and what a minute costs once they
+// run out. Each field is absent when the CLI does not report it. FreeMinutes
+// may be absent on any plan; revyl-cli v0.2.27 reports it only on Free.
+type RevylBillingResponse struct {
+	// Plan is Revyl's plan ID, such as "free"; PlanName is its display name.
+	Plan     string `json:"plan,omitempty"`
+	PlanName string `json:"planName,omitempty"`
+	// PeriodEnd is RFC 3339, when the free minutes reset.
+	PeriodEnd    string            `json:"periodEnd,omitempty"`
+	FreeMinutes  *RevylFreeMinutes `json:"freeMinutes,omitempty"`
+	USDPerMinute *RevylRates       `json:"usdPerMinute,omitempty"`
+	// BillingURL is where the account adds a card or changes plan.
+	BillingURL string `json:"billingURL,omitempty"`
+}
+
+// RevylFreeMinutes is the free minutes per platform: an Android emulator
+// and an iOS simulator each draw on their own.
+type RevylFreeMinutes struct {
+	Android *RevylMinutes `json:"android,omitempty"`
+	IOS     *RevylMinutes `json:"ios,omitempty"`
+}
+
+// RevylMinutes is one platform's free minutes. Left is 0, not absent, once
+// they are used up.
+type RevylMinutes struct {
+	Left  *int `json:"left,omitempty"`
+	Total *int `json:"total,omitempty"`
+}
+
+// RevylRates is the price of a minute in US dollars, for an Android
+// emulator and an iOS simulator.
+type RevylRates struct {
+	Android *float64 `json:"android,omitempty"`
+	IOS     *float64 `json:"ios,omitempty"`
+}
+
 // RevylDevices starts and stops Revyl devices and registers each as a
 // target.
 type RevylDevices struct {
@@ -192,6 +232,14 @@ type RevylDevices struct {
 	// rest sends targets' input over Revyl's device proxy; nil leaves it
 	// to the CLI. Set before Watch, read by newTarget.
 	rest *target.RevylREST
+
+	// billing is the last billing status read, at billingAt, which answers
+	// for billingTTL (revylBillingTTL; tests shorten it). billingGen counts
+	// what drops it, so a read that began before a stop is not kept.
+	billing    *RevylBillingResponse
+	billingAt  time.Time
+	billingGen int
+	billingTTL time.Duration
 }
 
 type revylLogin struct {
@@ -205,7 +253,8 @@ type revylLogin struct {
 // (target.RevylWorkDir).
 func NewRevylDevices(find func() string, dir string, register func(target.Target), unregister func(id, reason string), trace func(map[string]any)) *RevylDevices {
 	r := &RevylDevices{find: find, dir: dir, register: register, unregister: unregister, trace: trace,
-		listGrace: revylListGrace, startGrace: revylStartGrace, stopped: map[string]time.Time{}}
+		listGrace: revylListGrace, startGrace: revylStartGrace, billingTTL: revylBillingTTL,
+		stopped: map[string]time.Time{}}
 	r.newTarget = func(cli target.RevylCLI, s target.RevylSession, model, os string) target.Target {
 		return &target.RevylTarget{CLI: cli, Session: s, Model: model, OSVersion: os, REST: r.rest, Trace: r.record}
 	}
@@ -293,6 +342,10 @@ func (r *RevylDevices) start(ctx context.Context, cancel context.CancelFunc, don
 	r.mu.Lock()
 	r.starting = false
 	r.cancelStart, r.startDone = nil, nil
+	if sess.SessionID != "" {
+		// A device came up, kept or not, and draws on the minutes.
+		r.dropBillingLocked()
+	}
 	it := r.findLocked(key)
 	var t target.Target
 	var leftover string
@@ -340,6 +393,10 @@ func (r *RevylDevices) start(ctx context.Context, cancel context.CancelFunc, don
 	stop := map[string]any{"action": "stop", "target": "revyl:" + leftover}
 	if err := cli.Stop(stopCtx, leftover); err != nil {
 		stop["error"] = err.Error()
+	} else {
+		r.mu.Lock()
+		r.dropBillingLocked()
+		r.mu.Unlock()
 	}
 	r.record(stop)
 }
@@ -424,6 +481,7 @@ func (r *RevylDevices) Stop(ctx context.Context, key string) error {
 	} else {
 		r.removeLocked(it)
 		r.stopped[sessionID] = time.Now()
+		r.dropBillingLocked()
 	}
 	r.mu.Unlock()
 	if err == nil && r.unregister != nil {
@@ -741,6 +799,9 @@ func (r *RevylDevices) watchLogin(l *revylLogin, wait func() error, sc *bufio.Sc
 		r.login = nil
 	}
 	rec := map[string]any{"action": "signin"}
+	if err == nil {
+		r.dropBillingLocked()
+	}
 	if err != nil {
 		// The CLI's own last word, minus the URL and code.
 		msg := revylLoginURL.ReplaceAllString(last, "<url>")
@@ -892,6 +953,9 @@ func (s *Server) handleRevylAccount(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		rv.mu.Lock()
+		rv.dropBillingLocked()
+		rv.mu.Unlock()
 		writeJSON(w, http.StatusOK, rv.account(ctx))
 	}
 }
@@ -912,6 +976,106 @@ func (s *Server) handleRevylCLI(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), revylCallTimeout)
 	defer cancel()
 	writeJSON(w, http.StatusAccepted, rv.account(ctx))
+}
+
+var errRevylSignedOut = errors.New("the revyl CLI is not signed in")
+
+// dropBillingLocked forgets the billing status read, and keeps a read in
+// flight from storing its own.
+func (r *RevylDevices) dropBillingLocked() {
+	r.billing = nil
+	r.billingGen++
+}
+
+// billingStatus reads `revyl billing status`, or answers with the last read
+// for billingTTL unless fresh. A read replaces the last, and one that fails
+// leaves none. It records nothing to the trace.
+func (r *RevylDevices) billingStatus(ctx context.Context, fresh bool) (RevylBillingResponse, error) {
+	r.mu.Lock()
+	if !fresh && r.billing != nil && time.Since(r.billingAt) < r.billingTTL {
+		b := *r.billing
+		r.mu.Unlock()
+		return b, nil
+	}
+	gen := r.billingGen
+	r.mu.Unlock()
+	cli, ok := r.cli()
+	if !ok {
+		return RevylBillingResponse{}, errRevylNoCLI
+	}
+	st, err := cli.BillingStatus(ctx)
+	var b RevylBillingResponse
+	if err == nil {
+		b = revylBilling(st)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.billingGen != gen {
+		return b, err
+	}
+	if err != nil {
+		r.billing = nil
+		return b, err
+	}
+	r.billing, r.billingAt = &b, time.Now()
+	return b, nil
+}
+
+// revylBilling is the part of the CLI's billing status the route answers
+// with: the free minutes and the rates of the device types loupe starts.
+func revylBilling(st target.RevylBilling) RevylBillingResponse {
+	b := RevylBillingResponse{Plan: st.Plan, PlanName: st.PlanName, PeriodEnd: st.PeriodEnd, BillingURL: st.BillingURL}
+	if f := st.FreeMinutes; f != nil {
+		m := RevylFreeMinutes{Android: revylMinutes(f.AndroidLeft, f.AndroidTotal), IOS: revylMinutes(f.IOSLeft, f.IOSTotal)}
+		if m.Android != nil || m.IOS != nil {
+			b.FreeMinutes = &m
+		}
+	}
+	var rates RevylRates
+	for _, rt := range st.Rates {
+		switch {
+		case rt.Platform == "android" && rt.DeviceType == "Emulator" && rates.Android == nil:
+			rates.Android = rt.USDPerMinute
+		case rt.Platform == "ios" && rt.DeviceType == "Simulator" && rates.IOS == nil:
+			rates.IOS = rt.USDPerMinute
+		}
+	}
+	if rates.Android != nil || rates.IOS != nil {
+		b.USDPerMinute = &rates
+	}
+	return b
+}
+
+func revylMinutes(left, total *int) *RevylMinutes {
+	if left == nil && total == nil {
+		return nil
+	}
+	return &RevylMinutes{Left: left, Total: total}
+}
+
+// handleRevylBilling is GET /api/revyl/billing. ?fresh=1 reads the CLI
+// rather than the last 30 s's answer.
+func (s *Server) handleRevylBilling(w http.ResponseWriter, r *http.Request) {
+	rv := s.revyl
+	if rv == nil {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), revylCallTimeout)
+	defer cancel()
+	b, err := rv.billingStatus(ctx, r.URL.Query().Get("fresh") == "1")
+	switch {
+	case errors.Is(err, errRevylNoCLI):
+		writeJSON(w, http.StatusConflict, ErrorResponse{Error: err.Error()})
+	case errors.Is(err, target.ErrRevylSignedOut):
+		writeJSON(w, http.StatusConflict, ErrorResponse{Error: errRevylSignedOut.Error()})
+	case errors.Is(err, target.ErrRevylUnsupported):
+		writeJSON(w, http.StatusNotImplemented, ErrorResponse{Error: "unsupported"})
+	case err != nil:
+		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
+	default:
+		writeJSON(w, http.StatusOK, b)
+	}
 }
 
 func (s *Server) handleRevylTargets(w http.ResponseWriter, r *http.Request) {

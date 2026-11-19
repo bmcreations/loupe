@@ -1,0 +1,72 @@
+{
+  "plan": "free",
+  "plan_name": "Free",
+  "payg_enrolled": false,
+  "payment_method_status": "missing",
+  "charge_failed": false,
+  "prepaid_balance_usd": null,
+  "auto_recharge": null,
+  "period_start": "2026-11-18T21:29:52Z",
+  "period_end": "2026-12-18T21:29:52Z",
+  "credits": [
+    {
+      "feature_id": "shared_concurrency",
+      "feature_name": "Shared Concurrency",
+      "used": 0,
+      "granted": 2,
+      "remaining": 2
+    },
+    {
+      "feature_id": "compute_credits",
+      "feature_name": "Compute",
+      "used": 63513,
+      "granted": 9000000,
+      "remaining": 8936486
+    }
+  ],
+  "free_minutes": {
+    "ios_left": 1191,
+    "android_left": 1191,
+    "ios_total": 1200,
+    "android_total": 1200,
+    "phone_left": 1191,
+    "phone_total": 1200,
+    "percent_used": 0
+  },
+  "rates": [
+    {
+      "platform": "ios",
+      "device_type": "Simulator",
+      "usd_per_minute": 0.075,
+      "included_minutes_left": 1191
+    },
+    {
+      "platform": "android",
+      "device_type": "Emulator",
+      "usd_per_minute": 0.075,
+      "included_minutes_left": 1191
+    },
+    {
+      "platform": "web",
+      "device_type": "Browser",
+      "usd_per_minute": 0.05,
+      "included_minutes_left": 1787
+    },
+    {
+      "platform": "macos",
+      "device_type": "Computer",
+      "usd_per_minute": 0.05,
+      "included_minutes_left": 1787
+    }
+  ],
+  "sessions_this_period": 9,
+  "minutes_this_period": 8.468485514322916,
+  "cost_this_period_usd": 0,
+  "spending_limit_usd": null,
+  "spending_limit_set": null,
+  "spend_this_period_usd": null,
+  "billing_url": "https://app.revyl.ai/settings/billing",
+  "add_card_url": "https://app.revyl.ai/settings/billing?add_card=1&organization_id=ORG&source=cli",
+  "concurrent_devices": 2,
+  "concurrent_devices_payg": 10
+}

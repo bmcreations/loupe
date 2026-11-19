@@ -172,7 +172,7 @@ var endpoints = []endpoint{
 	{"GET /api/remote/models", dirResponse, httpapi.RemoteModelsResponse{}},
 	{"GET /api/remote/models 502", dirResponse, httpapi.RemoteModelsError{}},
 	// Revyl cloud devices, through the user's revyl CLI. 503 while the CLI
-	// is missing, except GET /api/revyl and the account.
+	// is missing, except GET /api/revyl, the account and billing.
 	// ?sync=1 first reads the account's sessions from Revyl.
 	{"GET /api/revyl", dirResponse, httpapi.RevylListResponse{}},
 	{"POST /api/revyl request", dirRequest, httpapi.StartRevylRequest{}},
@@ -189,6 +189,13 @@ var endpoints = []endpoint{
 	{"DELETE /api/revyl/account", dirResponse, httpapi.RevylAccountResponse{}},
 	{"POST /api/revyl/cli 202", dirResponse, httpapi.RevylAccountResponse{}},
 	{"GET /api/revyl/targets", dirResponse, httpapi.RevylTargetsResponse{}},
+	// The last 30 s's answer, or ?fresh=1 to read the CLI again. 409 while
+	// the CLI is missing or signed out, 501 {"error":"unsupported"} when it
+	// has no `billing status`, 502 when that fails.
+	{"GET /api/revyl/billing", dirResponse, httpapi.RevylBillingResponse{}},
+	{"GET /api/revyl/billing 409", dirResponse, httpapi.ErrorResponse{}},
+	{"GET /api/revyl/billing 501", dirResponse, httpapi.ErrorResponse{}},
+	{"GET /api/revyl/billing 502", dirResponse, httpapi.ErrorResponse{}},
 	{"GET /api/devices/options", dirResponse, httpapi.DeviceOptionsResponse{}},
 	{"POST /api/devices request", dirRequest, httpapi.CreateDeviceRequest{}},
 	{"POST /api/devices 202", dirResponse, httpapi.CreateDeviceResponse{}},

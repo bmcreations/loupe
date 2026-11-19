@@ -47,7 +47,7 @@ Common refusals on routes that change a device:
 | `DELETE /api/camera/feed` | Blank Handset Camera's live feed and keep it as the AVD's camera |
 | `POST /api/devices/boot`, `shutdown`, `reset`, `DELETE /api/devices` | Device lifecycle |
 | `GET`, `POST /api/android/cli` | Install the android CLI and adb on a Mac with no SDK ([targets](targets.md#without-an-sdk)) |
-| `GET`, `POST`, `DELETE /api/revyl`, `/api/revyl/account`, `GET /api/revyl/targets`, `POST /api/revyl/cli` | Revyl cloud devices on the user's account |
+| `GET`, `POST`, `DELETE /api/revyl`, `/api/revyl/account`, `GET /api/revyl/targets`, `GET /api/revyl/billing`, `POST /api/revyl/cli` | Revyl cloud devices on the user's account |
 | `GET /api/logcat` | Device log |
 | `GET /api/crashes` | Crash reports |
 | `GET`, `PUT /api/settings` | Device settings: dark mode, text size, reduce motion, posture, hinge angle, app language, location |
@@ -570,7 +570,8 @@ reopen guard that a shutdown set, as `start=1` does.
 Starts and stops Revyl devices on the user's own account through the `revyl`
 CLI. How they behave as targets is in [targets.md](targets.md#revyl-cloud-devices).
 Not yet run against a live account. Without `SetRevylDevices` every route
-answers 404; with no CLI found, the routes that run it answer 503.
+answers 404; with no CLI found, the routes that run it answer 503, except
+`/api/revyl/billing`, which answers 409.
 
 | Route | Effect | Answer |
 |---|---|---|
@@ -578,6 +579,7 @@ answers 404; with no CLI found, the routes that run it answer 503.
 | `POST /api/revyl {"platform","model","osVersion"}` | Starts a device in the background. `platform` is `android` or `ios`; `model` and `osVersion` are optional names from `/api/revyl/targets`. | 202 `{"key"}`; 409 while another starts; 400 for a bad body |
 | `DELETE /api/revyl?key=` or `?target=revyl:<id>` | Runs `revyl device stop`; the device shows as `stopping` until it answers, then its target and sessions end. A failed row is forgotten. | 200 `{"devices":[…]}`; 409 while it is still starting or already stopping; 404 unknown (until loupe has read the account once, it runs `revyl device list` first, and answers 502 if that fails, or 409 while a start runs); 502 when Revyl did not confirm, leaving it `active` with `stopError` |
 | `GET /api/revyl/targets` | Models and OS versions per platform, from `revyl device targets`. | 200 `{"platforms":{"android":[{"model","runtime"}]}}` |
+| `GET /api/revyl/billing[?fresh=1]` | The plan, the free minutes left and the price of a minute, from `revyl billing status --json`. One read answers for 30 s; `fresh=1` reads again, and a device starting or stopping, or a sign-in or sign-out through loupe, drops it. Nothing goes to the trace. | 200 `RevylBillingResponse`; 409 `{"error"}` with no CLI or signed out; 501 `{"error":"unsupported"}` from a CLI without `billing status`; 502 `{"error"}` when it fails |
 | `GET /api/revyl/account` | Whether the CLI is installed and signed in, and how. | 200 `RevylAccountResponse` |
 | `POST /api/revyl/account` | Runs `revyl auth login` and answers once it prints the approval URL and code (at most 15 s). Open `loginURL`, check `loginCode`, then poll `GET` until `signedIn`. The login waits up to 15 minutes. | 202 with `signingIn`, `loginURL`, `loginCode`, or `loginError` when the CLI exited first; 200 when already signed in; 502 when it could not run |
 | `DELETE /api/revyl/account` | Cancels a login, then runs `revyl auth logout`. | 200; 409 while a device loupe started is running or starting |
@@ -591,6 +593,21 @@ answers 404; with no CLI found, the routes that run it answer 503.
 `cliInstalling`, `cliInstallError`, `signedIn`, `email`, `org`, `authMethod`,
 `signingIn`, `loginURL`, `loginCode` and `loginError`. Neither carries the API
 key or the session's WHEP URL.
+
+`RevylBillingResponse` has `plan` (such as `free`), `planName`, `periodEnd`
+(RFC 3339, when the free minutes reset), `freeMinutes`
+(`{"android":{"left","total"},"ios":{…}}`; `left` is 0 once they are used up),
+`usdPerMinute` (`{"android","ios"}`, the Android emulator and iOS simulator
+rates) and `billingURL`. Any of them can be absent, so check for
+`freeMinutes` itself rather than `plan`. It carries nothing about the card,
+payments, prepaid balance, spending or the organization.
+
+```json
+{"plan":"free","planName":"Free","periodEnd":"2026-12-18T21:29:52Z",
+ "freeMinutes":{"android":{"left":1191,"total":1200},"ios":{"left":1191,"total":1200}},
+ "usdPerMinute":{"android":0.075,"ios":0.075},
+ "billingURL":"https://app.revyl.ai/settings/billing"}
+```
 
 A Revyl target streams to viewers and takes their touches, but `/api/input`,
 `/api/sequence`, `/api/ui` and `/api/screenshot` answer 501 for it.

@@ -168,6 +168,18 @@
     "GET /api/revyl/account": {
       "$ref": "#/$defs/httpapi.RevylAccountResponse"
     },
+    "GET /api/revyl/billing": {
+      "$ref": "#/$defs/httpapi.RevylBillingResponse"
+    },
+    "GET /api/revyl/billing 409": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "GET /api/revyl/billing 501": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
+    "GET /api/revyl/billing 502": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
     "GET /api/revyl/targets": {
       "$ref": "#/$defs/httpapi.RevylTargetsResponse"
     },
@@ -4333,6 +4345,43 @@
       ],
       "type": "object"
     },
+    "httpapi.RevylBillingResponse": {
+      "properties": {
+        "billingURL": {
+          "type": "string"
+        },
+        "freeMinutes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.RevylFreeMinutes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "periodEnd": {
+          "type": "string"
+        },
+        "plan": {
+          "type": "string"
+        },
+        "planName": {
+          "type": "string"
+        },
+        "usdPerMinute": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.RevylRates"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "httpapi.RevylDevice": {
       "properties": {
         "adopted": {
@@ -4381,6 +4430,31 @@
       ],
       "type": "object"
     },
+    "httpapi.RevylFreeMinutes": {
+      "properties": {
+        "android": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.RevylMinutes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ios": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/httpapi.RevylMinutes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "httpapi.RevylListResponse": {
       "properties": {
         "devices": {
@@ -4393,6 +4467,31 @@
       "required": [
         "devices"
       ],
+      "type": "object"
+    },
+    "httpapi.RevylMinutes": {
+      "properties": {
+        "left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
       "type": "object"
     },
     "httpapi.RevylModel": {
@@ -4408,6 +4507,31 @@
         "model",
         "runtime"
       ],
+      "type": "object"
+    },
+    "httpapi.RevylRates": {
+      "properties": {
+        "android": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ios": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
       "type": "object"
     },
     "httpapi.RevylTargetsResponse": {

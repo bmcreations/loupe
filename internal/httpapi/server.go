@@ -336,6 +336,7 @@ var routes = []route{
 	{"/api/remote/models", []string{http.MethodGet}, (*Server).handleRemoteModels, ""},
 	{"/api/revyl", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRevyl, ""},
 	{"/api/revyl/account", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRevylAccount, ""},
+	{"/api/revyl/billing", []string{http.MethodGet}, (*Server).handleRevylBilling, ""},
 	{"/api/revyl/cli", []string{http.MethodPost}, (*Server).handleRevylCLI, ""},
 	{"/api/revyl/targets", []string{http.MethodGet}, (*Server).handleRevylTargets, ""},
 	{"/api/devices/options", []string{http.MethodGet}, (*Server).handleDeviceOptions, ""},

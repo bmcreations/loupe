@@ -68,22 +68,35 @@ func (c RevylCLI) Run(ctx context.Context, extra []string, args ...string) ([]by
 }
 
 func (c RevylCLI) run(cmd *exec.Cmd, args []string) ([]byte, error) {
+	stdout, stderr, err := capture(cmd)
+	if err != nil {
+		msg := lastLine(stderr)
+		if msg == "" {
+			msg = lastLine(string(stdout))
+		}
+		return stdout, revylError(args, msg, err)
+	}
+	return stdout, nil
+}
+
+// capture runs cmd and returns its stdout and stderr.
+func capture(cmd *exec.Cmd) ([]byte, string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		msg := lastLine(stderr.String())
-		if msg == "" {
-			msg = lastLine(stdout.String())
-		}
-		if msg != "" {
-			// A session's viewer, worker and WHEP URLs can carry its
-			// access, and errors reach the trace and the API.
-			msg = revylURL.ReplaceAllString(msg, "<url>")
-			return stdout.Bytes(), fmt.Errorf("revyl %s: %s", revylVerb(args), clip(msg, 300))
-		}
-		return stdout.Bytes(), fmt.Errorf("revyl %s: %w", revylVerb(args), err)
+	err := cmd.Run()
+	return stdout.Bytes(), stderr.String(), err
+}
+
+// revylError names a failed command and what the CLI said, or err when it
+// said nothing.
+func revylError(args []string, msg string, err error) error {
+	if msg == "" {
+		return fmt.Errorf("revyl %s: %w", revylVerb(args), err)
 	}
-	return stdout.Bytes(), nil
+	// A session's viewer, worker and WHEP URLs can carry its access, and
+	// errors reach the trace and the API.
+	msg = revylURL.ReplaceAllString(msg, "<url>")
+	return fmt.Errorf("revyl %s: %s", revylVerb(args), clip(msg, 300))
 }
 
 var revylURL = regexp.MustCompile(`(?i)\b(?:https?|wss?)://\S+`)
@@ -289,6 +302,85 @@ func (c RevylCLI) AuthStatus(ctx context.Context) (RevylAuth, error) {
 		return RevylAuth{}, err
 	}
 	return RevylAuth{}, errors.New("revyl auth status: unreadable output")
+}
+
+// RevylBilling is the part of `revyl billing status --json` loupe reads,
+// from billingstatus.Status (internal/billingstatus/status.go:241), which
+// cmd/revyl/billing.go:65 runBillingStatus writes. The rest of it (card,
+// payment, prepaid balance, spending, and the organization ID in
+// add_card_url) is never decoded.
+type RevylBilling struct {
+	Plan     string `json:"plan"`
+	PlanName string `json:"plan_name"`
+	// PeriodEnd is RFC 3339, when this period's free minutes reset.
+	PeriodEnd string `json:"period_end"`
+	// FreeMinutes is null off the Free plan (status.go:410).
+	FreeMinutes *RevylBillingMinutes `json:"free_minutes"`
+	Rates       []RevylBillingRate   `json:"rates"`
+	BillingURL  string               `json:"billing_url"`
+}
+
+// RevylBillingMinutes is FreeMinutes, status.go:229. Each platform's
+// minutes are null when Revyl does not know its credit rate.
+type RevylBillingMinutes struct {
+	AndroidLeft  *int `json:"android_left"`
+	AndroidTotal *int `json:"android_total"`
+	IOSLeft      *int `json:"ios_left"`
+	IOSTotal     *int `json:"ios_total"`
+}
+
+// RevylBillingRate is one device type's price, Rate at status.go:216:
+// platform "android" with device_type "Emulator", "ios" with "Simulator",
+// and others loupe does not start.
+type RevylBillingRate struct {
+	Platform     string   `json:"platform"`
+	DeviceType   string   `json:"device_type"`
+	USDPerMinute *float64 `json:"usd_per_minute"`
+}
+
+var (
+	// ErrRevylUnsupported is a CLI older than the command: cobra's
+	// `unknown command "billing" for "revyl"`.
+	ErrRevylUnsupported = errors.New("revyl: the CLI has no such command")
+	// ErrRevylSignedOut is getAPIKey's refusal with no credentials
+	// (cmd/revyl/cancel.go:252): "Error: not authenticated".
+	ErrRevylSignedOut = errors.New("revyl: not signed in")
+
+	revylUnknownCommand = regexp.MustCompile(`unknown command "`)
+	revylNoAuth         = regexp.MustCompile(`(?i)\bnot authenticated\b`)
+	revylErrorLine      = regexp.MustCompile(`(?m)^Error: (.+)$`)
+)
+
+// BillingStatus reads the plan, free minutes and rates, from `revyl
+// billing status --json` (cmd/revyl/billing.go:33). A failure is read from
+// the whole of stderr rather than its last line: the CLI prints its agent
+// hints (cmd/revyl/feedback_hint.go:149) after cobra's "Error:" line. The
+// output, the signed-out stderr and the form of cobra's unknown-command
+// stderr were checked against a live account on 2026-11-19, with v0.2.18.
+func (c RevylCLI) BillingStatus(ctx context.Context) (RevylBilling, error) {
+	if c.Path == "" {
+		return RevylBilling{}, errors.New("revyl: CLI not installed")
+	}
+	args := []string{"billing", "status", "--json"}
+	out, stderr, err := capture(c.Command(ctx, nil, args...))
+	if err != nil {
+		switch {
+		case revylUnknownCommand.MatchString(stderr):
+			return RevylBilling{}, ErrRevylUnsupported
+		case revylNoAuth.MatchString(stderr):
+			return RevylBilling{}, ErrRevylSignedOut
+		}
+		msg := lastLine(stderr)
+		if m := revylErrorLine.FindAllStringSubmatch(stderr, -1); m != nil {
+			msg = strings.TrimSpace(m[len(m)-1][1])
+		}
+		return RevylBilling{}, revylError(args, msg, err)
+	}
+	var b RevylBilling
+	if err := json.Unmarshal(out, &b); err != nil {
+		return RevylBilling{}, fmt.Errorf("revyl billing status: %w", err)
+	}
+	return b, nil
 }
 
 // RevylTarget is one Revyl session as a loupe target.
