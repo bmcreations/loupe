@@ -74,6 +74,10 @@ type revylLiveConn struct {
 	diedAt time.Time
 	nextID int64
 	acks   map[int64]chan bool
+	// opened, pings and pongs go in the trace's record of the close.
+	opened       time.Time
+	pings, pongs int
+	byUs         bool // close was called: loupe ended it, not the worker
 }
 
 // openLive looks up and dials the session's worker socket. trace gets a
@@ -107,30 +111,38 @@ func (r *RevylREST) openLive(ctx context.Context, key, runID string, ios bool, t
 	// 32 KiB would close the socket.
 	c.SetReadLimit(-1)
 	rctx, rcancel := context.WithCancel(context.Background())
-	lc := &revylLiveConn{c: c, cancel: rcancel, gone: make(chan struct{}), trace: trace, ios: ios, w: ws.w, h: ws.h, nextID: 1, acks: map[int64]chan bool{}}
+	lc := &revylLiveConn{c: c, cancel: rcancel, gone: make(chan struct{}), trace: trace, ios: ios, w: ws.w, h: ws.h, nextID: 1, acks: map[int64]chan bool{}, opened: time.Now()}
+	if trace != nil {
+		trace(map[string]any{"action": "live-open"})
+	}
 	go lc.read(rctx)
 	return lc, nil
 }
 
-// read takes the socket's frames until it closes. It keeps
-// manual_input_ready and the newest screen size any frame reports, and
-// hands each ack to the lift waiting for it; the rest of a frame is
+// read takes the socket's frames until it closes. It answers each ping,
+// keeps manual_input_ready and the newest screen size any frame reports,
+// and hands each ack to the lift waiting for it; the rest of a frame is
 // dropped unread.
 func (lc *revylLiveConn) read(ctx context.Context) {
 	defer close(lc.gone)
 	defer lc.fail()
+	var err error
+	defer func() { lc.traceClose(err) }()
 	for {
-		typ, r, err := lc.c.Reader(ctx)
+		var typ websocket.MessageType
+		var r io.Reader
+		typ, r, err = lc.c.Reader(ctx)
 		if err != nil {
 			return
 		}
 		if typ != websocket.MessageText {
-			if _, err := io.Copy(io.Discard, r); err != nil {
+			if _, err = io.Copy(io.Discard, r); err != nil {
 				return
 			}
 			continue
 		}
-		b, err := io.ReadAll(io.LimitReader(r, 1<<20))
+		var b []byte
+		b, err = io.ReadAll(io.LimitReader(r, 1<<20))
 		if err == nil {
 			_, err = io.Copy(io.Discard, r)
 		}
@@ -145,9 +157,19 @@ func (lc *revylLiveConn) read(ctx context.Context) {
 			// Raw, so a size of the wrong type does not lose the rest of
 			// the frame.
 			Type json.RawMessage `json:"type"`
+			// A ping's id, sent back as it came.
+			ID json.RawMessage `json:"id"`
 			revylSizeKeys
 		}
 		if json.Unmarshal(b, &f) != nil {
+			continue
+		}
+		if string(f.Type) == `"ping"` {
+			// The worker pings its viewers and drops one that does not
+			// answer, as Revyl's viewer does with a pong of the same id.
+			if err = lc.pong(ctx, f.ID); err != nil {
+				return
+			}
 			continue
 		}
 		w, h, ok := f.size()
@@ -272,6 +294,62 @@ func (lc *revylLiveConn) size() (int, int) {
 	return lc.w, lc.h
 }
 
+// pong answers the worker's ping id.
+func (lc *revylLiveConn) pong(ctx context.Context, id json.RawMessage) error {
+	if len(id) == 0 {
+		id = json.RawMessage("null")
+	}
+	b, err := json.Marshal(struct {
+		Type string          `json:"type"`
+		ID   json.RawMessage `json:"id"`
+	}{"pong", id})
+	if err != nil {
+		return nil // an id that is not JSON: nothing to answer
+	}
+	lc.mu.Lock()
+	lc.pings++
+	lc.mu.Unlock()
+	wctx, cancel := context.WithTimeout(ctx, revylLiveWrite)
+	defer cancel()
+	if err := lc.c.Write(wctx, websocket.MessageText, b); err != nil {
+		return err
+	}
+	lc.mu.Lock()
+	lc.pongs++
+	lc.mu.Unlock()
+	return nil
+}
+
+// traceClose records why the socket stopped reading: who ended it, the
+// close status the worker sent, how long it was open and how many pings
+// it answered. err is the read's; its text is left out, as it can quote
+// the URL.
+func (lc *revylLiveConn) traceClose(err error) {
+	if lc.trace == nil {
+		return
+	}
+	lc.mu.Lock()
+	rec := map[string]any{"action": "live-close", "uptimeMs": time.Since(lc.opened).Milliseconds(),
+		"pings": lc.pings, "pongs": lc.pongs}
+	byUs := lc.byUs
+	lc.mu.Unlock()
+	var ce websocket.CloseError
+	switch {
+	case byUs:
+		rec["by"] = "loupe"
+	case errors.As(err, &ce):
+		rec["by"], rec["status"] = "worker", int(ce.Code)
+		if r := strings.ToLower(ce.Reason); revylCode.MatchString(r) {
+			rec["reason"] = r
+		}
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		rec["by"] = "eof"
+	default:
+		rec["by"] = "error"
+	}
+	lc.trace(rec)
+}
+
 func (lc *revylLiveConn) fail() {
 	lc.mu.Lock()
 	if !lc.dead {
@@ -294,6 +372,9 @@ func (lc *revylLiveConn) isDead() (bool, time.Time) {
 }
 
 func (lc *revylLiveConn) close() {
+	lc.mu.Lock()
+	lc.byUs = true
+	lc.mu.Unlock()
 	lc.fail()
 	lc.cancel()
 	_ = lc.c.CloseNow()
