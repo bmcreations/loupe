@@ -150,13 +150,19 @@ func (l *traceLog) record(rec map[string]any) {
 	l.mu.Unlock()
 }
 
-// wait waits for n records and returns them all.
+// wait waits for n records and returns them all, leaving out the
+// socket's live-open and live-close, which traceRecs reads.
 func (l *traceLog) wait(t *testing.T, n int) []map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
+		var got []map[string]any
 		l.mu.Lock()
-		got := append([]map[string]any(nil), l.recs...)
+		for _, rec := range l.recs {
+			if a := rec["action"]; a != "live-open" && a != "live-close" {
+				got = append(got, rec)
+			}
+		}
 		l.mu.Unlock()
 		if len(got) >= n {
 			return got

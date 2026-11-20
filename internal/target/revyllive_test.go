@@ -1023,3 +1023,67 @@ func TestRevylLiveGoesLiveOnceTheSizeFitsTheStream(t *testing.T) {
 		t.Fatalf("device proxy got %d requests, want the first tap only", len(r))
 	}
 }
+
+// The worker pings its viewers and drops one that does not answer. Each
+// ping gets a pong with its id, string or number, as Revyl's viewer sends,
+// and the socket still takes touches after.
+func TestRevylLiveAnswersTheWorkersPings(t *testing.T) {
+	m := Meta{Width: 540, Height: 1200}
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	w.waitSocket()
+	w.push(`{"type": "ping", "id": 7, "prev_rtt_ms": 12.5}`)
+	w.push(`{"type": "ping", "id": "p-8"}`)
+	got := w.waitFrames(2)
+	for i, want := range []any{float64(7), "p-8"} {
+		if got[i]["type"] != "pong" || got[i]["id"] != want || len(got[i]) != 2 {
+			t.Fatalf("frame %d = %v, want a pong with id %v and nothing else", i, got[i], want)
+		}
+	}
+	touch := liveTouch(t, g.in, m)
+	touch(TouchDown, 270, 600)
+	touch(TouchUp, 270, 600)
+	checkFrames(t, w.waitFrames(4)[2:], [][3]any{{"MANUAL_TOUCH_DOWN", 540, 1200}, {"MANUAL_TOUCH_UP", 540, 1200}})
+}
+
+// The trace says when the socket opened and why it closed: the worker's
+// close status, how long it was open and the pings it answered, with no
+// token or URL.
+func TestRevylLiveTracesTheSocketsOpenAndClose(t *testing.T) {
+	f := newFakeRevyl(t)
+	p := newFakeProxy(t)
+	w := newFakeWorker(t, p)
+	w.set(func(w *fakeWorker) { w.closeAfter = 2 })
+	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
+	w.waitSocket()
+	if len(traceRecs(g.log, "live-open")) != 1 {
+		t.Fatalf("live-open records %v, want one", traceRecs(g.log, "live-open"))
+	}
+	w.push(`{"type": "ping", "id": 1}`)
+	w.push(`{"type": "ping", "id": 2}`)
+	select {
+	case <-w.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the worker never got 2 pongs to close on: %v", w.got())
+	}
+	var rec map[string]any
+	w.until("a live-close record", func() bool {
+		if r := traceRecs(g.log, "live-close"); len(r) > 0 {
+			rec = r[0]
+		}
+		return rec != nil
+	})
+	if rec["by"] != "worker" || rec["status"] != int(websocket.StatusGoingAway) || rec["pongs"] != 2 {
+		t.Fatalf("live-close %v, want by worker, status 1001, 2 pongs", rec)
+	}
+	if _, ok := rec["uptimeMs"].(int64); !ok {
+		t.Fatalf("live-close %v has no uptimeMs", rec)
+	}
+	g.in.close()
+	b, _ := json.Marshal(traceRecs(g.log, "live-close"))
+	if s := string(b); strings.Contains(s, testWSToken) || strings.Contains(s, "ws://") {
+		t.Fatalf("token or URL in the trace: %s", s)
+	}
+}

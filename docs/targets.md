@@ -455,6 +455,8 @@ gestures.
   with the stream, keeps its presses off the socket: each goes as one
   gesture, scaled by the session's size. Revyl's viewer turns input off past
   the same 1% on some iPhones rather than guess where a touch lands.
+- The worker pings the socket and drops a viewer that does not answer, so
+  each ping gets a pong with its id, as Revyl's viewer sends.
 - With no socket, a press goes as one gesture and a later press tries the
   socket again: 2 s after a failure, doubling to a minute. If the socket
   fails partway through a press, the rest goes over the proxy at the lift:
@@ -466,7 +468,10 @@ gestures.
   last try at the socket failed, or that the stream was of another shape. A
   frame that changes the size has a `live-size` record with the new `size`,
   the one it `was`, and the `frame` type it came in; one ignored on iOS
-  also has `ignored`.
+  also has `ignored`. The socket has a `live-open` record when it opens and
+  a `live-close` record when it stops: `by` (`worker` with its close
+  `status`, `loupe`, `eof` or `error`), `uptimeMs`, and the `pings` and
+  `pongs` it answered.
 
 ### Agent input
 
