@@ -151,7 +151,8 @@ func (l *traceLog) record(rec map[string]any) {
 }
 
 // wait waits for n records and returns them all, leaving out the
-// socket's live-open and live-close, which traceRecs reads.
+// socket's live-open and live-close, which traceRecs reads, and the
+// stream's whep records.
 func (l *traceLog) wait(t *testing.T, n int) []map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -159,7 +160,7 @@ func (l *traceLog) wait(t *testing.T, n int) []map[string]any {
 		var got []map[string]any
 		l.mu.Lock()
 		for _, rec := range l.recs {
-			if a := rec["action"]; a != "live-open" && a != "live-close" {
+			if a, _ := rec["action"].(string); a != "live-open" && a != "live-close" && !strings.HasPrefix(a, "whep") {
 				got = append(got, rec)
 			}
 		}

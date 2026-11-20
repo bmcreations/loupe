@@ -14,6 +14,7 @@ import (
 
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
 
@@ -38,6 +39,10 @@ type WHEPConfig struct {
 	// FirstFrame bounds how long Dial waits for the first parameter sets,
 	// which is when Meta first has a real size. Zero means 20 s.
 	FirstFrame time.Duration
+	// Trace, when set, gets a "whep" record each second the track is
+	// receiving: packets, sequence gaps, late packets, and pictures dropped
+	// and why. Nil traces nothing.
+	Trace func(map[string]any)
 
 	// settings replaces the default SettingEngine. Tests use it to allow
 	// loopback candidates.
@@ -228,6 +233,16 @@ func (r *whepReceiver) negotiate(ctx context.Context) error {
 			r.resource = u.String()
 		}
 	}
+	if r.cfg.Trace != nil {
+		var fb []string
+		for _, l := range strings.Split(string(body), "\n") {
+			l = strings.TrimSpace(l)
+			if strings.HasPrefix(l, "a=rtcp-fb") || strings.HasPrefix(l, "a=rtpmap") || strings.HasPrefix(l, "a=fmtp") {
+				fb = append(fb, l)
+			}
+		}
+		r.cfg.Trace(map[string]any{"kind": "whep-answer", "action": "whep-answer", "lines": fb})
+	}
 	if err := r.pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeAnswer, SDP: string(body),
 	}); err != nil {
@@ -259,7 +274,8 @@ func (r *whepReceiver) onTrack(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 	go r.read(tr)
 }
 
-// read assembles RTP packets into access units and emits them.
+// read assembles RTP packets into access units and emits them, after
+// reorder has put them back in sequence.
 //
 // An access unit ends on the RTP marker bit, the way RFC 6184 section 5.1
 // says the last packet of a picture is flagged, and not when the next
@@ -272,17 +288,34 @@ func (r *whepReceiver) read(tr *webrtc.TrackRemote) {
 		depack   codecs.H264Packet
 		au       []byte
 		ts       uint32
-		lastSeq  uint16
-		haveSeq  bool
 		broken   bool
 		needKey  = true
 		ptsBase  uint32
 		havePTS  bool
 		sps, pps []byte
+		ws       whepStats
 	)
+	ws.start(r.cfg.Trace)
+	// Every dropped picture wants a keyframe; one request per
+	// whepKeyRequestEvery is enough, since Revyl's encoder answers at most
+	// that often (a trace showed one IDR a second whatever was asked).
+	var lastKeyReq time.Time
+	pli := func() {
+		if time.Since(lastKeyReq) < whepKeyRequestEvery {
+			return
+		}
+		lastKeyReq = time.Now()
+		ws.pli()
+		_ = r.RequestKeyframe()
+	}
 	emit := func() {
 		defer func() { au, broken = nil, false }()
-		if broken || len(au) == 0 {
+		if len(au) == 0 {
+			return
+		}
+		ws.pics++
+		if broken {
+			ws.dropBroken++
 			return
 		}
 		if !havePTS {
@@ -306,10 +339,15 @@ func (r *whepReceiver) read(tr *webrtc.TrackRemote) {
 				pic = append(pic, nal...)
 			}
 		})
+		if key {
+			ws.idr()
+		}
+		ws.picTS(ts)
 		if sps == nil || pps == nil || (needKey && !key) {
 			// Nothing decodable yet: ask for a keyframe and drop this.
+			ws.dropAwaitKey++
 			if needKey {
-				_ = r.RequestKeyframe()
+				pli()
 			}
 			return
 		}
@@ -333,28 +371,21 @@ func (r *whepReceiver) read(tr *webrtc.TrackRemote) {
 			return
 		}
 		needKey = false
-		r.send(Frame{PTS: pts, Key: key, Data: pic, Captured: time.Now()})
+		ws.sent++
+		t0 := time.Now()
+		r.send(Frame{PTS: pts, Key: key, Data: pic, Captured: t0})
+		ws.blocked(time.Since(t0))
 	}
 
-	for {
-		pkt, _, err := tr.ReadRTP()
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				r.finish(fmt.Errorf("whep: read: %w", err))
-			} else {
-				r.finish(errors.New("whep: stream ended"))
-			}
-			return
-		}
-		if haveSeq && pkt.SequenceNumber != lastSeq+1 {
-			// A packet was lost for good (NACK already had its chance).
-			// The picture it belonged to is undecodable, and so is every
-			// picture after it until the next keyframe.
+	// process handles packets in sequence order. lost says the packets
+	// before this one never came, so the picture they belonged to is
+	// undecodable, and so is every picture after it until the next keyframe.
+	process := func(pkt *rtp.Packet, lost bool) {
+		if lost {
 			au, broken, needKey = nil, true, true
 			depack = codecs.H264Packet{}
-			_ = r.RequestKeyframe()
+			pli()
 		}
-		lastSeq, haveSeq = pkt.SequenceNumber, true
 		if len(au) > 0 && pkt.Timestamp != ts {
 			// A new picture started without the last one's marker bit.
 			emit()
@@ -362,6 +393,7 @@ func (r *whepReceiver) read(tr *webrtc.TrackRemote) {
 		ts = pkt.Timestamp
 		nal, err := depack.Unmarshal(pkt.Payload)
 		if err != nil {
+			ws.depackErr++
 			broken, needKey = true, true
 			depack = codecs.H264Packet{}
 		} else {
@@ -371,6 +403,172 @@ func (r *whepReceiver) read(tr *webrtc.TrackRemote) {
 			emit()
 			broken = false
 		}
+	}
+
+	pkts := make(chan *rtp.Packet, 256)
+	readErr := make(chan error, 1)
+	go func() {
+		for {
+			pkt, _, err := tr.ReadRTP()
+			if err != nil {
+				readErr <- err
+				return
+			}
+			select {
+			case pkts <- pkt:
+			case <-r.done:
+				return
+			}
+		}
+	}()
+
+	var (
+		ro    reorder
+		timer = time.NewTimer(time.Hour)
+	)
+	timer.Stop()
+	arm := func() {
+		timer.Stop()
+		if at, ok := ro.deadline(); ok {
+			timer.Reset(time.Until(at))
+		}
+	}
+	for {
+		select {
+		case err := <-readErr:
+			if !errors.Is(err, io.EOF) {
+				r.finish(fmt.Errorf("whep: read: %w", err))
+			} else {
+				r.finish(errors.New("whep: stream ended"))
+			}
+			return
+		case <-r.done:
+			return
+		case pkt := <-pkts:
+			ws.queued(len(pkts))
+			ws.packet(pkt.SequenceNumber)
+			ro.push(pkt, time.Now(), process)
+			arm()
+		case <-timer.C:
+			ro.expire(time.Now(), process)
+			arm()
+		}
+	}
+}
+
+// whepReorderHold is how long packets behind a gap wait for it to fill.
+// A NACK resend from Revyl came back 54 to 123 ms after the gap in a trace
+// of a scroll, and read sees a gap as soon as the next packet arrives, before
+// NACK has had its chance. A gap that is still open after this is a loss.
+const whepReorderHold = 200 * time.Millisecond
+
+// whepKeyRequestEvery spaces the keyframe requests read sends while it
+// waits for one.
+const whepKeyRequestEvery = 250 * time.Millisecond
+
+// whepReorderMax caps how many packets a gap can hold back.
+const whepReorderMax = 512
+
+// reorder puts RTP packets back in sequence order. A packet that is next in
+// sequence goes through at once, with no hold, so a still screen's last
+// picture is never kept waiting. Packets after a gap wait until it fills or
+// until whepReorderHold after the first of them arrived, released by a
+// timer rather than by the next packet, which may never come.
+type reorder struct {
+	want    uint16 // the next sequence number to hand on
+	started bool
+	pending map[uint16]heldPacket
+}
+
+type heldPacket struct {
+	pkt *rtp.Packet
+	at  time.Time // when it arrived
+}
+
+func (o *reorder) push(pkt *rtp.Packet, now time.Time, out func(*rtp.Packet, bool)) {
+	seq := pkt.SequenceNumber
+	if !o.started {
+		o.started, o.want = true, seq
+	}
+	d := int16(seq - o.want)
+	switch {
+	case d < 0:
+		return // a late copy of a packet already handed on, or skipped
+	case d == 0:
+		out(pkt, false)
+		o.want++
+		o.drain(out, false)
+	default:
+		if o.pending == nil {
+			o.pending = map[uint16]heldPacket{}
+		}
+		if _, dup := o.pending[seq]; dup {
+			return
+		}
+		o.pending[seq] = heldPacket{pkt, now}
+		if len(o.pending) >= whepReorderMax {
+			o.skip(out)
+		}
+	}
+}
+
+// deadline is when the current gap is given up on, if packets are held:
+// whepReorderHold after the first packet past it arrived. It is timed from
+// that arrival, not from when an earlier gap was given up on, so a run of
+// gaps never holds a packet longer than whepReorderHold.
+func (o *reorder) deadline() (time.Time, bool) {
+	first, ok := o.first()
+	if !ok {
+		return time.Time{}, false
+	}
+	return o.pending[first].at.Add(whepReorderHold), true
+}
+
+// first is the lowest held sequence number.
+func (o *reorder) first() (uint16, bool) {
+	first, found := uint16(0), false
+	for seq := range o.pending {
+		if !found || int16(seq-first) < 0 {
+			first, found = seq, true
+		}
+	}
+	return first, found
+}
+
+// expire gives up on every gap whose hold has run out.
+func (o *reorder) expire(now time.Time, out func(*rtp.Packet, bool)) {
+	for {
+		at, ok := o.deadline()
+		if !ok || now.Before(at) {
+			return
+		}
+		o.skip(out)
+	}
+}
+
+// skip declares the packets before the oldest held one lost and hands on
+// what follows, up to the next gap.
+func (o *reorder) skip(out func(*rtp.Packet, bool)) {
+	first, ok := o.first()
+	if !ok {
+		return
+	}
+	o.want = first
+	o.drain(out, true)
+}
+
+// drain hands on held packets that are now next in sequence. lost marks
+// the first of them as coming after a loss.
+func (o *reorder) drain(out func(*rtp.Packet, bool), lost bool) {
+	for {
+		h, ok := o.pending[o.want]
+		if !ok {
+			return
+		}
+		delete(o.pending, o.want)
+		out(h.pkt, lost)
+		lost = false
+		o.want++
 	}
 }
 
@@ -456,4 +654,111 @@ func redactURL(err error) error {
 		return ue.Err
 	}
 	return err
+}
+
+// whepStats counts what read sees, for the "whep" trace record: one a
+// second while packets arrive. Only read touches it.
+type whepStats struct {
+	trace                               func(map[string]any)
+	last                                time.Time
+	hi                                  uint16
+	haveHi                              bool
+	holes                               map[uint16]time.Time // missing seq -> when the jump past it came
+	pkts                                int
+	gaps                                int   // forward jumps
+	missing                             int   // seqs skipped by them
+	late                                int   // packets that filled a hole
+	lateMaxMs                           int64 // the latest of them
+	stale                               int   // packets behind the highest seq that filled no hole
+	pics                                int
+	sent                                int
+	dropBroken, dropAwaitKey, depackErr int
+	plis                                int
+	idrs                                int
+	pliAt                               time.Time // first PLI since the last IDR
+	keyWaitMs                           int64     // longest PLI -> IDR wait
+	prevTS                              uint32
+	haveTS                              bool
+	tsSkips                             int   // pictures more than two 60 fps intervals after the last
+	queueMax                            int   // most packets waiting for read at once
+	sendMaxMs                           int64 // longest wait handing a picture on
+}
+
+func (w *whepStats) start(trace func(map[string]any)) {
+	w.trace, w.last, w.holes = trace, time.Now(), map[uint16]time.Time{}
+}
+
+func (w *whepStats) packet(seq uint16) {
+	if w.trace == nil {
+		return
+	}
+	now := time.Now()
+	w.pkts++
+	if !w.haveHi {
+		w.hi, w.haveHi = seq, true
+	} else if d := int16(seq - w.hi); d > 1 {
+		w.gaps++
+		w.missing += int(d) - 1
+		for k := uint16(1); k < uint16(d) && len(w.holes) < 1024; k++ {
+			w.holes[w.hi+k] = now
+		}
+		w.hi = seq
+	} else if d == 1 {
+		w.hi = seq
+	} else if at, ok := w.holes[seq]; ok {
+		delete(w.holes, seq)
+		w.late++
+		w.lateMaxMs = max(w.lateMaxMs, now.Sub(at).Milliseconds())
+	} else {
+		w.stale++
+	}
+	if now.Sub(w.last) >= time.Second {
+		w.flush(now)
+	}
+}
+
+func (w *whepStats) queued(n int) { w.queueMax = max(w.queueMax, n) }
+
+func (w *whepStats) blocked(d time.Duration) {
+	w.sendMaxMs = max(w.sendMaxMs, d.Milliseconds())
+}
+
+func (w *whepStats) pli() {
+	w.plis++
+	if w.pliAt.IsZero() {
+		w.pliAt = time.Now()
+	}
+}
+
+func (w *whepStats) idr() {
+	w.idrs++
+	if !w.pliAt.IsZero() {
+		w.keyWaitMs = max(w.keyWaitMs, time.Since(w.pliAt).Milliseconds())
+		w.pliAt = time.Time{}
+	}
+}
+
+func (w *whepStats) picTS(ts uint32) {
+	if w.haveTS && ts-w.prevTS > 3000 && ts-w.prevTS < 1<<31 {
+		w.tsSkips++
+	}
+	w.prevTS, w.haveTS = ts, true
+}
+
+func (w *whepStats) flush(now time.Time) {
+	for seq, at := range w.holes {
+		if now.Sub(at) > 2*time.Second {
+			delete(w.holes, seq)
+		}
+	}
+	w.trace(map[string]any{
+		"kind": "whep", "action": "whep", "pkts": w.pkts, "gaps": w.gaps, "missing": w.missing,
+		"late": w.late, "lateMaxMs": w.lateMaxMs, "stale": w.stale,
+		"pics": w.pics, "sent": w.sent, "dropBroken": w.dropBroken,
+		"dropAwaitKey": w.dropAwaitKey, "depackErr": w.depackErr,
+		"plis": w.plis, "idrs": w.idrs, "keyWaitMs": w.keyWaitMs, "tsSkips": w.tsSkips,
+		"queueMax": w.queueMax, "sendMaxMs": w.sendMaxMs,
+	})
+	*w = whepStats{trace: w.trace, last: now, hi: w.hi, haveHi: w.haveHi, holes: w.holes,
+		pliAt: w.pliAt, prevTS: w.prevTS, haveTS: w.haveTS}
 }

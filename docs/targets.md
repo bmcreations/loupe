@@ -349,8 +349,29 @@ it offers a receive-only H.264 track, assembles RTP into access units on the
 marker bit, and hands them to the normal session, so viewers, recording and
 the agent stream work unchanged. `Meta` takes the size from the SPS, and
 `Open` returns only once the first SPS has arrived. A keyframe request is an
-RTCP PLI. No header is sent with the offer; whether Revyl needs one is
-unknown.
+RTCP PLI, sent at most every 250 ms. No header is sent with the offer;
+whether Revyl needs one is unknown.
+
+Revyl's video loses packets while the screen moves, and it sends a keyframe
+once a second whatever loupe asks for: on 2026-11-20 neither a PLI nor a FIR
+brought one sooner. A lost packet that is never resent therefore costs about
+a second of pictures, so loupe works to recover packets:
+
+- Packets behind a gap wait up to 200 ms after they arrive for the gap to
+  fill. Packets in order are not held. A resend usually takes 30-150 ms; a
+  burst of about 100 lost packets took up to 1.15 s, which the hold does not
+  cover.
+
+A packet that arrives after its gap was given up on is dropped.
+
+With a trace path set, the stream writes a `whep-answer` record with the
+answer's codec and feedback lines, and a `whep` record
+each second it receives: `pkts`, `gaps` (forward jumps) and the `missing`
+packets they skipped, `late` packets that filled one and `lateMaxMs`,
+`stale` packets, `pics` assembled and `sent`, pictures dropped as
+`dropBroken`, `dropAwaitKey` or `depackErr`, `plis`, `idrs`, `keyWaitMs`
+(the longest PLI-to-keyframe wait), `tsSkips` (pictures more than two 60 fps
+intervals apart), `queueMax` and `sendMaxMs`.
 
 ### Input
 
