@@ -452,6 +452,7 @@ func (t *RevylTarget) Open(ctx context.Context, _ Options) (Stream, error) {
 	}
 	rcv, err := dialWHEP(ctx, WHEPConfig{
 		URL: *s.WHEPURL, Header: t.WHEPHeader, Name: t.Label(), settings: t.settings,
+		Trace: t.inputTrace(),
 	})
 	if err != nil {
 		return nil, err
