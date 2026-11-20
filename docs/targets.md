@@ -357,6 +357,10 @@ once a second whatever loupe asks for: on 2026-11-20 neither a PLI nor a FIR
 brought one sooner. A lost packet that is never resent therefore costs about
 a second of pictures, so loupe works to recover packets:
 
+- The offer has RTX, a separate stream for resent packets, as a browser's
+  does. Revyl resends on it, and pion puts the packets back in the track.
+  Over the same 20 swipes, packets that never arrived fell from 18 of 12,591
+  without it to 1 of 16,402 with it.
 - Packets behind a gap wait up to 200 ms after they arrive for the gap to
   fill. Packets in order are not held. A resend usually takes 30-150 ms; a
   burst of about 100 lost packets took up to 1.15 s, which the hold does not
@@ -365,7 +369,7 @@ a second of pictures, so loupe works to recover packets:
 A packet that arrives after its gap was given up on is dropped.
 
 With a trace path set, the stream writes a `whep-answer` record with the
-answer's codec and feedback lines, and a `whep` record
+answer's codec, feedback and header-extension lines, and a `whep` record
 each second it receives: `pkts`, `gaps` (forward jumps) and the `missing`
 packets they skipped, `late` packets that filled one and `lateMaxMs`,
 `stale` packets, `pics` assembled and `sent`, pictures dropped as

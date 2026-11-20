@@ -116,6 +116,19 @@ func dialWHEP(ctx context.Context, cfg WHEPConfig) (*whepReceiver, error) {
 		if err != nil {
 			return nil, fmt.Errorf("whep: register codec: %w", err)
 		}
+		// RTX: offer a separate repair stream, as browsers do. Some senders
+		// only retransmit on it; pion unwraps it into the main track.
+		err = m.RegisterCodec(webrtc.RTPCodecParameters{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:    webrtc.MimeTypeRTX,
+				ClockRate:   90000,
+				SDPFmtpLine: fmt.Sprintf("apt=%d", 102+2*i),
+			},
+			PayloadType: webrtc.PayloadType(103 + 2*i),
+		}, webrtc.RTPCodecTypeVideo)
+		if err != nil {
+			return nil, fmt.Errorf("whep: register rtx: %w", err)
+		}
 	}
 	// NACK and receiver reports: without them a lost packet is never resent
 	// and the server's congestion control sees no feedback.
@@ -237,7 +250,7 @@ func (r *whepReceiver) negotiate(ctx context.Context) error {
 		var fb []string
 		for _, l := range strings.Split(string(body), "\n") {
 			l = strings.TrimSpace(l)
-			if strings.HasPrefix(l, "a=rtcp-fb") || strings.HasPrefix(l, "a=rtpmap") || strings.HasPrefix(l, "a=fmtp") {
+			if strings.HasPrefix(l, "a=rtcp-fb") || strings.HasPrefix(l, "a=rtpmap") || strings.HasPrefix(l, "a=fmtp") || strings.HasPrefix(l, "a=extmap") || strings.HasPrefix(l, "a=ssrc-group") {
 				fb = append(fb, l)
 			}
 		}
