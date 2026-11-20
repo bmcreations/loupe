@@ -102,16 +102,21 @@ var streaming = false
 var enqueued = 0
 var streamingStartedAt: DispatchTime?
 
-/// Where a picture of w×h goes in the frame: fitted whole into the centred
-/// 3:4 strip, 540×720. An AVD's back sensor is mounted at 90°, so the
-/// emulator keeps only that strip of a 16:9 host camera and scales it up.
-/// Filled to 1280×720, a webcam lost 58% of its width and looked zoomed in
-/// next to the same camera in other apps. Measured on pixel_fold_hinge
-/// (API 36): a labeled 1280×720 grid saved a 960×1280 photo of x 370-908
-/// and every row.
+/// Where a picture of w×h goes in the frame, given that an AVD's back sensor
+/// is mounted at 90°: the emulator keeps only the centred 3:4 strip, 540×720,
+/// of a 16:9 host camera and scales it up into a portrait viewfinder.
+/// Measured on pixel_fold_hinge (API 36): a labeled 1280×720 grid saved a
+/// 960×1280 photo of x 370-908 and every row.
+///
+/// A landscape picture, which is every webcam, covers the strip and loses its
+/// sides, so the viewfinder fills the way a phone's camera does; fitted whole
+/// it sat between black bars. A square or portrait picture, such as a QR code
+/// or a photo from a phone, is fitted whole so none of it is cut off.
 enum Layout {
     static func pictureRect(width w: Double, height h: Double, frameWidth: Double, frameHeight: Double) -> CGRect {
-        let scale = min(frameHeight * 3 / 4 / w, frameHeight / h)
+        let cover = max(frameHeight * 3 / 4 / w, frameHeight / h)
+        let fit = min(frameHeight * 3 / 4 / w, frameHeight / h)
+        let scale = w > h ? cover : fit
         let pw = w * scale, ph = h * scale
         return CGRect(x: (frameWidth - pw) / 2, y: (frameHeight - ph) / 2, width: pw, height: ph)
     }
