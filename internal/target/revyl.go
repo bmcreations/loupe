@@ -682,8 +682,8 @@ type revylInput struct {
 	refusedKey  [32]byte
 	haveRefused bool
 
-	// The worker socket for live presses, Android only. lmu is taken
-	// alone, or after mu.
+	// The worker socket for live presses. lmu is taken alone, or after
+	// mu.
 	lmu        sync.Mutex
 	live       *revylLiveConn
 	dialing    bool
@@ -703,6 +703,9 @@ type revylPress struct {
 	x, y   int32
 	at     time.Time
 	live   *revylLivePress // nil: sent as one gesture at the lift
+	// notLive is why an open socket did not take the press, for the
+	// trace.
+	notLive string
 }
 
 // revylJob is one gesture. It holds what the gesture is rather than a
@@ -723,6 +726,9 @@ type revylJob struct {
 	done chan error
 	// live is a viewer's press sent as it happens, action "live".
 	live *revylLivePress
+	// notLive is why a viewer's press went as one gesture with the socket
+	// open, for the trace.
+	notLive string
 }
 
 // body is the device-proxy request body, as the CLI's MCP tools build it
@@ -837,7 +843,11 @@ func (in *revylInput) run(j *revylJob) {
 	}
 	rec := map[string]any{"action": "input", "gesture": j.action}
 	if j.done == nil {
-		if why := in.noLive(); why != "" {
+		why := j.notLive
+		if why == "" {
+			why = in.noLive()
+		}
+		if why != "" {
 			rec["live"] = why
 		}
 	}
@@ -1018,14 +1028,27 @@ func (in *revylInput) toDevice(x, y int32, m Meta) (int, int, error) {
 		// stream is the screen at full size.
 		sw, sh = m.Width, m.Height
 	}
-	if (m.Width > m.Height) != (sw > sh) {
-		// The device rotated since the session started: the stream is the
-		// screen turned, and so are its units.
-		sw, sh = sh, sw
-	}
+	dx, dy := scaleTo(x, y, m, sw, sh)
+	return dx, dy, nil
+}
+
+// scaleTo maps a pixel of a stream of a known size onto a sw x sh screen,
+// turned with the stream.
+func scaleTo(x, y int32, m Meta, sw, sh int) (int, int) {
+	sw, sh = turnedTo(m, sw, sh)
 	dx := int(math.Round(float64(x) * float64(sw) / float64(m.Width)))
 	dy := int(math.Round(float64(y) * float64(sh) / float64(m.Height)))
-	return min(max(dx, 0), sw-1), min(max(dy, 0), sh-1), nil
+	return min(max(dx, 0), sw-1), min(max(dy, 0), sh-1)
+}
+
+// turnedTo turns a sw x sh screen to the stream's orientation. The device
+// rotated since the session started when the two differ: the stream is the
+// screen turned, and so are its units.
+func turnedTo(m Meta, sw, sh int) (int, int) {
+	if (m.Width > m.Height) != (sw > sh) {
+		return sh, sw
+	}
+	return sw, sh
 }
 
 func (in *revylInput) touch(t Touch, m Meta) error {
@@ -1042,9 +1065,9 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 	case TouchMove:
 		if p := in.press; p != nil && p.id == t.PointerID {
 			p.x, p.y = t.X, t.Y
-			if p.live != nil {
-				if x, y, err := in.toDevice(t.X, t.Y, m); err == nil {
-					p.live.move(x, y)
+			if lp := p.live; lp != nil {
+				if pt, err := in.livePoint(lp.w, lp.h, t.X, t.Y, m); err == nil {
+					lp.move(pt)
 				}
 			}
 		}
@@ -1074,7 +1097,7 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 			p.live.cancel(held)
 			return err
 		}
-		x, y, err := in.toDevice(p.x, p.y, m)
+		pt, err := in.livePoint(p.live.w, p.live.h, p.x, p.y, m)
 		if err != nil {
 			p.live.cancel(held)
 			return err
@@ -1083,12 +1106,13 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 		if gesture == "longpress" {
 			gesture = "long_press"
 		}
-		p.live.lift(x, y, gesture, held, j)
+		p.live.lift(pt, gesture, held, j)
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	j.notLive = p.notLive
 	return in.enqueue(j)
 }
 
@@ -1116,16 +1140,28 @@ func (in *revylInput) lifted(p *revylPress, m Meta, held time.Duration) (*revylJ
 }
 
 // goLive queues a press to be sent as it happens, when the worker socket
-// is open. Otherwise the press goes as one gesture at the lift.
+// is open and the stream is the shape of the screen the worker reports.
+// Otherwise the press goes as one gesture at the lift.
 func (in *revylInput) goLive(p *revylPress, m Meta) {
-	if in.liveFor() == nil {
+	lc := in.liveFor()
+	if lc == nil {
 		return
 	}
-	x, y, err := in.toDevice(p.x0, p.y0, m)
+	// The press keeps this size to its lift, whatever the socket reports
+	// meanwhile.
+	w, h := lc.size()
+	pt, err := in.livePoint(w, h, p.x0, p.y0, m)
 	if err != nil {
 		return
 	}
-	lp := &revylLivePress{x0: x, y0: y, x: x, y: y, start: p.at, heard: time.Now(), nudge: make(chan struct{}, 1)}
+	if w > 0 && h > 0 && !revylSameShape(m, w, h) {
+		// A stream of another shape may be cropped or padded, and a touch
+		// scaled onto the screen would land off where the viewer pressed.
+		p.notLive = fmt.Sprintf("revyl live touch: the stream is %dx%d, not the shape of the %dx%d screen the worker reports",
+			m.Width, m.Height, w, h)
+		return
+	}
+	lp := &revylLivePress{w: w, h: h, p0: pt, p: pt, start: p.at, heard: time.Now(), nudge: make(chan struct{}, 1)}
 	if in.enqueue(&revylJob{action: "live", live: lp}) == nil {
 		p.live = lp
 	}

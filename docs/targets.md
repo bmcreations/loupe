@@ -354,10 +354,9 @@ unknown.
 
 ### Input
 
-On Android, a viewer's press goes to the device as it happens while Revyl's
-worker socket is open (see [Live touch](#live-touch)), so a drag moves the
-screen while the finger is down. Otherwise, and always on iOS, Revyl takes
-whole gestures.
+A viewer's press goes to the device as it happens while Revyl's worker
+socket is open (see [Live touch](#live-touch)), so a drag moves the screen
+while the finger is down. Otherwise Revyl takes whole gestures.
 
 - A whole gesture is a press buffered from down to up and sent when the
   finger lifts: a tap, a long-press when held 500 ms or more, otherwise a
@@ -410,9 +409,10 @@ for `revyl device tap`. The device's own part was about 6 ms.
 
 ### Live touch
 
-An Android viewer's touches go over the websocket Revyl's browser viewer
-uses. Revyl does not document it; its shape was read from Revyl's viewer and
-a live session on 2026-11-19. Every failure falls back to whole gestures.
+A viewer's touches on Android and iOS go over the websocket Revyl's browser
+viewer uses. Revyl does not document it; its shape was read from Revyl's
+viewer and live sessions on 2026-11-19. Every failure falls back to whole
+gestures.
 
 - When the stream opens, loupe asks
   `GET https://backend.revyl.ai/api/v1/execution/streaming/worker-connection/<workflow_run_id>`,
@@ -421,9 +421,24 @@ a live session on 2026-11-19. Every failure falls back to whole gestures.
   the trace and errors.
 - Touches are text frames `{"event_type": "STREAM", "action":
   "MANUAL_TOUCH_DOWN" | "MANUAL_TOUCH_MOVE" | "MANUAL_TOUCH_UP", "action_id",
-  "client_sent_at_ms", "x", "y"}` in device pixels. The up adds `gesture`
+  "client_sent_at_ms", "x", "y"}`, scaled onto the `device_width` and
+  `device_height` worker-connection reports: pixels on Android (1080x2400 on
+  a live session) and points on iOS (402x874 for an iPhone streamed at
+  1206x2622). Without them, the session's `screen_width` and `screen_height`
+  are used, as for whole gestures. The up adds `gesture`
   (`tap`, `long_press` or `drag`) and `duration_ms`. Moves are joined to the
   newest point, at most one every 16 ms.
+- The size follows the socket's updates. A text frame with `device_width`
+  and `device_height`, or `width` and `height` under `deviceDimensions` or
+  `device_dimensions`, replaces it for every press that starts afterwards; a
+  press already down keeps the size it started with. On Android the
+  `DEVICE_INIT_STATUS` frame carries the pair, and Revyl's viewer takes a new
+  size from its `elements` frames. A side under 1, from 65536 up, or not a
+  number leaves the size as it was. On iOS a size that is the current one
+  at 2x or 3x, or a half or third of it, either way up, is the screen in
+  pixels and is ignored, so touches stay in points; no iOS frame with a
+  size has been seen yet. Rotation still swaps the axes of the newest size,
+  and the 1% shape check below uses it.
 - The worker opens with a `DEVICE_INIT_STATUS` frame, and a press goes live
   only once its `manual_input_ready` is true. It answers each touch with
   `ACTION_RECEIVED` and the up with `ACTION_ACK`, carrying the up's
@@ -436,6 +451,10 @@ a live session on 2026-11-19. Every failure falls back to whole gestures.
 - A cancelled or quiet press whose down already went out is lifted where
   it is, so one that had not moved lands as a tap or long-press. A whole
   gesture that is cancelled is dropped instead.
+- A stream whose aspect ratio is more than 1% off the reported size, turned
+  with the stream, keeps its presses off the socket: each goes as one
+  gesture, scaled by the session's size. Revyl's viewer turns input off past
+  the same 1% on some iPhones rather than guess where a touch lands.
 - With no socket, a press goes as one gesture and a later press tries the
   socket again: 2 s after a failure, doubling to a minute. If the socket
   fails partway through a press, the rest goes over the proxy at the lift:
@@ -444,7 +463,10 @@ a live session on 2026-11-19. Every failure falls back to whole gestures.
   again, since it would land twice.
 - A live press has one `input` record with `via: ws`, `frames`, and `ack`
   when no ack came. A whole gesture's record gives, under `live`, why the
-  last try at the socket failed.
+  last try at the socket failed, or that the stream was of another shape. A
+  frame that changes the size has a `live-size` record with the new `size`,
+  the one it `was`, and the `frame` type it came in; one ignored on iOS
+  also has `ignored`.
 
 ### Agent input
 
