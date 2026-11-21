@@ -12,6 +12,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -37,6 +38,8 @@ type Client struct {
 
 	mu     sync.Mutex
 	claims map[string]bool
+	// closing is set by ReleaseAll, after which no claim is taken.
+	closing bool
 }
 
 // NewClient builds a client for the server at rawURL. TLS is verified unless
@@ -223,8 +226,11 @@ func (c *Client) holds(target string) bool {
 // the server's 409 and nothing is sent to the device.
 func (c *Client) claim(ctx context.Context, target string) error {
 	c.mu.Lock()
-	held := c.claims[target]
+	held, closing := c.claims[target], c.closing
 	c.mu.Unlock()
+	if closing {
+		return errClosing
+	}
 	if held {
 		return nil
 	}
@@ -232,10 +238,23 @@ func (c *Client) claim(ctx context.Context, target string) error {
 		return err
 	}
 	c.mu.Lock()
-	c.claims[target] = true
+	closing = c.closing
+	if !closing {
+		c.claims[target] = true
+	}
 	c.mu.Unlock()
+	if closing {
+		// ReleaseAll ran while the claim was in flight and could not see it.
+		rctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = c.release(rctx, target)
+		return errClosing
+	}
 	return nil
 }
+
+// errClosing is a driving call that came in after ReleaseAll.
+var errClosing = errors.New("loupe mcp is exiting and has given back its claims")
 
 // drive runs fn under this process's claim on target. A claim that lapsed
 // after ten idle minutes reads as claimedBy or a 409 on the first call after,
@@ -267,8 +286,11 @@ func (c *Client) release(ctx context.Context, target string) error {
 
 // ReleaseAll gives back every claim this process holds, so a device is free
 // for the next agent as soon as this one exits rather than ten minutes later.
+// No claim is taken after it, so a driving call still in flight cannot leave
+// one behind.
 func (c *Client) ReleaseAll(ctx context.Context) {
 	c.mu.Lock()
+	c.closing = true
 	var ts []string
 	for t := range c.claims {
 		ts = append(ts, t)

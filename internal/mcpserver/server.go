@@ -39,13 +39,27 @@ When loupe itself gets in your way (a tool fails or answers wrongly, a tool or o
 // Run serves MCP on t until the client hangs up or ctx ends, then releases
 // every claim this process took. The release gets a context of its own,
 // since ctx is usually the one that just ended.
+//
+// When ctx ends, Run releases and returns without waiting for the SDK's Run,
+// which waits for every tool call in flight: a flags call can wait a minute,
+// and whoever sent the signal may not wait that long before it kills the
+// process. The caller exits right after, which ends those calls.
 func Run(ctx context.Context, c *Client, t mcp.Transport) error {
 	ct := &channelTransport{Transport: t}
 	pctx, cancel := context.WithCancel(ctx)
 	if !c.noPush {
 		go pushFlags(pctx, c, ct)
 	}
-	err := NewServer(c).Run(ctx, ct)
+	sctx, scancel := context.WithCancel(context.Background())
+	defer scancel()
+	served := make(chan error, 1)
+	go func() { served <- NewServer(c).Run(sctx, ct) }()
+	var err error
+	select {
+	case err = <-served:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
 	cancel()
 	rctx, rcancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer rcancel()
