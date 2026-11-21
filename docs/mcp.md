@@ -80,8 +80,11 @@ host instead.
 - The first driving call on a target claims it. Reads claim nothing. If
   another agent holds the claim, the call fails with `claimedBy`, and the next
   call tries again.
-- On exit, SIGINT and SIGTERM included, each claim is released. A claim you
-  did not make is never forced.
+- On exit each claim is released: when the client hangs up, and on SIGINT,
+  SIGTERM or SIGHUP (a closed terminal, or a tmux pane killed or respawned).
+  A tool call still in flight, such as a `flags` wait, does not hold that
+  up. Only SIGKILL leaves a claim behind, until its lease lapses 10 minutes
+  after the last call. A claim you did not make is never forced.
 - It never sends `X-Loupe-Viewer`, so its input is never a person's and does
   not bypass the human hold.
 - A refusal comes back as a tool error with the status, `code`,

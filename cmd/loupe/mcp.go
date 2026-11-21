@@ -45,7 +45,10 @@ func runMCP(args []string) int {
 		return 1
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// SIGHUP too: an agent in a terminal that closes, or a tmux pane that is
+	// killed or respawned, takes this process down with that hangup, and Go's
+	// default for it exits without releasing a claim.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	if err := mcpserver.Run(ctx, c, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Print(err)
