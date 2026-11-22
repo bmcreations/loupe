@@ -107,8 +107,8 @@ the tools, and [docs/agent-api.md](docs/agent-api.md) every HTTP route.
   returns one to a clean state, and New device creates an AVD from
   the system images you have.
 - **iOS simulators** through [simcap](https://github.com/bmcreations/simcap).
-  Physical iPhones and iPads are a preview: they stream over a cable, and
-  input is still being worked on. See [docs/ios.md](docs/ios.md).
+  Physical iPhones and iPads over USB, and over Wi-Fi from iOS 27. See
+  [docs/ios.md](docs/ios.md).
 - **Devices on your other machines.** Add another loupe server as a peer
   and its targets join your picker. See
   [docs/remote-targets.md](docs/remote-targets.md).
@@ -176,7 +176,7 @@ flag.
 | [mcp.md](docs/mcp.md) | `loupe mcp` and pushing flags into Claude Code |
 | [agent-api.md](docs/agent-api.md) | Every `/api/*` route, claims and the human hold |
 | [targets.md](docs/targets.md) | AVDs, Android devices, the phone keyboard, the clipboard, device frames |
-| [ios.md](docs/ios.md) | iOS simulators, and physical iPhones in preview |
+| [ios.md](docs/ios.md) | iOS simulators and physical iPhones |
 | [running.md](docs/running.md) | Every flag, the settings file, the stats overlay, tests |
 | [security.md](docs/security.md) | The token, TLS, pairing and sessions |
 

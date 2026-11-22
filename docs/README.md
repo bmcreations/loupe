@@ -10,7 +10,7 @@ The top-level `README.md` says what loupe does. Start with
 | [getting-started.md](getting-started.md) | From a clone to a device on your phone, a launchd service and a connected agent |
 | [running.md](running.md) | Every flag, the settings file, reading the stats overlay, tests and probes |
 | [targets.md](targets.md) | AVDs (boot, pause, idle shutdown, reset, New device), the Android phone keyboard, the clipboard, device frames |
-| [ios.md](ios.md) | iOS simulators through simcap, and physical iPhones and iPads in preview |
+| [ios.md](ios.md) | iOS simulators through simcap, and physical iPhones and iPads |
 | [security.md](security.md) | What the token protects and what it doesn't, pairing a device, sessions and revoking them |
 
 ## Agents
