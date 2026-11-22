@@ -178,11 +178,13 @@ A phone is never opened by default; Android devices rank ahead of it.
 | Home, Lock, keys | CoreDevice HID | CoreDevice HID |
 | Touch on iOS 27 or later | CoreDevice HID | CoreDevice HID |
 | Touch below iOS 27 | an XCUITest runner on the phone | answers that it needs a cable |
-| Accessibility tree (`/api/ui`) | simcap-bridge | answers that it needs a cable |
+| Accessibility tree (`/api/ui`) | simcap-bridge | answers that it needs a cable, on every iOS version |
 | Camera | development-signed apps | development-signed apps |
 
-Opening a Wi-Fi phone before iOS 27, or with a simcap that lacks `phonewifi`
-in `-caps`, answers that streaming needs a cable. CoreDevice itself refuses
+On iOS 27 or later the accessibility tree is the only thing that needs a
+cable: video, touch, buttons, keys, the camera and the rows below work over
+Wi-Fi too. Opening a Wi-Fi phone before iOS 27, or with a simcap that lacks
+`phonewifi` in `-caps`, answers that streaming needs a cable. CoreDevice itself refuses
 with 9001, "Remote control requires iOS 27.0".
 
 - **Launch** is `/api/input {"action":"launch"}` through devicectl and takes
@@ -231,7 +233,7 @@ phone does not list `remoteAXServiceLarger`. Reaching either would take a
 tunnel of our own, outside remoted. The probe is `simcap <coredevice id>
 -phone-ax-probe <service>` on simcap's `feat/ios-remote-ax` branch.
 
-#### A tunnel of our own was tried and is blocked too
+#### A tunnel of our own for the tree is blocked over Wi-Fi
 
 The follow-up asked whether a tunnel we open ourselves, outside remoted,
 reaches the AX service where the Mac's CoreDevice client could not. It does
@@ -395,7 +397,8 @@ restart.
 - A drag is recorded and lands when the finger lifts. A second finger is
   refused.
 - A tap through the server takes about 1.7s.
-- On Wi-Fi a touch answers that it needs a cable.
+- Below iOS 27 a touch over Wi-Fi answers that it needs a cable. From iOS 27
+  touch goes through CoreDevice and works over Wi-Fi.
 
 ### Wi-Fi latency, and a route not taken
 
