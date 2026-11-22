@@ -178,6 +178,8 @@ A phone is never opened by default; Android devices rank ahead of it.
 | Home, Lock, keys | CoreDevice HID | CoreDevice HID |
 | Touch on iOS 27 or later | CoreDevice HID | CoreDevice HID |
 | Touch below iOS 27 | an XCUITest runner on the phone | answers that it needs a cable |
+| Accessibility tree (`/api/ui`) | simcap-bridge | answers that it needs a cable |
+| Camera | development-signed apps | development-signed apps |
 
 Opening a Wi-Fi phone before iOS 27, or with a simcap that lacks `phonewifi`
 in `-caps`, answers that streaming needs a cable. CoreDevice itself refuses
@@ -199,21 +201,35 @@ with 9001, "Remote control requires iOS 27.0".
   break with an Xcode update. A locked phone looks like a still screen.
 - Plugging a phone in can raise macOS's "what is this audio device" prompt
   once. "Other device" answers it.
-- **`/api/ui`** has no tree for a phone. The phone's service for one,
-  `com.apple.accessibility.axAuditDaemon.remoteAXService`, is refused on the
-  Mac: remoted logs `Client lacks privilege to interact with service` for
-  CoreDeviceService, the process every CoreDevice client goes through. Tried
-  on 2026-11-03 (macOS 26B118, Xcode 27.1 beta, iOS 27.2 24B115) as a socket
-  (`fileHandle(toServiceNamed:)`, which Xcode's DeviceKit uses to feed
-  AccessibilityAudit's `AXAuditRemoteDevice`) and as a RemoteXPC connection
-  in both modes. Each answered CoreDevice error 4000, POSIX 83. The same
-  calls opened `com.apple.instruments.dtservicehub` and
-  `com.apple.coredevice.deviceinfo`, so the refusal belongs to this service,
-  not the transport. `axAuditDaemon.remoteserver.shim.remote`, the service
-  pymobiledevice3's accessibility client uses, is refused the same way. The
-  phone does not list `remoteAXServiceLarger`. Reaching either would take a
-  tunnel of our own, outside remoted. The probe is `simcap <coredevice id>
-  -phone-ax-probe <service>` on simcap's `feat/ios-remote-ax` branch.
+- **Camera** is `/api/camera`: a staged image becomes a development-signed
+  app's back camera, through the same shim a simulator uses. dyld ignores
+  the shim in App Store, TestFlight and enterprise builds, the phone must be
+  unlocked, and a Mac camera (`hostCamera`) answers 501
+  (`docs/agent-api.md`).
+- **`/api/ui`** reads the frontmost app's tree over a cable through
+  `simcap-bridge`, which `make simcap` builds beside simcap (Rust, from
+  simcap's `bridge` target). Over Wi-Fi it
+  answers that the tree comes over USB. CoreDevice refuses the phone's AX
+  service to the Mac, so the bridge opens a tunnel of its own; how that was
+  found follows.
+
+#### CoreDevice refuses the AX service
+
+The phone's service for the tree,
+`com.apple.accessibility.axAuditDaemon.remoteAXService`, is refused on the
+Mac: remoted logs `Client lacks privilege to interact with service` for
+CoreDeviceService, the process every CoreDevice client goes through. Tried
+on 2026-11-03 (macOS 26B118, Xcode 27.1 beta, iOS 27.2 24B115) as a socket
+(`fileHandle(toServiceNamed:)`, which Xcode's DeviceKit uses to feed
+AccessibilityAudit's `AXAuditRemoteDevice`) and as a RemoteXPC connection
+in both modes. Each answered CoreDevice error 4000, POSIX 83. The same
+calls opened `com.apple.instruments.dtservicehub` and
+`com.apple.coredevice.deviceinfo`, so the refusal belongs to this service,
+not the transport. `axAuditDaemon.remoteserver.shim.remote`, the service
+pymobiledevice3's accessibility client uses, is refused the same way. The
+phone does not list `remoteAXServiceLarger`. Reaching either would take a
+tunnel of our own, outside remoted. The probe is `simcap <coredevice id>
+-phone-ax-probe <service>` on simcap's `feat/ios-remote-ax` branch.
 
 #### A tunnel of our own was tried and is blocked too
 
@@ -381,9 +397,8 @@ restart.
 - A tap through the server takes about 1.7s.
 - On Wi-Fi a touch answers that it needs a cable.
 
-### Not yet
+### Wi-Fi latency, and a route not taken
 
-- Nothing has streamed a phone under the launchd server or to a real viewer.
 - Over Wi-Fi, the decode and re-encode adds about 8ms at the median over the
   HEVC passthrough, measured on one iOS 27.2 phone over one 20s run. From an
   access unit's arrival in simcap to a decoded picture in LoupeClient's
