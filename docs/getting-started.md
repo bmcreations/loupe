@@ -73,7 +73,7 @@ make simcap          # clones bmcreations/simcap and builds it into .build/simca
 loupe uses `.build/simcap` when it runs from the checkout, and otherwise
 the `simcap` on PATH, which is where the Homebrew formula puts it. Every
 available simulator then appears as `sim:<udid>`, booted or not.
-Physical iPhones are a preview; see [ios.md](ios.md).
+Physical iPhones work over USB, and over Wi-Fi from iOS 27; see [ios.md](ios.md).
 
 ## 3. Open it on your phone
 

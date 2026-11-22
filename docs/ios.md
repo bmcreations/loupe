@@ -1,8 +1,8 @@
 # iOS simulators and iPhones
 
-iOS simulators are supported. Physical iPhones and iPads are a preview: a
-paired phone is listed and streams, but touch below iOS 27 needs an XCUITest
-runner. Android targets, the phone keyboard, the clipboard and device frames
+iOS simulators and physical iPhones and iPads are supported. A paired phone
+streams over USB, or over Wi-Fi from iOS 27; touch below iOS 27 needs an
+XCUITest runner. Android targets, the phone keyboard, the clipboard and device frames
 are in `docs/targets.md`.
 
 ## Install simcap
@@ -156,8 +156,8 @@ other simulator answers 501 to a posture change.
 
 ## Physical iOS devices
 
-A preview. Streaming works over a cable, and over Wi-Fi from iOS 27. Input
-depends on the iOS version, below.
+Streaming works over a cable, and over Wi-Fi from iOS 27. Input depends on
+the iOS version, below.
 
 Every iPhone and iPad paired with this Mac is a target, `ios:<udid>`, over a
 cable or the network. They are listed from `xcrun devicectl list devices`
