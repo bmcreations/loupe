@@ -657,6 +657,11 @@ func main() {
 
 	api := httpapi.NewServer(mgr, web.FS, tracer)
 	api.SetVersion(loupeVersion())
+	// Detected once, off the startup path; a GET /api/config that arrives
+	// first waits for this one run rather than starting its own.
+	hostModel := sync.OnceValue(func() string { return httpapi.DetectHostModel(context.Background()) })
+	go hostModel()
+	api.SetHostModel(hostModel)
 	api.SetAAPT2(target.AAPT2Binary(target.SDKRoot(*androidSDK)))
 	// Presets beside it, for the same reason.
 	if err := api.SetPresetsPath(filepath.Join(filepath.Dir(cfgPath), "presets.json")); err != nil {

@@ -76,6 +76,10 @@ type ConfigResponse struct {
 	// the shared clipboard (clipshare.HostID), so Handset joins unless it is
 	// on that same Mac. Absent when the server mirrors none.
 	HostPasteboard string `json:"hostPasteboard,omitempty"`
+	// HostModel is the kind of machine the server runs on, for Handset's
+	// server icon: the model name macOS reports ("Mac mini", "MacBook
+	// Pro"), or "Linux". Absent on any other OS, or when macOS does not say.
+	HostModel string `json:"hostModel,omitempty"`
 }
 
 type PutResponse struct {
@@ -96,6 +100,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		resp := ConfigResponse{Path: s.cfg.Path(), Fields: s.cfg.fields()}
 		if s.clipShare != nil {
 			resp.HostPasteboard = s.clipShare.MirroredHost()
+		}
+		if s.hostModel != nil {
+			resp.HostModel = s.hostModel()
 		}
 		writeJSON(w, http.StatusOK, resp)
 	case http.MethodPut:

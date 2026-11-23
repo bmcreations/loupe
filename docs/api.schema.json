@@ -827,6 +827,9 @@
           },
           "type": "array"
         },
+        "hostModel": {
+          "type": "string"
+        },
         "hostPasteboard": {
           "type": "string"
         },
