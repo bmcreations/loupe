@@ -55,10 +55,44 @@ func TestServerOptionsDefaultToH264(t *testing.T) {
 // OptionNames is a name nothing checks.
 func TestOptionNamesCoversEveryOptionSent(t *testing.T) {
 	names := OptionNames()
-	for _, o := range serverOptions(Config{}.withDefaults(), "deadbeef") {
-		k, _, _ := strings.Cut(o, "=")
-		if !slices.Contains(names, k) {
-			t.Errorf("option %q is sent but missing from OptionNames()", k)
+	for _, cfg := range []Config{{}, {Secondary: true}} {
+		for _, o := range serverOptions(cfg.withDefaults(), "deadbeef") {
+			k, _, _ := strings.Cut(o, "=")
+			if !slices.Contains(names, k) {
+				t.Errorf("option %q is sent (Secondary %v) but missing from OptionNames()", k, cfg.Secondary)
+			}
 		}
+	}
+}
+
+// TestSecondaryLeavesPowerAndClipboardAlone: a second session on a device
+// must not wake a screen the user turned off each time it starts, and the
+// main session already reports the clipboard.
+func TestSecondaryLeavesPowerAndClipboardAlone(t *testing.T) {
+	main := serverOptions(Config{}.withDefaults(), "deadbeef")
+	if got := optionValue(t, main, "clipboard_autosync"); got != "true" {
+		t.Errorf("main clipboard_autosync = %q, want true", got)
+	}
+	for _, o := range main {
+		if strings.HasPrefix(o, "power_on=") {
+			t.Errorf("main session sends %q; it should keep scrcpy's default", o)
+		}
+	}
+	sec := serverOptions(Config{Secondary: true}.withDefaults(), "deadbeef")
+	if got := optionValue(t, sec, "clipboard_autosync"); got != "false" {
+		t.Errorf("secondary clipboard_autosync = %q, want false", got)
+	}
+	if got := optionValue(t, sec, "power_on"); got != "false" {
+		t.Errorf("secondary power_on = %q, want false", got)
+	}
+}
+
+// TestSecondaryJarIsItsOwn: the server deletes the jar it ran from on exit
+// (trap 17), so a second session staged at devicePath would delete the main
+// session's.
+func TestSecondaryJarIsItsOwn(t *testing.T) {
+	a, b := secondaryJarPath("0badf00d"), secondaryJarPath("12345678")
+	if a == devicePath || b == devicePath || a == b {
+		t.Errorf("secondary jars %q and %q must differ from each other and from %q", a, b, devicePath)
 	}
 }

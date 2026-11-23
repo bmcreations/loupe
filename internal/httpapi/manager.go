@@ -1190,7 +1190,7 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 	// Started after publishing, so the controller cannot relaunch a session
 	// that is about to be discarded as a lost race.
 	s.SetRemoteObserver(func(r session.RemoteSecond) {
-		m.trace.Record(map[string]any{
+		rec := map[string]any{
 			"kind":             "remote",
 			"target":           targetID,
 			"remoteGate":       round3(r.Gate),
@@ -1201,7 +1201,13 @@ func (m *Manager) Acquire(ctx context.Context, targetID string) (*session.Sessio
 			"remoteCapBps":     r.CapBps,
 			"remoteRateReason": r.RateReason,
 			"viewers":          r.Viewers,
-		})
+		}
+		// An adb remote track runs at one of a few rates; remoteCapBps is
+		// what rate control asked for, this is what the encoder runs at.
+		if r.EncoderBps > 0 {
+			rec["remoteEncBps"] = r.EncoderBps
+		}
+		m.trace.Record(rec)
 	})
 	if adaptive {
 		s.SetBitrateObserver(func(rep session.BitrateReport) {

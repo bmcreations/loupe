@@ -12,10 +12,17 @@ import (
 )
 
 // The remote track is a second H.264 encode for viewers that are not on this
-// machine and that ack their frames. The encoder is gated: it encodes a capture
-// only while every such viewer's link has room, so each frame it makes is
-// delivered and none is dropped, which means no keyframe is needed to recover
-// from a drop. See docs/superpowers/plans/2026-11-09-remote-encoder.md.
+// machine and that ack their frames. simcap's encoder is gated: it encodes a
+// capture only while every such viewer's link has room, so each frame it makes
+// is delivered and none is dropped, which means no keyframe is needed to
+// recover from a drop. See docs/superpowers/plans/2026-11-09-remote-encoder.md.
+//
+// An adb stream's remote encoder is a second scrcpy session, which cannot be
+// held. Since a stuck viewer is written off before the gate is decided, the
+// gate it sees is open exactly while a viewer is on the track, and it starts
+// and stops the session on that. Its frames can be dropped, and the fan-out
+// and viewer queues recover from a drop with a keyframe ask, as on the main
+// track. See internal/target/device_remote.go.
 
 const (
 	// remoteGateTick is how often the gate is re-read.
@@ -82,6 +89,10 @@ type RemoteSecond struct {
 	Unstuck uint64
 	// CapBps is the encoder's data-rate cap.
 	CapBps int64
+	// EncoderBps is the rate the encoder runs at, when it runs at a few fixed
+	// rates rather than at CapBps (target.SteppedRemoteStream); zero
+	// otherwise, or when none is running.
+	EncoderBps int64
 	// RateReason is why rate control last decided what it did this second:
 	// slowstart, congested, recover, probe, idle or hold. A decision that
 	// changed the cap wins over the holds after it.
@@ -376,6 +387,11 @@ func (s *Session) remoteGateTick(now time.Time, dt time.Duration) {
 	// A new stream's encoder starts held.
 	if r.gateStream != rs {
 		r.gateStream, r.sentOpen, r.sentCap = rs, false, DefaultRemoteCapBps
+		lo, start, hi := remoteCapMin, remoteCapStart, remoteCapMax
+		if st, ok := rs.(target.SteppedRemoteStream); ok {
+			lo, start, hi = st.RemoteRateRange()
+		}
+		r.rate.SetRange(lo, start, hi)
 	}
 	if open != r.sentOpen {
 		if err := rs.RemoteGate(open); err == nil {
@@ -416,6 +432,10 @@ func (s *Session) remoteLoop() {
 func (s *Session) reportRemote() {
 	s.mu.RLock()
 	r, fn := s.remote, s.onRemote
+	var stepped target.SteppedRemoteStream
+	if r != nil {
+		stepped, _ = r.stream.(target.SteppedRemoteStream)
+	}
 	n := 0
 	for _, v := range s.viewers {
 		if v.track == trackRemote {
@@ -434,6 +454,9 @@ func (s *Session) reportRemote() {
 		Unstuck: r.unstuck.Swap(0),
 		CapBps:  r.capBps.Load(),
 		Viewers: n,
+	}
+	if stepped != nil {
+		rec.EncoderBps = int64(stepped.RemoteEncoderBps())
 	}
 	r.reasonMu.Lock()
 	rec.RateReason = r.reason

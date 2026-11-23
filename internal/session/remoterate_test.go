@@ -306,3 +306,73 @@ func TestSessionSendsCapOnChangeOnly(t *testing.T) {
 		t.Errorf("capBps = %d", got)
 	}
 }
+
+// An adb remote track runs from 750 kbps to 3 Mbps (adbRemoteRate* in
+// internal/target). On the ~1 Mbps link of the 12:25 run its cap falls to
+// 750 kbps, the bottom rung, rather than stopping at the default 2 Mbps floor.
+func TestRemoteRateInARangeFallsToItsFloor(t *testing.T) {
+	x := &rateRun{r: newRemoteRateIn(750_000, 750_000, 3_000_000), now: time.Unix(1000, 0)}
+	x.r.cap, x.r.slowStart = 1_500_000, false
+	thin := []rateViewer{
+		{QueueMs: 181.9, OldestMs: 259.3, BaseMs: 71.8, DeliveredBps: 897_000},
+		{QueueMs: 165.7, OldestMs: 104.4, BaseMs: 71.8, DeliveredBps: 1_304_000},
+		{QueueMs: 217, OldestMs: 314.4, BaseMs: 71.8, DeliveredBps: 1_257_000},
+		{QueueMs: 349.3, OldestMs: 0, BaseMs: 71.8, DeliveredBps: 1_084_000},
+	}
+	for _, v := range thin {
+		x.run(time.Second, v, float64(x.r.Cap()))
+	}
+	if got := x.r.Cap(); got != 750_000 {
+		t.Errorf("cap = %d after 4 s queued on a ~1 Mbps link, want the floor 750000", got)
+	}
+}
+
+// The adb rungs are picked from 1.2 and 2.4 Mbps of cap, and rate control
+// raises only while the encoder fills half the cap. On a clean link the bottom
+// rung's measured 0.9 Mbps must take the cap past 1.2 Mbps, and the middle
+// rung's 1.5 Mbps past 2.4 Mbps, or the track never leaves a rung. The cap
+// stays inside the range throughout.
+func TestRemoteRateInARangeClimbsOffEachRung(t *testing.T) {
+	x := &rateRun{r: newRemoteRateIn(750_000, 750_000, 3_000_000), now: time.Unix(1000, 0)}
+	if got := x.r.Cap(); got != 750_000 {
+		t.Fatalf("starts at %d, want 750000", got)
+	}
+	var caps []int
+	for _, rung := range []struct{ prod, past int }{{900_000, 1_200_000}, {1_500_000, 2_400_000}} {
+		clean := rateViewer{QueueMs: 2, OldestMs: 40, BaseMs: 40, DeliveredBps: float64(rung.prod)}
+		c, _ := x.run(20*time.Second, clean, float64(rung.prod))
+		caps = append(caps, c...)
+		if got := x.r.Cap(); got < rung.past {
+			t.Errorf("encoder at %d bps on a clean link: cap %d, want past %d", rung.prod, got, rung.past)
+		}
+	}
+	if lo, hi := minInt(caps), maxInt(caps); lo < 750_000 || hi > 3_000_000 {
+		t.Errorf("cap ran %d..%d, outside 750000..3000000", lo, hi)
+	}
+}
+
+// SetRange restarts the controller only when the range changes.
+func TestRemoteRateSetRange(t *testing.T) {
+	r := newRemoteRate()
+	r.cap = 5_000_000
+	r.SetRange(remoteCapMin, remoteCapStart, remoteCapMax)
+	if r.Cap() != 5_000_000 {
+		t.Fatalf("the same range reset the cap to %d", r.Cap())
+	}
+	r.SetRange(750_000, 1_000_000, 3_000_000)
+	if r.Cap() != 1_000_000 {
+		t.Fatalf("cap %d after a new range, want its start", r.Cap())
+	}
+	r.Reset()
+	if r.Cap() != 1_000_000 {
+		t.Fatalf("Reset lost the range: cap %d", r.Cap())
+	}
+	r.setCap(100_000)
+	if r.Cap() != 750_000 {
+		t.Fatalf("cap %d under the floor", r.Cap())
+	}
+	r.setCap(9_000_000)
+	if r.Cap() != 3_000_000 {
+		t.Fatalf("cap %d over the ceiling", r.Cap())
+	}
+}

@@ -128,8 +128,8 @@ const (
 	trackMain trackID = iota
 	// trackPassthrough is the device's own HEVC (passthrough.go).
 	trackPassthrough
-	// trackRemote is the gated second H.264 encode for remote viewers
-	// (remote.go).
+	// trackRemote is the second H.264 encode for remote viewers, gated on
+	// simcap and a second scrcpy session on adb (remote.go).
 	trackRemote
 )
 

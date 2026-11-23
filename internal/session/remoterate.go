@@ -20,6 +20,11 @@ import (
 // encoder while the link is full and a held encoder would otherwise read as an
 // idle screen forever.
 type remoteRate struct {
+	// lo, start and hi are the floor, the start and the ceiling: by default
+	// remoteCapMin, remoteCapStart and remoteCapMax, or what a
+	// target.SteppedRemoteStream asks for.
+	lo, start, hi int
+
 	cap int
 
 	lastEval, lastDec, lastInc time.Time
@@ -132,14 +137,29 @@ func worstRateViewer(vs []rateViewer) rateViewer {
 }
 
 func newRemoteRate() *remoteRate {
-	r := &remoteRate{}
+	return newRemoteRateIn(remoteCapMin, remoteCapStart, remoteCapMax)
+}
+
+// newRemoteRateIn is a controller that runs from lo to hi and starts at start.
+func newRemoteRateIn(lo, start, hi int) *remoteRate {
+	r := &remoteRate{lo: lo, start: start, hi: hi}
 	r.Reset()
 	return r
 }
 
+// SetRange moves the controller to another range, and restarts it only if
+// that changed anything.
+func (r *remoteRate) SetRange(lo, start, hi int) {
+	if lo == r.lo && start == r.start && hi == r.hi {
+		return
+	}
+	r.lo, r.start, r.hi = lo, start, hi
+	r.Reset()
+}
+
 // Reset returns to the start state, for a session with no remote viewers.
 func (r *remoteRate) Reset() {
-	*r = remoteRate{cap: remoteCapStart, slowStart: true, ceiling: math.Inf(1)}
+	*r = remoteRate{lo: r.lo, start: r.start, hi: r.hi, cap: r.start, slowStart: true, ceiling: math.Inf(1)}
 }
 
 // Cap is the current cap in bits per second.
@@ -252,11 +272,11 @@ func (r *remoteRate) Tick(now time.Time, vs []rateViewer, producedTotal uint64) 
 }
 
 func (r *remoteRate) setCap(bps float64) {
-	if bps < remoteCapMin {
-		bps = remoteCapMin
+	if bps < float64(r.lo) {
+		bps = float64(r.lo)
 	}
-	if bps > remoteCapMax {
-		bps = remoteCapMax
+	if bps > float64(r.hi) {
+		bps = float64(r.hi)
 	}
 	r.cap = int(bps)
 }

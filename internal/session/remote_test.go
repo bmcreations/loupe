@@ -368,3 +368,47 @@ func TestRemoteQueueOverflowAsksRemoteEncoder(t *testing.T) {
 	s.broadcast(OutMsg{Data: []byte{1}, track: trackRemote})
 	waitOps(t, fr, "key", "key")
 }
+
+// fakeSteppedRemote is a remote encoder that runs at a few fixed rates, as an
+// adb stream's second scrcpy session does.
+type fakeSteppedRemote struct {
+	*fakeRemote
+	enc int
+}
+
+func (f *fakeSteppedRemote) RemoteRateRange() (lo, start, hi int) {
+	return 750_000, 750_000, 3_000_000
+}
+func (f *fakeSteppedRemote) RemoteEncoderBps() int { return f.enc }
+
+// A stepped stream's rate control runs in the range it asks for, the trace
+// shows the rate its encoder runs at beside the cap, and a plain stream after
+// it goes back to the default range.
+func TestGateUsesAStreamsRateRange(t *testing.T) {
+	s := newTestSession(t)
+	fr := &fakeSteppedRemote{fakeRemote: newFakeRemote(), enc: 1_500_000}
+	s.stream = fr
+	s.attachRemote(fr)
+	now := time.Now()
+	s.remoteGateTick(now, 10*time.Millisecond)
+	if got := s.remote.rate.Cap(); got != 750_000 {
+		t.Fatalf("cap %d on a stepped stream, want its start 750000", got)
+	}
+	var got RemoteSecond
+	s.SetRemoteObserver(func(r RemoteSecond) { got = r })
+	s.reportRemote()
+	if got.EncoderBps != 1_500_000 {
+		t.Fatalf("EncoderBps %d, want 1500000", got.EncoderBps)
+	}
+
+	plain := newFakeRemote()
+	s.attachRemote(plain)
+	s.remoteGateTick(now.Add(10*time.Millisecond), 10*time.Millisecond)
+	if got := s.remote.rate.Cap(); got != remoteCapStart {
+		t.Fatalf("cap %d on a plain stream, want the default start %d", got, remoteCapStart)
+	}
+	s.reportRemote()
+	if got.EncoderBps != 0 {
+		t.Fatalf("EncoderBps %d on a plain stream, want 0", got.EncoderBps)
+	}
+}

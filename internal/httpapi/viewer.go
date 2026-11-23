@@ -110,11 +110,15 @@ func deadlineFor(key, config bool, base time.Duration) time.Duration {
 }
 
 // trackDeadlineFor is deadlineFor for a viewer on a given track. A remote-track
-// viewer gets the keyframe deadline for every frame: the remote gate already
-// holds the encoder while its frames are in flight too long, so a delta that
-// waits behind a keyframe is not stale, and abandoning it would cost a whole
-// keyframe wait (the 11:20 trace: 1-2 abandons/s at the 285 ms delta deadline,
-// each followed by 10-60 held frames). Only a real stall reaches this one.
+// viewer gets the keyframe deadline for every frame: abandoning a delta that
+// waits behind a keyframe costs a whole keyframe wait (the 11:20 trace: 1-2
+// abandons/s at the 285 ms delta deadline, each followed by 10-60 held
+// frames). On simcap the remote gate holds the encoder while its frames are in
+// flight too long, so such a delta is not stale. An adb remote track is a
+// second scrcpy session and cannot be held: there a backlog reads as
+// congestion to rate control, which moves the session to a smaller setting,
+// and a viewer stuck past the gate's slack is written off and resynced. Only a
+// real stall reaches this deadline.
 func trackDeadlineFor(remote, key, config bool, base time.Duration) time.Duration {
 	if remote || key || config {
 		return keyframeDeadlineFor(base)
