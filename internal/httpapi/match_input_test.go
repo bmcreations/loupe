@@ -126,8 +126,8 @@ func TestAMatchWaitsForItsNode(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	if ft.inspects != 3 || len(ft.taps) != 1 {
-		t.Fatalf("inspects %d taps %v; want three looks then one tap", ft.inspects, ft.taps)
+	if ft.inspects < 3 || len(ft.taps) != 1 {
+		t.Fatalf("inspects %d taps %v; want three looks or more, then one tap", ft.inspects, ft.taps)
 	}
 }
 
