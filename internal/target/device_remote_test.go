@@ -239,9 +239,9 @@ func newTestRemote(l *fakeLaunches, clk *fakeClock, mainKeys *int) *adbRemote {
 }
 
 // pickAt is one pick, failing the test when it does not return want.
-func pickAt(t *testing.T, p *rungPicker, at time.Time, bps, carrying int, carryAt time.Time, want int, why string) {
+func pickAt(t *testing.T, p *rungPicker, at time.Time, bps, carrying, want int, why string) {
 	t.Helper()
-	if got := p.pick(at, bps, carrying, carryAt); got != want {
+	if got := p.pick(at, bps, carrying); got != want {
 		t.Fatalf("%s: rung %d, want %d", why, got, want)
 	}
 }
@@ -249,98 +249,87 @@ func pickAt(t *testing.T, p *rungPicker, at time.Time, bps, carrying int, carryA
 func TestRungPickerStartsAtLaunchRungAndRaisesWhileItCarries(t *testing.T) {
 	p := newRungPicker(adbRemoteRungs)
 	at := time.Unix(0, 0)
-	none := time.Time{}
-	pickAt(t, p, at, 0, -1, none, adbRemoteLaunchRung, "no cap yet")
+	pickAt(t, p, at, 0, -1, adbRemoteLaunchRung, "no cap yet")
 	// Nothing raises on a cap from before the launch rung carries the track.
-	pickAt(t, p, at, 3_000_000, -1, none, 1, "first ask")
-	pickAt(t, p, at.Add(5*time.Second), 3_000_000, -1, none, 1, "still launching")
+	pickAt(t, p, at, 3_000_000, -1, 1, "first ask")
+	pickAt(t, p, at.Add(5*time.Second), 3_000_000, -1, 1, "still launching")
 
 	c1 := at.Add(5 * time.Second)
-	pickAt(t, p, c1, 3_000_000, 1, c1, 1, "the hold starts")
-	pickAt(t, p, c1.Add(remoteRaiseHold-time.Millisecond), 3_000_000, 1, c1, 1, "before the hold")
-	pickAt(t, p, c1.Add(remoteRaiseHold), 3_000_000, 1, c1, 2, "after the hold, one rung up")
+	pickAt(t, p, c1, 3_000_000, 1, 1, "the hold starts")
+	pickAt(t, p, c1.Add(remoteRaiseHold-time.Millisecond), 3_000_000, 1, 1, "before the hold")
+	pickAt(t, p, c1.Add(remoteRaiseHold), 3_000_000, 1, 2, "after the hold, one rung up")
 	// The next raise waits for that rung to carry the track.
-	pickAt(t, p, c1.Add(3*remoteRaiseHold), 3_000_000, 1, c1, 2, "rung 2 not carrying yet")
+	pickAt(t, p, c1.Add(3*remoteRaiseHold), 3_000_000, 1, 2, "rung 2 not carrying yet")
 	c2 := c1.Add(3 * remoteRaiseHold)
-	pickAt(t, p, c2, 3_000_000, 2, c2, 2, "rung 2 carries")
-	pickAt(t, p, c2.Add(remoteRaiseHold), 3_000_000, 2, c2, 3, "after rung 2's hold")
+	pickAt(t, p, c2, 3_000_000, 2, 2, "rung 2 carries")
+	pickAt(t, p, c2.Add(remoteRaiseHold), 3_000_000, 2, 3, "after rung 2's hold")
 
 	// Past the regret window a cut goes straight to what the cap selects.
 	c3 := c2.Add(remoteRaiseHold + remoteRaiseRegret)
-	pickAt(t, p, c3, 3_000_000, 3, c3, 3, "rung 3 carries")
-	pickAt(t, p, c3.Add(time.Millisecond), 500_000, 3, c3, 0, "a plain cut")
+	pickAt(t, p, c3, 3_000_000, 3, 3, "rung 3 carries")
+	pickAt(t, p, c3.Add(time.Millisecond), 500_000, 3, 0, "a plain cut")
 }
 
 func TestRungPickerDipRestartsTheHold(t *testing.T) {
 	p := newRungPicker(adbRemoteRungs)
 	at := time.Unix(0, 0)
-	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
-	pickAt(t, p, at.Add(1500*time.Millisecond), 1_000_000, 1, at, 1, "a dip")
-	pickAt(t, p, at.Add(1800*time.Millisecond), 1_300_000, 1, at, 1, "the hold restarts")
-	pickAt(t, p, at.Add(3*time.Second), 1_300_000, 1, at, 1, "the hold counted from before the dip")
-	pickAt(t, p, at.Add(1800*time.Millisecond+remoteRaiseHold), 1_300_000, 1, at, 2, "a full hold after the dip")
+	pickAt(t, p, at, 1_300_000, 1, 1, "the hold starts")
+	pickAt(t, p, at.Add(1500*time.Millisecond), 1_000_000, 1, 1, "a dip")
+	pickAt(t, p, at.Add(1800*time.Millisecond), 1_300_000, 1, 1, "the hold restarts")
+	pickAt(t, p, at.Add(3*time.Second), 1_300_000, 1, 1, "the hold counted from before the dip")
+	pickAt(t, p, at.Add(1800*time.Millisecond+remoteRaiseHold), 1_300_000, 1, 2, "a full hold after the dip")
 }
 
-// The e2e4 run on the Seeker at 1 Mbps: a raise into 1.5 Mbps flooded the
-// link, its backlog drove the cap to the floor for four seconds after it
-// stopped, and the track sat on 480px for 17 s.
-func TestRungPickerRegretCutReturnsToTheRungTheRaiseCameFrom(t *testing.T) {
+// The e2e5 run on the Seeker at 1 Mbps: a raise into 1.5 Mbps flooded the
+// link and its backlog drove the cap to the floor. 720px runs at about the
+// link's rate there and could not drain it; 480px drained it in two seconds.
+func TestRungPickerRegretCutFollowsTheCapToTheFloor(t *testing.T) {
 	p := newRungPicker(adbRemoteRungs)
 	at := time.Unix(0, 0)
-	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
+	pickAt(t, p, at, 1_300_000, 1, 1, "the hold starts")
 	raised := at.Add(remoteRaiseHold)
-	pickAt(t, p, raised, 1_300_000, 1, at, 2, "raised")
+	pickAt(t, p, raised, 1_300_000, 1, 2, "raised")
 	c2 := raised.Add(600 * time.Millisecond)
-	pickAt(t, p, c2.Add(time.Second), 300_000, 2, c2, 1, "the regret cut goes back to the rung the raise came from, not to the floor")
-	pickAt(t, p, c2.Add(1200*time.Millisecond), 300_000, 2, c2, 1, "rung 1 relaunching")
-	c1 := c2.Add(1600 * time.Millisecond)
-	pickAt(t, p, c1, 300_000, 1, c1, 1, "rung 1 carries, the backlog draining")
-	pickAt(t, p, c1.Add(remoteRegretProtect-time.Millisecond), 300_000, 1, c1, 1, "inside the protection")
-	pickAt(t, p, c1.Add(remoteRegretProtect), 300_000, 1, c1, 0, "a link that still says the floor is cut")
-}
-
-func TestRungPickerRegretProtectionEndsWhenTheCapRecovers(t *testing.T) {
-	p := newRungPicker(adbRemoteRungs)
-	at := time.Unix(0, 0)
-	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
-	pickAt(t, p, at.Add(remoteRaiseHold), 1_300_000, 1, at, 2, "raised")
-	c2 := at.Add(remoteRaiseHold + 600*time.Millisecond)
-	pickAt(t, p, c2.Add(time.Second), 300_000, 2, c2, 1, "regret cut")
-	c1 := c2.Add(1600 * time.Millisecond)
-	pickAt(t, p, c1.Add(3*time.Second), 800_000, 1, c1, 1, "the cap selects rung 1 again")
-	pickAt(t, p, c1.Add(3100*time.Millisecond), 400_000, 1, c1, 0, "a later dip cuts at once")
+	pickAt(t, p, c2, 1_300_000, 2, 2, "rung 2 carries")
+	pickAt(t, p, c2.Add(time.Second), 671_666, 2, 1, "the cap falls")
+	pickAt(t, p, c2.Add(1200*time.Millisecond), 300_000, 2, 0, "and the cut follows it to the floor while rung 1 starts")
+	c0 := c2.Add(1800 * time.Millisecond)
+	pickAt(t, p, c0, 300_000, 0, 0, "the floor carries")
+	up := c0.Add(2 * time.Second)
+	pickAt(t, p, up, 875_001, 0, 0, "the cap recovers")
+	pickAt(t, p, up.Add(remoteRaiseHold), 875_001, 0, 1, "back on 720px after rung 1's own hold, which the regret did not charge")
 }
 
 func TestRungPickerRegretDoublesOnlyTheFailedRungsHold(t *testing.T) {
 	p := newRungPicker(adbRemoteRungs)
 	at := time.Unix(0, 0)
-	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
-	pickAt(t, p, at.Add(remoteRaiseHold), 1_300_000, 1, at, 2, "raised")
+	pickAt(t, p, at, 1_300_000, 1, 1, "the hold starts")
+	pickAt(t, p, at.Add(remoteRaiseHold), 1_300_000, 1, 2, "raised")
 	c2 := at.Add(remoteRaiseHold + 600*time.Millisecond)
-	pickAt(t, p, c2.Add(time.Second), 300_000, 2, c2, 1, "regret cut")
+	pickAt(t, p, c2.Add(time.Second), 1_000_000, 2, 1, "regret cut")
 	c1 := c2.Add(1600 * time.Millisecond)
-	pickAt(t, p, c1, 1_300_000, 1, c1, 1, "the cap recovers")
-	pickAt(t, p, c1.Add(remoteRaiseHold), 1_300_000, 1, c1, 1, "the hold into rung 2 doubled")
-	pickAt(t, p, c1.Add(2*remoteRaiseHold), 1_300_000, 1, c1, 2, "after the doubled hold")
+	pickAt(t, p, c1, 1_300_000, 1, 1, "the cap recovers")
+	pickAt(t, p, c1.Add(remoteRaiseHold), 1_300_000, 1, 1, "the hold into rung 2 doubled")
+	pickAt(t, p, c1.Add(2*remoteRaiseHold), 1_300_000, 1, 2, "after the doubled hold")
 
 	// The hold into rung 1, which carried, is unchanged.
 	c2 = c1.Add(2*remoteRaiseHold + 600*time.Millisecond)
 	cut := c2.Add(remoteRaiseRegret)
-	pickAt(t, p, cut, 400_000, 2, c2, 0, "a plain cut, past the regret window")
+	pickAt(t, p, cut, 400_000, 2, 0, "a plain cut, past the regret window")
 	c0 := cut.Add(600 * time.Millisecond)
-	pickAt(t, p, c0, 700_000, 0, c0, 0, "the hold starts")
-	pickAt(t, p, c0.Add(remoteRaiseHold), 700_000, 0, c0, 1, "rung 1's hold was not charged")
+	pickAt(t, p, c0, 700_000, 0, 0, "the hold starts")
+	pickAt(t, p, c0.Add(remoteRaiseHold), 700_000, 0, 1, "rung 1's hold was not charged")
 }
 
 func TestRungPickerCutBeforeARaiseCarriesChargesNothing(t *testing.T) {
 	p := newRungPicker(adbRemoteRungs)
 	at := time.Unix(0, 0)
-	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
+	pickAt(t, p, at, 1_300_000, 1, 1, "the hold starts")
 	raised := at.Add(remoteRaiseHold)
-	pickAt(t, p, raised, 1_300_000, 1, at, 2, "raised")
-	pickAt(t, p, raised.Add(100*time.Millisecond), 1_000_000, 1, at, 1, "cut before rung 2 carried")
-	pickAt(t, p, raised.Add(200*time.Millisecond), 1_300_000, 1, at, 1, "the hold starts again")
-	pickAt(t, p, raised.Add(200*time.Millisecond+remoteRaiseHold), 1_300_000, 1, at, 2, "the hold into rung 2 was not doubled")
+	pickAt(t, p, raised, 1_300_000, 1, 2, "raised")
+	pickAt(t, p, raised.Add(100*time.Millisecond), 1_000_000, 1, 1, "cut before rung 2 carried")
+	pickAt(t, p, raised.Add(200*time.Millisecond), 1_300_000, 1, 1, "the hold starts again")
+	pickAt(t, p, raised.Add(200*time.Millisecond+remoteRaiseHold), 1_300_000, 1, 2, "the hold into rung 2 was not doubled")
 }
 
 func TestRemoteRungsForTopWithTheMainSession(t *testing.T) {
@@ -541,11 +530,9 @@ func TestADBRemoteRungChangeIsMakeBeforeBreak(t *testing.T) {
 	if f := recvFrame(t, r.out); !f.Config {
 		t.Fatalf("frame %+v, want the new parameter set", f)
 	}
-	r.locked(func() {
-		if r.cur == nil || r.cur.sess != nu || !r.cur.carryAt.Equal(at) {
-			t.Errorf("the replacement is not carrying since its parameter set at %v: cur %+v", at, r.cur)
-		}
-	})
+	if !r.isCur(nu) {
+		t.Fatal("the replacement is not carrying the track after its parameter set")
+	}
 	k := recvFrame(t, r.out)
 	if !k.Key || k.PTS <= 200*time.Millisecond {
 		t.Fatalf("new keyframe %+v: PTS must continue the track's timeline", k)

@@ -286,12 +286,13 @@ differs from simcap's:
   the rate has held for 2s while the current setting carries the track. A
   change starts a new session beside the running one, which takes over at its
   first frame, so the track has no gap.
-- **A raise cut within 10s goes back one setting, not to the floor.** The
-  failed setting's backlog keeps the link congested after it stops: at 1 Mbps,
-  1.5 Mbps that ran for two seconds held rate control at its floor for four.
-  The setting it went back to is not cut again until the rate recovers or 8s
-  pass, and the next raise into the failed setting waits twice as long, up to
-  a minute. In the trace, `remoteCapBps` is what rate control asked for and
+- **A cut follows the rate, even straight after a raise.** At 1 Mbps a
+  1.5 Mbps setting that ran for two seconds left a backlog that held rate
+  control at its floor. Going back to 720px, which runs at about the link's
+  rate there, took delay from 1.37 s to 1.02 s in seven seconds; 480px took it
+  from 0.96 s to 44 ms in two. A raise that carried the track and is cut
+  within 10s doubles the wait before that setting is tried again, up to a
+  minute. In the trace, `remoteCapBps` is what rate control asked for and
   `remoteEncBps` what the encoder runs at.
 - **If three launches in a row fail,** the track carries the main stream for
   the rest of the session, as before the track existed.

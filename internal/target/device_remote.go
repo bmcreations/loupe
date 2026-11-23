@@ -130,18 +130,12 @@ const (
 	// about half a second on the device and a keyframe on the link; rate
 	// control moves every 100-300 ms.
 	remoteRaiseHold = 2 * time.Second
-	// remoteRaiseRegret: a raise cut within this long goes back to the rung
-	// it came from and doubles the hold into the rung that failed, up to
+	// remoteRaiseRegret: a raise cut within this long, after the raised rung
+	// carried the track, doubles the hold into that rung, up to
 	// remoteRaiseHoldMax, so a link that cannot take it is not relaunched
-	// into every few seconds.
+	// into every few seconds. The other rungs' holds are unchanged.
 	remoteRaiseRegret  = 10 * time.Second
 	remoteRaiseHoldMax = time.Minute
-	// remoteRegretProtect: after a regret cut, the rung it went back to is
-	// not cut again until the cap selects it, or for this long after it
-	// carries the track. The failed rung's backlog keeps the link congested
-	// after it stops: at 1 Mbps a 1.5 Mbps rung that ran two seconds left
-	// about four seconds of it, and rate control sat at its floor throughout.
-	remoteRegretProtect = 8 * time.Second
 	// remoteFirstFrame is how long a launched session has to send its
 	// parameter sets. Measured launches send them about 0.5 s after Launch
 	// returns.
@@ -194,21 +188,23 @@ func adbRemoteWanted(kind Kind) bool {
 	return remoteTrackWanted(kind == KindDevice)
 }
 
-// rungPicker turns rate control's cap into a rung. It cuts at once and raises
-// one rung at a time, after the cap has held above the next rung while the
-// chosen rung carries the track.
+// rungPicker turns rate control's cap into a rung. It cuts at once, to the
+// rung the cap selects, and raises one rung at a time, after the cap has held
+// above the next rung while the chosen rung carries the track.
+//
+// A cut follows the cap even straight after a raise. At 1 Mbps on the Seeker
+// a 1.5 Mbps rung that ran two seconds left a backlog that drove the cap to
+// its floor. Back on 720px, which runs at about the link's rate, delay fell
+// only from 1.37 to 1.02 s in seven seconds; on 480px it fell from 0.96 s to
+// 44 ms in two.
 type rungPicker struct {
 	rungs []remoteRung
 	cur   int
 	// hold[i] is how long the cap must hold before a raise into rungs[i].
 	hold    []time.Duration
 	upSince time.Time
-	// raisedAt is when cur was raised into from raisedFrom, zero after a cut.
-	raisedAt   time.Time
-	raisedFrom int
-	// protect is set by a regret cut: cur is not cut again until the cap
-	// selects it or it has carried the track for remoteRegretProtect.
-	protect bool
+	// raisedAt is when cur was raised into, zero after a cut.
+	raisedAt time.Time
 }
 
 func newRungPicker(rungs []remoteRung) *rungPicker {
@@ -231,30 +227,19 @@ func (p *rungPicker) rungFor(bps int) int {
 }
 
 // pick takes the cap at now and returns the rung to run. carrying is the rung
-// of the session carrying the track, -1 for none, and carryAt when it took
-// over. A cap of zero is no cap yet.
-func (p *rungPicker) pick(now time.Time, bps, carrying int, carryAt time.Time) int {
+// of the session carrying the track, -1 for none. A cap of zero is no cap yet.
+func (p *rungPicker) pick(now time.Time, bps, carrying int) int {
 	if bps <= 0 {
 		return p.cur
 	}
 	want := p.rungFor(bps)
 	settled := carrying == p.cur
-	if p.protect && settled && (want >= p.cur || now.Sub(carryAt) >= remoteRegretProtect) {
-		p.protect = false
-	}
 	switch {
 	case want < p.cur:
 		p.upSince = time.Time{}
-		if p.protect {
-			break
-		}
 		if settled && !p.raisedAt.IsZero() && now.Sub(p.raisedAt) < remoteRaiseRegret {
-			// The raise did not hold. The rung it came from carried the
-			// track; what drove the cap under it is the failed rung's
-			// backlog, so go back there and wait for that to drain.
+			// The raise carried the track and did not hold.
 			p.hold[p.cur] = min(2*p.hold[p.cur], remoteRaiseHoldMax)
-			p.cur, p.raisedAt, p.protect = p.raisedFrom, time.Time{}, true
-			break
 		}
 		p.cur, p.raisedAt = want, time.Time{}
 	case want > p.cur:
@@ -265,7 +250,7 @@ func (p *rungPicker) pick(now time.Time, bps, carrying int, carryAt time.Time) i
 		if p.upSince.IsZero() {
 			p.upSince = now
 		} else if now.Sub(p.upSince) >= p.hold[p.cur+1] {
-			p.raisedFrom, p.raisedAt = p.cur, now
+			p.raisedAt = now
 			p.cur++
 			p.upSince = time.Time{}
 		}
@@ -289,7 +274,6 @@ type remoteRun struct {
 	rung      int
 	started   time.Time
 	gotConfig bool
-	carryAt   time.Time // when it took over the track, zero before
 	src       remoteSource
 }
 
@@ -508,11 +492,11 @@ func (r *adbRemote) step(now time.Time) {
 			return
 		}
 	}
-	carrying, carryAt := -1, time.Time{}
+	carrying := -1
 	if r.cur != nil {
-		carrying, carryAt = r.cur.rung, r.cur.carryAt
+		carrying = r.cur.rung
 	}
-	rung := r.picker.pick(now, r.wish, carrying, carryAt)
+	rung := r.picker.pick(now, r.wish, carrying)
 	if r.next != nil && r.next.rung != rung {
 		// The cap moved again while the replacement was starting.
 		stale = append(stale, r.next)
@@ -628,7 +612,6 @@ func (r *adbRemote) onFrame(run *remoteRun, f scrcpy.Frame) {
 		run.gotConfig = true
 		if run == r.next {
 			old, r.cur, r.next = r.cur, run, nil
-			run.carryAt = r.now()
 			r.fails = 0
 			// What was asked of the old session is the new one's first
 			// keyframe.
