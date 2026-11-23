@@ -118,7 +118,8 @@ func (t *ADBTarget) Open(ctx context.Context, opts Options) (Stream, error) {
 		clip:   newClipState(),
 	}
 	if adbRemoteWanted(t.kind) {
-		s.remote = newADBRemote(t.remoteLauncher(opts), opts.MaxSize, s.RequestKeyframe)
+		main := remoteLaunch{MaxSize: opts.MaxSize, MaxFPS: opts.MaxFPS, BitRate: opts.BitRate}
+		s.remote = newADBRemote(t.remoteLauncher(opts), main, s.RequestKeyframe)
 	}
 	go s.pump()
 	go s.clip.watch(sess.Clipboard())

@@ -253,10 +253,10 @@ while every remote viewer's link has room, so each frame it makes is
 delivered. Rate control runs from 2 to 8 Mbps.
 
 **Android devices:** a second scrcpy session on the device, with its own scid,
-running only while a viewer is on the track. It starts at the bottom of four
-settings and stops 5s after the last viewer leaves. The settings were measured
-on a Solana Seeker (MT6878) beside a 1440px 60 fps 4 Mbps main session, which
-held 57 to 62 fps throughout:
+running only while a viewer is on the track. It starts at 720px and stops 5s
+after the last viewer leaves. The settings were measured on a Solana Seeker
+(MT6878) beside a 1440px 60 fps 4 Mbps main session, which held 57 to 62 fps
+throughout:
 
 | Setting | Measured under scrolling | Keyframes |
 |---|---|---|
@@ -264,10 +264,14 @@ held 57 to 62 fps throughout:
 | 720px, 30 fps, 750 kbps | 0.6 to 1.1 Mbps | 8 to 18 KB |
 | 1080px, 30 fps, 1.5 Mbps | 1.3 to 1.8 Mbps | 11 to 29 KB |
 | 1080px, 60 fps, 3 Mbps | 2.4 to 3.1 Mbps | 3.5 to 35 KB |
+| The main session's own | 3.4 to 4.6 Mbps at 1440px 60 fps 4 Mbps | 4 to 91 KB |
 
-None is larger than the main session's `maxSize`. The lower settings are
-smaller rather than just slower because that encoder would not go under about
-1.4 Mbps at 1080px or 0.9 Mbps at 720px, at 30 fps or at 15.
+A viewer whose link carries the main stream's rate ends on the main session's
+settings. A setting at or over the main session's bitrate is left out, and
+none is larger or faster than the main session. The 480px setting is reached
+only by cutting. The lower settings are smaller rather than just slower
+because that encoder would not go under about 1.4 Mbps at 1080px or 0.9 Mbps
+at 720px, at 30 fps or at 15.
 
 scrcpy can't hold its encoder or change it while it runs, so the adb track
 differs from simcap's:
@@ -277,12 +281,18 @@ differs from simcap's:
 - **A keyframe ask is a `RESET_VIDEO` on the second session only.** A slow
   viewer's resyncs no longer restart the encoder the local viewers watch.
   Asks are merged while one is outstanding; a reset answers in 100 to 215 ms.
-- **Rate control runs from 300 kbps to 3 Mbps, and picks a setting.** A cut
-  applies at once. A raise waits for the rate to hold for 3s, and longer after
-  a raise that was cut within 10s. A change starts a new session beside the
-  running one, which takes over at its first frame, so the track has no gap. In
-  the trace, `remoteCapBps` is what rate control asked for and `remoteEncBps`
-  what the encoder runs at.
+- **Rate control runs from 300 kbps to the main session's bitrate, and picks
+  a setting.** A cut applies at once. A raise is one setting at a time, after
+  the rate has held for 2s while the current setting carries the track. A
+  change starts a new session beside the running one, which takes over at its
+  first frame, so the track has no gap.
+- **A raise cut within 10s goes back one setting, not to the floor.** The
+  failed setting's backlog keeps the link congested after it stops: at 1 Mbps,
+  1.5 Mbps that ran for two seconds held rate control at its floor for four.
+  The setting it went back to is not cut again until the rate recovers or 8s
+  pass, and the next raise into the failed setting waits twice as long, up to
+  a minute. In the trace, `remoteCapBps` is what rate control asked for and
+  `remoteEncBps` what the encoder runs at.
 - **If three launches in a row fail,** the track carries the main stream for
   the rest of the session, as before the track existed.
 

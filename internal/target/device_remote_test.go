@@ -224,9 +224,13 @@ func running(t *testing.T, r *adbRemote, l *fakeLaunches, clk *fakeClock) *fakeS
 	return s
 }
 
+// testMain is the main session the tests' remote tracks sit beside: the
+// Seeker's.
+var testMain = remoteLaunch{MaxSize: 1440, MaxFPS: 60, BitRate: 4_000_000}
+
 func newTestRemote(l *fakeLaunches, clk *fakeClock, mainKeys *int) *adbRemote {
 	var mu sync.Mutex
-	return newADBRemoteAt(l.launch, 1440, func() error {
+	return newADBRemoteAt(l.launch, testMain, func() error {
 		mu.Lock()
 		*mainKeys++
 		mu.Unlock()
@@ -234,67 +238,155 @@ func newTestRemote(l *fakeLaunches, clk *fakeClock, mainKeys *int) *adbRemote {
 	}, clk.Now)
 }
 
-func TestRungPickerCutsAtOnceAndRaisesAfterHold(t *testing.T) {
-	p := newRungPicker(adbRemoteRungs)
-	at := time.Unix(0, 0)
-	if got := p.pick(at, 3_000_000); got != 0 {
-		t.Fatalf("first ask raised at once to rung %d", got)
-	}
-	if got := p.pick(at.Add(remoteRaiseHold-time.Millisecond), 3_000_000); got != 0 {
-		t.Fatalf("raised to %d before the hold", got)
-	}
-	if got := p.pick(at.Add(remoteRaiseHold), 3_000_000); got != 1 {
-		t.Fatalf("rung %d after the hold, want one step up to 1", got)
-	}
-	if got := p.pick(at.Add(2*remoteRaiseHold), 3_000_000); got != 2 {
-		t.Fatalf("rung %d after a second hold, want 2", got)
-	}
-	if got := p.pick(at.Add(3*remoteRaiseHold), 3_000_000); got != 3 {
-		t.Fatalf("rung %d after a third hold, want the top, 3", got)
-	}
-	if got := p.pick(at.Add(3*remoteRaiseHold+time.Millisecond), 500_000); got != 0 {
-		t.Fatalf("cut to %d, want straight to 0", got)
-	}
-	// A cap that dips under the next rung restarts its hold.
-	p = newRungPicker(adbRemoteRungs)
-	p.pick(at, 1_300_000)
-	p.pick(at.Add(2*time.Second), 500_000)
-	p.pick(at.Add(2500*time.Millisecond), 1_300_000)
-	if got := p.pick(at.Add(4*time.Second), 1_300_000); got != 0 {
-		t.Fatalf("rung %d: the hold did not restart after the dip", got)
+// pickAt is one pick, failing the test when it does not return want.
+func pickAt(t *testing.T, p *rungPicker, at time.Time, bps, carrying int, carryAt time.Time, want int, why string) {
+	t.Helper()
+	if got := p.pick(at, bps, carrying, carryAt); got != want {
+		t.Fatalf("%s: rung %d, want %d", why, got, want)
 	}
 }
 
-func TestRungPickerHoldDoublesWhenARaiseIsCut(t *testing.T) {
+func TestRungPickerStartsAtLaunchRungAndRaisesWhileItCarries(t *testing.T) {
 	p := newRungPicker(adbRemoteRungs)
 	at := time.Unix(0, 0)
-	p.pick(at, 1_300_000)
-	at = at.Add(remoteRaiseHold)
-	if got := p.pick(at, 1_300_000); got != 1 {
-		t.Fatalf("rung %d, want 1", got)
-	}
-	at = at.Add(time.Second)
-	p.pick(at, 500_000) // the link could not take it
-	p.pick(at, 1_300_000)
-	if got := p.pick(at.Add(remoteRaiseHold), 1_300_000); got != 0 {
-		t.Fatalf("raised again after %v, want the hold doubled", remoteRaiseHold)
-	}
-	if got := p.pick(at.Add(2*remoteRaiseHold), 1_300_000); got != 1 {
-		t.Fatalf("rung %d after the doubled hold, want 1", got)
-	}
+	none := time.Time{}
+	pickAt(t, p, at, 0, -1, none, adbRemoteLaunchRung, "no cap yet")
+	// Nothing raises on a cap from before the launch rung carries the track.
+	pickAt(t, p, at, 3_000_000, -1, none, 1, "first ask")
+	pickAt(t, p, at.Add(5*time.Second), 3_000_000, -1, none, 1, "still launching")
+
+	c1 := at.Add(5 * time.Second)
+	pickAt(t, p, c1, 3_000_000, 1, c1, 1, "the hold starts")
+	pickAt(t, p, c1.Add(remoteRaiseHold-time.Millisecond), 3_000_000, 1, c1, 1, "before the hold")
+	pickAt(t, p, c1.Add(remoteRaiseHold), 3_000_000, 1, c1, 2, "after the hold, one rung up")
+	// The next raise waits for that rung to carry the track.
+	pickAt(t, p, c1.Add(3*remoteRaiseHold), 3_000_000, 1, c1, 2, "rung 2 not carrying yet")
+	c2 := c1.Add(3 * remoteRaiseHold)
+	pickAt(t, p, c2, 3_000_000, 2, c2, 2, "rung 2 carries")
+	pickAt(t, p, c2.Add(remoteRaiseHold), 3_000_000, 2, c2, 3, "after rung 2's hold")
+
+	// Past the regret window a cut goes straight to what the cap selects.
+	c3 := c2.Add(remoteRaiseHold + remoteRaiseRegret)
+	pickAt(t, p, c3, 3_000_000, 3, c3, 3, "rung 3 carries")
+	pickAt(t, p, c3.Add(time.Millisecond), 500_000, 3, c3, 0, "a plain cut")
 }
 
-func TestRungsSitUnderTheirRatesAndInTheRange(t *testing.T) {
-	for i, g := range adbRemoteRungs {
-		if g.From > g.BitRate {
-			t.Errorf("rung %d is selected from %d, over its own rate %d: rate control raises only while the encoder fills half the cap", i, g.From, g.BitRate)
-		}
-		if i > 0 && g.From <= adbRemoteRungs[i-1].From {
-			t.Errorf("rung %d From %d does not rise", i, g.From)
-		}
+func TestRungPickerDipRestartsTheHold(t *testing.T) {
+	p := newRungPicker(adbRemoteRungs)
+	at := time.Unix(0, 0)
+	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
+	pickAt(t, p, at.Add(1500*time.Millisecond), 1_000_000, 1, at, 1, "a dip")
+	pickAt(t, p, at.Add(1800*time.Millisecond), 1_300_000, 1, at, 1, "the hold restarts")
+	pickAt(t, p, at.Add(3*time.Second), 1_300_000, 1, at, 1, "the hold counted from before the dip")
+	pickAt(t, p, at.Add(1800*time.Millisecond+remoteRaiseHold), 1_300_000, 1, at, 2, "a full hold after the dip")
+}
+
+// The e2e4 run on the Seeker at 1 Mbps: a raise into 1.5 Mbps flooded the
+// link, its backlog drove the cap to the floor for four seconds after it
+// stopped, and the track sat on 480px for 17 s.
+func TestRungPickerRegretCutReturnsToTheRungTheRaiseCameFrom(t *testing.T) {
+	p := newRungPicker(adbRemoteRungs)
+	at := time.Unix(0, 0)
+	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
+	raised := at.Add(remoteRaiseHold)
+	pickAt(t, p, raised, 1_300_000, 1, at, 2, "raised")
+	c2 := raised.Add(600 * time.Millisecond)
+	pickAt(t, p, c2.Add(time.Second), 300_000, 2, c2, 1, "the regret cut goes back to the rung the raise came from, not to the floor")
+	pickAt(t, p, c2.Add(1200*time.Millisecond), 300_000, 2, c2, 1, "rung 1 relaunching")
+	c1 := c2.Add(1600 * time.Millisecond)
+	pickAt(t, p, c1, 300_000, 1, c1, 1, "rung 1 carries, the backlog draining")
+	pickAt(t, p, c1.Add(remoteRegretProtect-time.Millisecond), 300_000, 1, c1, 1, "inside the protection")
+	pickAt(t, p, c1.Add(remoteRegretProtect), 300_000, 1, c1, 0, "a link that still says the floor is cut")
+}
+
+func TestRungPickerRegretProtectionEndsWhenTheCapRecovers(t *testing.T) {
+	p := newRungPicker(adbRemoteRungs)
+	at := time.Unix(0, 0)
+	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
+	pickAt(t, p, at.Add(remoteRaiseHold), 1_300_000, 1, at, 2, "raised")
+	c2 := at.Add(remoteRaiseHold + 600*time.Millisecond)
+	pickAt(t, p, c2.Add(time.Second), 300_000, 2, c2, 1, "regret cut")
+	c1 := c2.Add(1600 * time.Millisecond)
+	pickAt(t, p, c1.Add(3*time.Second), 800_000, 1, c1, 1, "the cap selects rung 1 again")
+	pickAt(t, p, c1.Add(3100*time.Millisecond), 400_000, 1, c1, 0, "a later dip cuts at once")
+}
+
+func TestRungPickerRegretDoublesOnlyTheFailedRungsHold(t *testing.T) {
+	p := newRungPicker(adbRemoteRungs)
+	at := time.Unix(0, 0)
+	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
+	pickAt(t, p, at.Add(remoteRaiseHold), 1_300_000, 1, at, 2, "raised")
+	c2 := at.Add(remoteRaiseHold + 600*time.Millisecond)
+	pickAt(t, p, c2.Add(time.Second), 300_000, 2, c2, 1, "regret cut")
+	c1 := c2.Add(1600 * time.Millisecond)
+	pickAt(t, p, c1, 1_300_000, 1, c1, 1, "the cap recovers")
+	pickAt(t, p, c1.Add(remoteRaiseHold), 1_300_000, 1, c1, 1, "the hold into rung 2 doubled")
+	pickAt(t, p, c1.Add(2*remoteRaiseHold), 1_300_000, 1, c1, 2, "after the doubled hold")
+
+	// The hold into rung 1, which carried, is unchanged.
+	c2 = c1.Add(2*remoteRaiseHold + 600*time.Millisecond)
+	cut := c2.Add(remoteRaiseRegret)
+	pickAt(t, p, cut, 400_000, 2, c2, 0, "a plain cut, past the regret window")
+	c0 := cut.Add(600 * time.Millisecond)
+	pickAt(t, p, c0, 700_000, 0, c0, 0, "the hold starts")
+	pickAt(t, p, c0.Add(remoteRaiseHold), 700_000, 0, c0, 1, "rung 1's hold was not charged")
+}
+
+func TestRungPickerCutBeforeARaiseCarriesChargesNothing(t *testing.T) {
+	p := newRungPicker(adbRemoteRungs)
+	at := time.Unix(0, 0)
+	pickAt(t, p, at, 1_300_000, 1, at, 1, "the hold starts")
+	raised := at.Add(remoteRaiseHold)
+	pickAt(t, p, raised, 1_300_000, 1, at, 2, "raised")
+	pickAt(t, p, raised.Add(100*time.Millisecond), 1_000_000, 1, at, 1, "cut before rung 2 carried")
+	pickAt(t, p, raised.Add(200*time.Millisecond), 1_300_000, 1, at, 1, "the hold starts again")
+	pickAt(t, p, raised.Add(200*time.Millisecond+remoteRaiseHold), 1_300_000, 1, at, 2, "the hold into rung 2 was not doubled")
+}
+
+func TestRemoteRungsForTopWithTheMainSession(t *testing.T) {
+	cases := []struct {
+		main remoteLaunch
+		top  remoteRung
+		n    int
+	}{
+		{testMain, remoteRung{MaxSize: 1440, MaxFPS: 60, BitRate: 4_000_000, From: 3_200_000}, 5},
+		{remoteLaunch{MaxSize: 1080, MaxFPS: 60, BitRate: 4_000_000}, remoteRung{MaxSize: 1080, MaxFPS: 60, BitRate: 4_000_000, From: 3_200_000}, 5},
+		// A rung over the main session's size or rate is clamped to it.
+		{remoteLaunch{MaxSize: 1000, MaxFPS: 30, BitRate: 2_000_000}, remoteRung{MaxSize: 1000, MaxFPS: 30, BitRate: 2_000_000, From: 1_600_000}, 4},
+		// From stays reachable from the rung below.
+		{remoteLaunch{MaxSize: 1440, MaxFPS: 60, BitRate: 8_000_000}, remoteRung{MaxSize: 1440, MaxFPS: 60, BitRate: 8_000_000, From: 4_800_000}, 5},
+		// No bitrate asked for: the table as it is.
+		{remoteLaunch{}, adbRemoteRungs[len(adbRemoteRungs)-1], len(adbRemoteRungs)},
+		// A main session under the bottom rung still gets one.
+		{remoteLaunch{MaxSize: 400, BitRate: 200_000}, remoteRung{MaxSize: 400, MaxFPS: 30, BitRate: 300_000}, 1},
 	}
-	if adbRemoteRateMin > adbRemoteRungs[0].BitRate || adbRemoteRateMax < adbRemoteRungs[len(adbRemoteRungs)-1].From {
-		t.Errorf("rate range %d-%d does not reach every rung", adbRemoteRateMin, adbRemoteRateMax)
+	for _, c := range cases {
+		rungs := adbRemoteRungsFor(c.main)
+		if len(rungs) != c.n || rungs[len(rungs)-1] != c.top {
+			t.Errorf("main %+v: %d rungs topped by %+v, want %d topped by %+v", c.main, len(rungs), rungs[len(rungs)-1], c.n, c.top)
+		}
+		for i, g := range rungs {
+			if c.main.MaxSize > 0 && g.MaxSize > c.main.MaxSize {
+				t.Errorf("main %+v: rung %d is %dpx, over the main session", c.main, i, g.MaxSize)
+			}
+			if g.From > g.BitRate {
+				t.Errorf("main %+v: rung %d is selected from %d, over its own rate %d: rate control raises only while the encoder fills half the cap", c.main, i, g.From, g.BitRate)
+			}
+			// Rate control raises while the encoder fills half its cap, so a
+			// rung selected from over twice the rung below's rate is out of
+			// reach. The bottom rung sits at exactly twice: it ran 0.36-0.47
+			// Mbps for its 300k on the Seeker.
+			if i > 0 && (g.From <= rungs[i-1].From || g.From > 2*rungs[i-1].BitRate) {
+				t.Errorf("main %+v: rung %d From %d does not rise, or is out of reach of rung %d's %d bps", c.main, i, g.From, i-1, rungs[i-1].BitRate)
+			}
+		}
+		lo, start, hi := remoteRateRange(rungs)
+		if lo > rungs[0].BitRate || hi < rungs[len(rungs)-1].From {
+			t.Errorf("main %+v: rate range %d-%d does not reach every rung", c.main, lo, hi)
+		}
+		if p := newRungPicker(rungs); p.rungFor(start) != p.cur {
+			t.Errorf("main %+v: rate control starts at %d, which selects rung %d, not the launch rung %d", c.main, start, p.rungFor(start), p.cur)
+		}
 	}
 }
 
@@ -310,8 +402,8 @@ func TestADBRemoteGateStartsOneSessionAndStopsAfterLinger(t *testing.T) {
 		t.Fatal("launched with the gate held")
 	}
 	s := running(t, r, l, clk)
-	if s.launch != (remoteLaunch{MaxSize: 480, MaxFPS: 30, BitRate: 300_000}) {
-		t.Fatalf("first launch %+v, want the bottom rung", s.launch)
+	if s.launch != (remoteLaunch{MaxSize: 720, MaxFPS: 30, BitRate: 750_000}) {
+		t.Fatalf("first launch %+v, want the launch rung", s.launch)
 	}
 	eventually(t, "the switch to the first session", func() bool { return r.isCur(s) })
 	for range 5 {
@@ -339,13 +431,13 @@ func TestADBRemoteGateStartsOneSessionAndStopsAfterLinger(t *testing.T) {
 	default:
 	}
 
-	// A viewer that comes back gets a new session, at the bottom rung.
+	// A viewer that comes back gets a new session, at the launch rung.
 	r.setCap(3_000_000)
 	r.gate(true)
 	r.step(clk.Add(time.Second))
 	s2 := l.session(t, 1)
-	if s2.launch.BitRate != 300_000 {
-		t.Fatalf("relaunch at %d bps, want the bottom rung", s2.launch.BitRate)
+	if s2.launch.BitRate != 750_000 {
+		t.Fatalf("relaunch at %d bps, want the launch rung", s2.launch.BitRate)
 	}
 	if mainKeys != 0 {
 		t.Fatalf("the main session was reset %d times", mainKeys)
@@ -432,7 +524,7 @@ func TestADBRemoteRungChangeIsMakeBeforeBreak(t *testing.T) {
 	r.step(clk.Add(time.Second))
 	r.step(clk.Add(remoteRaiseHold))
 	nu := l.session(t, 1)
-	if nu.launch != (remoteLaunch{MaxSize: 720, MaxFPS: 30, BitRate: 750_000}) {
+	if nu.launch != (remoteLaunch{MaxSize: 1080, MaxFPS: 30, BitRate: 1_500_000}) {
 		t.Fatalf("relaunch %+v, want one rung up", nu.launch)
 	}
 	eventually(t, "the replacement", func() bool { return r.isNext(nu) })
@@ -449,6 +541,11 @@ func TestADBRemoteRungChangeIsMakeBeforeBreak(t *testing.T) {
 	if f := recvFrame(t, r.out); !f.Config {
 		t.Fatalf("frame %+v, want the new parameter set", f)
 	}
+	r.locked(func() {
+		if r.cur == nil || r.cur.sess != nu || !r.cur.carryAt.Equal(at) {
+			t.Errorf("the replacement is not carrying since its parameter set at %v: cur %+v", at, r.cur)
+		}
+	})
 	k := recvFrame(t, r.out)
 	if !k.Key || k.PTS <= 200*time.Millisecond {
 		t.Fatalf("new keyframe %+v: PTS must continue the track's timeline", k)
@@ -469,7 +566,7 @@ func TestADBRemoteFallsBackToMainAfterFailedLaunches(t *testing.T) {
 	l := &fakeLaunches{fail: true}
 	var mainKeys int
 	var mu sync.Mutex
-	r := newADBRemoteAt(l.launch, 1440, func() error {
+	r := newADBRemoteAt(l.launch, testMain, func() error {
 		mu.Lock()
 		mainKeys++
 		mu.Unlock()
@@ -562,7 +659,7 @@ func TestADBRemoteSessionThatSendsNothingIsReplaced(t *testing.T) {
 func TestADBRemoteLaunchNoLargerThanMainOrMaxSize(t *testing.T) {
 	clk := newFakeClock()
 	l := &fakeLaunches{}
-	r := newADBRemoteAt(l.launch, 400, nil, clk.Now)
+	r := newADBRemoteAt(l.launch, remoteLaunch{MaxSize: 400}, nil, clk.Now)
 	defer r.close()
 	r.gate(true)
 	r.step(clk.Now())
@@ -641,8 +738,14 @@ func TestADBStreamIsASteppedRemoteStream(t *testing.T) {
 	if !ok {
 		t.Fatal("adbStream is not a SteppedRemoteStream")
 	}
-	if lo, start, hi := st.RemoteRateRange(); lo != adbRemoteRateMin || start != adbRemoteRateStart || hi != adbRemoteRateMax {
-		t.Fatalf("range %d %d %d", lo, start, hi)
+	if lo, start, hi := st.RemoteRateRange(); lo != 300_000 || start != 750_000 || hi != 3_000_000 {
+		t.Fatalf("range %d %d %d without a remote track, want the table's", lo, start, hi)
+	}
+	r := newADBRemoteAt(nil, testMain, nil, time.Now)
+	defer r.close()
+	s = &adbStream{remote: r}
+	if lo, start, hi := s.(SteppedRemoteStream).RemoteRateRange(); lo != 300_000 || start != 750_000 || hi != 4_000_000 {
+		t.Fatalf("range %d %d %d beside a 4 Mbps main session, want 300k 750k 4M", lo, start, hi)
 	}
 }
 

@@ -24,10 +24,11 @@ import (
 //   - RemoteKeyframe is a RESET_VIDEO on the second session's control socket.
 //     It never touches the main session, so a slow viewer's resyncs no longer
 //     restart the encoder a local viewer is watching.
-//   - scrcpy fixes size, rate and bitrate at launch, so RemoteCap picks one of
-//     adbRemoteRungs and a rung change is a relaunch. The new session starts
-//     beside the old one and takes over at its first parameter set, so the
-//     track has no gap.
+//   - scrcpy fixes size, rate and bitrate at launch, so RemoteCap picks a rung
+//     (adbRemoteRungsFor: the table under the main session's bitrate, topped
+//     by the main session's own settings) and a rung change is a relaunch.
+//     The new session starts beside the old one and takes over at its first
+//     parameter set, so the track has no gap.
 //   - RemoteMaxSize lowers the next launch's longest edge; it does not
 //     relaunch.
 //   - Periodic keyframes arrive without a parameter set before them. The
@@ -65,27 +66,82 @@ var adbRemoteRungs = []remoteRung{
 	{MaxSize: 1080, MaxFPS: 60, BitRate: 3_000_000, From: 2_400_000},
 }
 
-// The rate-control range an adb remote track runs in. The session's default
-// floor is 2 Mbps, which the bottom three rungs sit under.
-const (
-	adbRemoteRateMin   = 300_000
-	adbRemoteRateStart = 300_000
-	adbRemoteRateMax   = 3_000_000
-)
+// adbRemoteLaunchRung is the rung a fresh track starts at: 720px, which held
+// 30 fps on a 1 Mbps link. The 480px rung is reached only by cuts, so a fast
+// viewer does not start on a 216x480 picture.
+const adbRemoteLaunchRung = 1
+
+// adbRemoteRungsFor is adbRemoteRungs under the main session's bitrate, no
+// larger or faster than the main session, with the main session's own
+// settings on top, so a viewer whose link carries the main stream's rate gets
+// the picture the main track would have given it.
+func adbRemoteRungsFor(main remoteLaunch) []remoteRung {
+	fps := main.MaxFPS
+	if fps <= 0 {
+		fps = DefaultMaxFPS
+	}
+	clamp := func(g remoteRung) remoteRung {
+		g.MaxFPS = min(g.MaxFPS, fps)
+		if main.MaxSize > 0 {
+			g.MaxSize = min(g.MaxSize, main.MaxSize)
+		}
+		return g
+	}
+	var rungs []remoteRung
+	for _, g := range adbRemoteRungs {
+		if main.BitRate > 0 && g.BitRate >= main.BitRate {
+			break
+		}
+		rungs = append(rungs, clamp(g))
+	}
+	if len(rungs) == 0 {
+		return []remoteRung{clamp(adbRemoteRungs[0])}
+	}
+	if main.BitRate <= 0 {
+		return rungs
+	}
+	// From stays within twice the rung below's rate, or rate control, which
+	// raises only while the encoder fills half its cap, could not reach it.
+	prev := rungs[len(rungs)-1]
+	from := min(main.BitRate*4/5, prev.BitRate*8/5)
+	if from <= prev.From {
+		return rungs
+	}
+	return append(rungs, remoteRung{MaxSize: main.MaxSize, MaxFPS: fps, BitRate: main.BitRate, From: from})
+}
+
+// remoteRateRange is rate control's floor, start and ceiling for rungs: the
+// bottom rung's rate, the launch rung's, and the top rung's. The session's
+// default floor is 2 Mbps, which the bottom three rungs sit under.
+func remoteRateRange(rungs []remoteRung) (lo, start, hi int) {
+	return rungs[0].BitRate, rungs[launchRung(rungs)].BitRate, rungs[len(rungs)-1].BitRate
+}
+
+func launchRung(rungs []remoteRung) int {
+	return min(adbRemoteLaunchRung, len(rungs)-1)
+}
 
 const (
 	// remoteLinger is how long the second session outlives a closed gate, so
 	// a viewer that reconnects finds it running.
 	remoteLinger = 5 * time.Second
-	// remoteRaiseHold is how long the cap must stay above the running rung
-	// before it moves up one. A relaunch costs about half a second on the
-	// device and a keyframe on the link; rate control moves every 100-300 ms.
-	remoteRaiseHold = 3 * time.Second
-	// remoteRaiseRegret: a raise cut within this long doubles the hold, up to
-	// remoteRaiseHoldMax, so a link that cannot take the next rung is not
-	// relaunched into every few seconds.
+	// remoteRaiseHold is how long the cap must stay above the running rung,
+	// while it carries the track, before it moves up one. A relaunch costs
+	// about half a second on the device and a keyframe on the link; rate
+	// control moves every 100-300 ms.
+	remoteRaiseHold = 2 * time.Second
+	// remoteRaiseRegret: a raise cut within this long goes back to the rung
+	// it came from and doubles the hold into the rung that failed, up to
+	// remoteRaiseHoldMax, so a link that cannot take it is not relaunched
+	// into every few seconds.
 	remoteRaiseRegret  = 10 * time.Second
 	remoteRaiseHoldMax = time.Minute
+	// remoteRegretProtect: after a regret cut, the rung it went back to is
+	// not cut again until the cap selects it, or for this long after it
+	// carries the track. The failed rung's backlog keeps the link congested
+	// after it stops: at 1 Mbps a 1.5 Mbps rung that ran two seconds left
+	// about four seconds of it, and rate control sat at its floor throughout.
+	remoteRegretProtect = 8 * time.Second
 	// remoteFirstFrame is how long a launched session has to send its
 	// parameter sets. Measured launches send them about 0.5 s after Launch
 	// returns.
@@ -138,18 +194,29 @@ func adbRemoteWanted(kind Kind) bool {
 	return remoteTrackWanted(kind == KindDevice)
 }
 
-// rungPicker turns rate control's cap into a rung: cuts at once, raises one
-// rung at a time after the cap has held above the running one.
+// rungPicker turns rate control's cap into a rung. It cuts at once and raises
+// one rung at a time, after the cap has held above the next rung while the
+// chosen rung carries the track.
 type rungPicker struct {
-	rungs    []remoteRung
-	cur      int
-	upSince  time.Time
-	raisedAt time.Time
-	hold     time.Duration
+	rungs []remoteRung
+	cur   int
+	// hold[i] is how long the cap must hold before a raise into rungs[i].
+	hold    []time.Duration
+	upSince time.Time
+	// raisedAt is when cur was raised into from raisedFrom, zero after a cut.
+	raisedAt   time.Time
+	raisedFrom int
+	// protect is set by a regret cut: cur is not cut again until the cap
+	// selects it or it has carried the track for remoteRegretProtect.
+	protect bool
 }
 
 func newRungPicker(rungs []remoteRung) *rungPicker {
-	return &rungPicker{rungs: rungs, hold: remoteRaiseHold}
+	hold := make([]time.Duration, len(rungs))
+	for i := range hold {
+		hold[i] = remoteRaiseHold
+	}
+	return &rungPicker{rungs: rungs, cur: launchRung(rungs), hold: hold}
 }
 
 // rungFor is the highest rung bps selects.
@@ -163,23 +230,44 @@ func (p *rungPicker) rungFor(bps int) int {
 	return i
 }
 
-// pick takes the cap at now and returns the rung to run.
-func (p *rungPicker) pick(now time.Time, bps int) int {
+// pick takes the cap at now and returns the rung to run. carrying is the rung
+// of the session carrying the track, -1 for none, and carryAt when it took
+// over. A cap of zero is no cap yet.
+func (p *rungPicker) pick(now time.Time, bps, carrying int, carryAt time.Time) int {
+	if bps <= 0 {
+		return p.cur
+	}
 	want := p.rungFor(bps)
+	settled := carrying == p.cur
+	if p.protect && settled && (want >= p.cur || now.Sub(carryAt) >= remoteRegretProtect) {
+		p.protect = false
+	}
 	switch {
 	case want < p.cur:
-		if !p.raisedAt.IsZero() && now.Sub(p.raisedAt) < remoteRaiseRegret {
-			p.hold = min(2*p.hold, remoteRaiseHoldMax)
-		}
-		p.cur = want
 		p.upSince = time.Time{}
+		if p.protect {
+			break
+		}
+		if settled && !p.raisedAt.IsZero() && now.Sub(p.raisedAt) < remoteRaiseRegret {
+			// The raise did not hold. The rung it came from carried the
+			// track; what drove the cap under it is the failed rung's
+			// backlog, so go back there and wait for that to drain.
+			p.hold[p.cur] = min(2*p.hold[p.cur], remoteRaiseHoldMax)
+			p.cur, p.raisedAt, p.protect = p.raisedFrom, time.Time{}, true
+			break
+		}
+		p.cur, p.raisedAt = want, time.Time{}
 	case want > p.cur:
+		if !settled {
+			p.upSince = time.Time{}
+			break
+		}
 		if p.upSince.IsZero() {
 			p.upSince = now
-		} else if now.Sub(p.upSince) >= p.hold {
+		} else if now.Sub(p.upSince) >= p.hold[p.cur+1] {
+			p.raisedFrom, p.raisedAt = p.cur, now
 			p.cur++
-			p.raisedAt = now
-			p.upSince = now
+			p.upSince = time.Time{}
 		}
 	default:
 		p.upSince = time.Time{}
@@ -201,12 +289,14 @@ type remoteRun struct {
 	rung      int
 	started   time.Time
 	gotConfig bool
+	carryAt   time.Time // when it took over the track, zero before
 	src       remoteSource
 }
 
 // adbRemote is an adb stream's remote track.
 type adbRemote struct {
 	launch  remoteLauncher
+	rungs   []remoteRung
 	maxSize int // the main session's longest edge, 0 for none
 	mainKey func() error
 	now     func() time.Time
@@ -250,30 +340,33 @@ type adbRemote struct {
 	resetMsg []byte
 }
 
-// newADBRemote starts the track's manager. mainKey resets the main session,
-// for the fallback.
-func newADBRemote(launch remoteLauncher, maxSize int, mainKey func() error) *adbRemote {
-	r := newADBRemoteAt(launch, maxSize, mainKey, time.Now)
+// newADBRemote starts the track's manager. main is the main session's
+// settings, which top the rungs; mainKey resets the main session, for the
+// fallback.
+func newADBRemote(launch remoteLauncher, main remoteLaunch, mainKey func() error) *adbRemote {
+	r := newADBRemoteAt(launch, main, mainKey, time.Now)
 	go r.run()
 	return r
 }
 
 // newADBRemoteAt is newADBRemote on a given clock, without the manager
 // goroutine: the caller runs step.
-func newADBRemoteAt(launch remoteLauncher, maxSize int, mainKey func() error, now func() time.Time) *adbRemote {
+func newADBRemoteAt(launch remoteLauncher, main remoteLaunch, mainKey func() error, now func() time.Time) *adbRemote {
 	ctx, stop := context.WithCancel(context.Background())
 	var buf [scrcpy.ResetVideoMessageLen]byte
 	n, _ := scrcpy.EncodeResetVideo(buf[:])
+	rungs := adbRemoteRungsFor(main)
 	r := &adbRemote{
 		launch:   launch,
-		maxSize:  maxSize,
+		rungs:    rungs,
+		maxSize:  main.MaxSize,
 		mainKey:  mainKey,
 		now:      now,
 		out:      make(chan Frame, remoteOutLen),
 		poke:     make(chan struct{}, 1),
 		ctx:      ctx,
 		stop:     stop,
-		picker:   newRungPicker(adbRemoteRungs),
+		picker:   newRungPicker(rungs),
 		resetMsg: append([]byte(nil), buf[:n]...),
 	}
 	return r
@@ -347,7 +440,7 @@ func (r *adbRemote) encoderBps() int {
 	if r.cur == nil {
 		return 0
 	}
-	return adbRemoteRungs[r.cur.rung].BitRate
+	return r.rungs[r.cur.rung].BitRate
 }
 
 // close stops the manager and every session, and closes out.
@@ -400,9 +493,9 @@ func (r *adbRemote) step(now time.Time) {
 	if !want {
 		stale = append(stale, r.cur, r.next)
 		r.cur, r.next = nil, nil
-		// The next viewer starts at the bottom rung, as rate control starts
-		// it at the bottom of its range.
-		r.picker = newRungPicker(adbRemoteRungs)
+		// The next viewer starts at the launch rung, where rate control
+		// starts it.
+		r.picker = newRungPicker(r.rungs)
 		r.keyUntil = time.Time{}
 		return
 	}
@@ -415,7 +508,11 @@ func (r *adbRemote) step(now time.Time) {
 			return
 		}
 	}
-	rung := r.picker.pick(now, r.wish)
+	carrying, carryAt := -1, time.Time{}
+	if r.cur != nil {
+		carrying, carryAt = r.cur.rung, r.cur.carryAt
+	}
+	rung := r.picker.pick(now, r.wish, carrying, carryAt)
 	if r.next != nil && r.next.rung != rung {
 		// The cap moved again while the replacement was starting.
 		stale = append(stale, r.next)
@@ -434,7 +531,7 @@ func (r *adbRemote) step(now time.Time) {
 // launchFor is rung's launch, no larger than the main session or
 // RemoteMaxSize. The caller holds mu.
 func (r *adbRemote) launchFor(rung int) remoteLaunch {
-	g := adbRemoteRungs[rung]
+	g := r.rungs[rung]
 	size := g.MaxSize
 	if r.maxSize > 0 && r.maxSize < size {
 		size = r.maxSize
@@ -531,6 +628,7 @@ func (r *adbRemote) onFrame(run *remoteRun, f scrcpy.Frame) {
 		run.gotConfig = true
 		if run == r.next {
 			old, r.cur, r.next = r.cur, run, nil
+			run.carryAt = r.now()
 			r.fails = 0
 			// What was asked of the old session is the new one's first
 			// keyframe.
@@ -691,7 +789,10 @@ func (s *adbStream) RemoteMaxSize(px int) error {
 
 // RemoteRateRange implements SteppedRemoteStream.
 func (s *adbStream) RemoteRateRange() (lo, start, hi int) {
-	return adbRemoteRateMin, adbRemoteRateStart, adbRemoteRateMax
+	if s.remote == nil {
+		return remoteRateRange(adbRemoteRungs)
+	}
+	return remoteRateRange(s.remote.rungs)
 }
 
 // RemoteEncoderBps implements SteppedRemoteStream.
