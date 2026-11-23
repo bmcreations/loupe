@@ -48,6 +48,7 @@ func main() {
 	fps := flag.Int("fps", 60, "simcap's frame rate cap")
 	bitRate := flag.Int("bitrate", 0, "simcap's starting bitrate, 0 for its default")
 	setBitRate := flag.Int("setbitrate", 0, "bitrate to switch to live, halfway through")
+	flag.BoolVar(&printFrames, "frames", false, "print each frame's wall-clock arrival in unix ms, to line up against input")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: simprobe [-animate] [-dur 10s] <udid>")
@@ -58,6 +59,9 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// printFrames is -frames.
+var printFrames bool
 
 // The motion is a CSS transform, run by the compositor. A requestAnimationFrame
 // loop was tried first and painted at 6-7fps in the simulator's Safari, which
@@ -145,6 +149,9 @@ func run(bin, udid string, dur time.Duration, animate bool, fps, bitRate, setBit
 		if firstFrame == nil {
 			firstFrame = buf
 			fmt.Printf("first frame  %v  key=%v %d bytes, starts % x\n", ms(at), ph.Key, len(buf), buf[:min(8, len(buf))])
+		}
+		if printFrames {
+			fmt.Printf("frame        %d key=%v %d bytes\n", time.Now().UnixMilli(), ph.Key, len(buf))
 		}
 		perSec[int(at/time.Second)]++
 		bytesPerSec[int(at/time.Second)] += len(buf)
