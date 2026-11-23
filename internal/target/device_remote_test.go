@@ -249,13 +249,16 @@ func TestRungPickerCutsAtOnceAndRaisesAfterHold(t *testing.T) {
 	if got := p.pick(at.Add(2*remoteRaiseHold), 3_000_000); got != 2 {
 		t.Fatalf("rung %d after a second hold, want 2", got)
 	}
-	if got := p.pick(at.Add(2*remoteRaiseHold+time.Millisecond), 500_000); got != 0 {
+	if got := p.pick(at.Add(3*remoteRaiseHold), 3_000_000); got != 3 {
+		t.Fatalf("rung %d after a third hold, want the top, 3", got)
+	}
+	if got := p.pick(at.Add(3*remoteRaiseHold+time.Millisecond), 500_000); got != 0 {
 		t.Fatalf("cut to %d, want straight to 0", got)
 	}
 	// A cap that dips under the next rung restarts its hold.
 	p = newRungPicker(adbRemoteRungs)
 	p.pick(at, 1_300_000)
-	p.pick(at.Add(2*time.Second), 900_000)
+	p.pick(at.Add(2*time.Second), 500_000)
 	p.pick(at.Add(2500*time.Millisecond), 1_300_000)
 	if got := p.pick(at.Add(4*time.Second), 1_300_000); got != 0 {
 		t.Fatalf("rung %d: the hold did not restart after the dip", got)
@@ -271,7 +274,7 @@ func TestRungPickerHoldDoublesWhenARaiseIsCut(t *testing.T) {
 		t.Fatalf("rung %d, want 1", got)
 	}
 	at = at.Add(time.Second)
-	p.pick(at, 700_000) // the link could not take it
+	p.pick(at, 500_000) // the link could not take it
 	p.pick(at, 1_300_000)
 	if got := p.pick(at.Add(remoteRaiseHold), 1_300_000); got != 0 {
 		t.Fatalf("raised again after %v, want the hold doubled", remoteRaiseHold)
@@ -307,7 +310,7 @@ func TestADBRemoteGateStartsOneSessionAndStopsAfterLinger(t *testing.T) {
 		t.Fatal("launched with the gate held")
 	}
 	s := running(t, r, l, clk)
-	if s.launch != (remoteLaunch{MaxSize: 720, MaxFPS: 30, BitRate: 750_000}) {
+	if s.launch != (remoteLaunch{MaxSize: 480, MaxFPS: 30, BitRate: 300_000}) {
 		t.Fatalf("first launch %+v, want the bottom rung", s.launch)
 	}
 	eventually(t, "the switch to the first session", func() bool { return r.isCur(s) })
@@ -341,7 +344,7 @@ func TestADBRemoteGateStartsOneSessionAndStopsAfterLinger(t *testing.T) {
 	r.gate(true)
 	r.step(clk.Add(time.Second))
 	s2 := l.session(t, 1)
-	if s2.launch.BitRate != 750_000 {
+	if s2.launch.BitRate != 300_000 {
 		t.Fatalf("relaunch at %d bps, want the bottom rung", s2.launch.BitRate)
 	}
 	if mainKeys != 0 {
@@ -429,8 +432,8 @@ func TestADBRemoteRungChangeIsMakeBeforeBreak(t *testing.T) {
 	r.step(clk.Add(time.Second))
 	r.step(clk.Add(remoteRaiseHold))
 	nu := l.session(t, 1)
-	if nu.launch != (remoteLaunch{MaxSize: 1080, MaxFPS: 30, BitRate: 1_500_000}) {
-		t.Fatalf("relaunch %+v, want the middle rung", nu.launch)
+	if nu.launch != (remoteLaunch{MaxSize: 720, MaxFPS: 30, BitRate: 750_000}) {
+		t.Fatalf("relaunch %+v, want one rung up", nu.launch)
 	}
 	eventually(t, "the replacement", func() bool { return r.isNext(nu) })
 
@@ -559,21 +562,21 @@ func TestADBRemoteSessionThatSendsNothingIsReplaced(t *testing.T) {
 func TestADBRemoteLaunchNoLargerThanMainOrMaxSize(t *testing.T) {
 	clk := newFakeClock()
 	l := &fakeLaunches{}
-	r := newADBRemoteAt(l.launch, 600, nil, clk.Now)
+	r := newADBRemoteAt(l.launch, 400, nil, clk.Now)
 	defer r.close()
 	r.gate(true)
 	r.step(clk.Now())
-	if s := l.session(t, 0); s.launch.MaxSize != 600 {
-		t.Fatalf("max size %d, want the main session's 600", s.launch.MaxSize)
+	if s := l.session(t, 0); s.launch.MaxSize != 400 {
+		t.Fatalf("max size %d, want the main session's 400", s.launch.MaxSize)
 	}
 	eventually(t, "the launch", func() bool { return r.launchIdle() })
-	r.setMaxSize(480)
+	r.setMaxSize(360)
 	r.gate(false)
 	r.step(clk.Add(remoteLinger + time.Second))
 	r.gate(true)
 	r.step(clk.Add(time.Second))
-	if s := l.session(t, 1); s.launch.MaxSize != 480 {
-		t.Fatalf("max size %d, want RemoteMaxSize's 480", s.launch.MaxSize)
+	if s := l.session(t, 1); s.launch.MaxSize != 360 {
+		t.Fatalf("max size %d, want RemoteMaxSize's 360", s.launch.MaxSize)
 	}
 }
 

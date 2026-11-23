@@ -48,25 +48,28 @@ type remoteRung struct {
 // under continuous scrolling, beside a 1440px 60 fps 4 Mbps main session that
 // held 57-62 fps throughout:
 //
+//   - 480px 30 fps 300 kbps ran 0.36-0.47 Mbps, keyframes 6.5-9 KB;
 //   - 720px 30 fps 750 kbps ran 0.6-1.1 Mbps, keyframes 8-18 KB;
 //   - 1080px 30 fps 1.5 Mbps ran 1.3-1.8 Mbps, keyframes 11-29 KB;
 //   - 1080px 60 fps 3 Mbps ran 2.4-3.1 Mbps, keyframes 3.5-35 KB.
 //
-// The encoder does not go under about 1.4 Mbps at 1080px, at 30 fps or at 15,
-// so the bottom rung is smaller rather than just slower. From sits under each
-// rung's rate because rate control raises only while the encoder fills half
-// its cap: a rung that needed its own rate would never be reached.
+// The encoder does not go under about 1.4 Mbps at 1080px or 0.9 Mbps at
+// 720px, at 30 fps or at 15, so the lower rungs are smaller rather than just
+// slower. From sits under each rung's rate because rate control raises only
+// while the encoder fills half its cap: a rung that needed its own rate would
+// never be reached.
 var adbRemoteRungs = []remoteRung{
-	{MaxSize: 720, MaxFPS: 30, BitRate: 750_000, From: 0},
+	{MaxSize: 480, MaxFPS: 30, BitRate: 300_000, From: 0},
+	{MaxSize: 720, MaxFPS: 30, BitRate: 750_000, From: 600_000},
 	{MaxSize: 1080, MaxFPS: 30, BitRate: 1_500_000, From: 1_200_000},
 	{MaxSize: 1080, MaxFPS: 60, BitRate: 3_000_000, From: 2_400_000},
 }
 
 // The rate-control range an adb remote track runs in. The session's default
-// floor is 2 Mbps, which the bottom two rungs sit under.
+// floor is 2 Mbps, which the bottom three rungs sit under.
 const (
-	adbRemoteRateMin   = 750_000
-	adbRemoteRateStart = 750_000
+	adbRemoteRateMin   = 300_000
+	adbRemoteRateStart = 300_000
 	adbRemoteRateMax   = 3_000_000
 )
 

@@ -307,11 +307,11 @@ func TestSessionSendsCapOnChangeOnly(t *testing.T) {
 	}
 }
 
-// An adb remote track runs from 750 kbps to 3 Mbps (adbRemoteRate* in
-// internal/target). On the ~1 Mbps link of the 12:25 run its cap falls to
-// 750 kbps, the bottom rung, rather than stopping at the default 2 Mbps floor.
-func TestRemoteRateInARangeFallsToItsFloor(t *testing.T) {
-	x := &rateRun{r: newRemoteRateIn(750_000, 750_000, 3_000_000), now: time.Unix(1000, 0)}
+// An adb remote track runs from 300 kbps to 3 Mbps (adbRemoteRate* in
+// internal/target). On the ~1 Mbps link of the 12:25 run its cap falls under
+// the link, rather than stopping at the default 2 Mbps floor.
+func TestRemoteRateInARangeFallsUnderTheLink(t *testing.T) {
+	x := &rateRun{r: newRemoteRateIn(300_000, 300_000, 3_000_000), now: time.Unix(1000, 0)}
 	x.r.cap, x.r.slowStart = 1_500_000, false
 	thin := []rateViewer{
 		{QueueMs: 181.9, OldestMs: 259.3, BaseMs: 71.8, DeliveredBps: 897_000},
@@ -322,23 +322,23 @@ func TestRemoteRateInARangeFallsToItsFloor(t *testing.T) {
 	for _, v := range thin {
 		x.run(time.Second, v, float64(x.r.Cap()))
 	}
-	if got := x.r.Cap(); got != 750_000 {
-		t.Errorf("cap = %d after 4 s queued on a ~1 Mbps link, want the floor 750000", got)
+	if got := x.r.Cap(); got < 300_000 || got >= 900_000 {
+		t.Errorf("cap = %d after 4 s queued on a ~1 Mbps link, want 300000..900000", got)
 	}
 }
 
-// The adb rungs are picked from 1.2 and 2.4 Mbps of cap, and rate control
-// raises only while the encoder fills half the cap. On a clean link the bottom
-// rung's measured 0.9 Mbps must take the cap past 1.2 Mbps, and the middle
-// rung's 1.5 Mbps past 2.4 Mbps, or the track never leaves a rung. The cap
-// stays inside the range throughout.
+// The adb rungs are picked from 0.6, 1.2 and 2.4 Mbps of cap, and rate control
+// raises only while the encoder fills half the cap. On a clean link each
+// rung's measured rate (0.42, 0.9 and 1.5 Mbps) must take the cap past the
+// next rung's, or the track never leaves a rung. The cap stays inside the
+// range throughout.
 func TestRemoteRateInARangeClimbsOffEachRung(t *testing.T) {
-	x := &rateRun{r: newRemoteRateIn(750_000, 750_000, 3_000_000), now: time.Unix(1000, 0)}
-	if got := x.r.Cap(); got != 750_000 {
-		t.Fatalf("starts at %d, want 750000", got)
+	x := &rateRun{r: newRemoteRateIn(300_000, 300_000, 3_000_000), now: time.Unix(1000, 0)}
+	if got := x.r.Cap(); got != 300_000 {
+		t.Fatalf("starts at %d, want 300000", got)
 	}
 	var caps []int
-	for _, rung := range []struct{ prod, past int }{{900_000, 1_200_000}, {1_500_000, 2_400_000}} {
+	for _, rung := range []struct{ prod, past int }{{420_000, 600_000}, {900_000, 1_200_000}, {1_500_000, 2_400_000}} {
 		clean := rateViewer{QueueMs: 2, OldestMs: 40, BaseMs: 40, DeliveredBps: float64(rung.prod)}
 		c, _ := x.run(20*time.Second, clean, float64(rung.prod))
 		caps = append(caps, c...)
@@ -346,8 +346,8 @@ func TestRemoteRateInARangeClimbsOffEachRung(t *testing.T) {
 			t.Errorf("encoder at %d bps on a clean link: cap %d, want past %d", rung.prod, got, rung.past)
 		}
 	}
-	if lo, hi := minInt(caps), maxInt(caps); lo < 750_000 || hi > 3_000_000 {
-		t.Errorf("cap ran %d..%d, outside 750000..3000000", lo, hi)
+	if lo, hi := minInt(caps), maxInt(caps); lo < 300_000 || hi > 3_000_000 {
+		t.Errorf("cap ran %d..%d, outside 300000..3000000", lo, hi)
 	}
 }
 
