@@ -165,22 +165,19 @@ func (s *Session) attachRemote(stream target.Stream) (first bool) {
 
 // pumpRemote is pump for the remote track. A remote viewer's own acks mean the
 // frames are not offset onto the main track's clock.
+//
+// The codec string is read from every Config, not just the first. A stream
+// whose remote track changes encoder settings (the adb track relaunches scrcpy
+// for each one) changes its SPS, and the H.264 level with it, so the string a
+// viewer configured its decoder from can stop describing the stream. A
+// browser configures its decoder from init alone, so a changed string goes
+// out in a new init, ahead of the Config that carries it. sendInitLocked
+// skips viewers whose init is unchanged, so only remote viewers get it.
 func (s *Session) pumpRemote(frames <-chan target.Frame) {
 	var scratch []byte
-	resolved := false
 	for frame := range frames {
-		if frame.Config && !resolved {
-			if sps := h264.FindSPS(frame.Data); sps != nil {
-				if codec, err := h264.CodecString(sps); err == nil {
-					resolved = true
-					s.mu.Lock()
-					s.remote.codec = codec
-					s.sendInitLocked()
-					s.mu.Unlock()
-				} else {
-					fmt.Printf("[session %s] remote codec string: %v\n", s.ID, err)
-				}
-			}
+		if frame.Config {
+			s.resolveRemoteCodec(frame.Data)
 		}
 		sentAt := uint64(time.Now().UnixMicro())
 		scratch = EncodeFrame(scratch, uint64(frame.PTS.Microseconds()), frame.Key, frame.Config, sentAt, frame.Data)
@@ -208,6 +205,30 @@ func (s *Session) pumpRemote(frames <-chan target.Frame) {
 		}
 		s.broadcast(msg)
 	}
+}
+
+// resolveRemoteCodec reads the codec string from a remote Config and, when it
+// differs from the one remote viewers were told, tells them the new one.
+func (s *Session) resolveRemoteCodec(cfg []byte) {
+	sps := h264.FindSPS(cfg)
+	if sps == nil {
+		return
+	}
+	codec, err := h264.CodecString(sps)
+	if err != nil {
+		fmt.Printf("[session %s] remote codec string: %v\n", s.ID, err)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.remote == nil || s.remote.codec == codec {
+		return
+	}
+	if s.remote.codec != "" {
+		fmt.Printf("[session %s] remote codec %s -> %s\n", s.ID, s.remote.codec, codec)
+	}
+	s.remote.codec = codec
+	s.sendInitLocked()
 }
 
 // remoteStream is the live remote stream, nil without one.

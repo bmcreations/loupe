@@ -281,6 +281,10 @@ differs from simcap's:
 - **A keyframe ask is a `RESET_VIDEO` on the second session only.** A slow
   viewer's resyncs no longer restart the encoder the local viewers watch.
   Asks are merged while one is outstanding; a reset answers in 100 to 215 ms.
+- **Each setting brings its own SPS, and can bring another H.264 level.** The
+  session reads the codec string from every remote Config and sends remote
+  viewers a new init when it changes, since a browser configures its decoder
+  from init alone.
 - **Rate control runs from 300 kbps to the main session's bitrate, and picks
   a setting.** A cut applies at once. A raise is one setting at a time, after
   the rate has held for 2s while the current setting carries the track. A
