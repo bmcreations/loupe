@@ -75,9 +75,26 @@ is taken for a leaf and costs one probe. It runs at most 96 hit tests a dump,
 and added about 90ms on Chats. Settings' root and General dumped the same
 nodes as before.
 
-A dump takes 50-70ms on the Home Screen and under a second on a busy screen,
-and 1-4.6s the first time after the input process starts. The input process
-stops after two minutes idle and restarts on the next command.
+**Web pages are found by hit tests too.** WebKit renders a WKWebView's
+page, Safari's included, in its own WebContent process, and the simulator's
+accessibility never links it to the app: Safari on tv.apple.com/search
+dumped only Back, Page Menu, Address, refresh and Tabs. simcap hit-tests a
+4x8 grid at points no native leaf covers, climbs each hit in a WebContent
+process to the page, a `Group` titled with the page's title, and adds the
+page under the application. That page went from 6 nodes in 10ms to 48 in
+90ms, and a `match` on the link `Movies` opened the Movies page. A page node
+whose center is outside the page's frame is `occluded`: a link centered
+between the page's bottom edge and Safari's toolbar did not open from a tap.
+A web view smaller than a grid cell, about 100x109 points on iPhone 18 Pro,
+can fall between the points. Page nodes never carry `focused`, since WebKit
+calls every one of them focused. Only Safari has been measured. Needs simcap
+with bmcreations/simcap#17.
+
+A dump takes 90-100ms on the Home Screen, about 50ms of it the web page
+grid, since open wallpaper leaves most grid points to test, and under a
+second on a busy screen, and 1-4.6s the first time after the input process
+starts. The input process stops after two minutes idle and restarts on the
+next command.
 
 ### Boot with fewer background daemons
 
@@ -211,7 +228,8 @@ with 9001, "Remote control requires iOS 27.0".
   simcap's `bridge` target). Over Wi-Fi it
   answers that the tree comes over USB. CoreDevice refuses the phone's AX
   service to the Mac, so the bridge opens a tunnel of its own; how that was
-  found follows.
+  found follows. The simulator's web page search does not run here, and
+  whether the phone's dump carries a page has not been measured.
 
 #### CoreDevice refuses the AX service
 
