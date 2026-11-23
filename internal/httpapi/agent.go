@@ -504,7 +504,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		req.Match.WaitMs = defaultWaitMs
 	}
 	if req.Match != nil {
-		n, ok := s.resolveMatch(w, r, t, *req.Match)
+		n, ok := s.resolveMatch(w, r, t, *req.Match, req.Action != "wait")
 		if !ok {
 			return
 		}
@@ -827,20 +827,28 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	}
 	s.traceInputWith(r, t.ID(), req.Action, c, nil, extra)
 	acted = true
+	if movesScreen(req.Action) {
+		s.inputs.touch(t.ID(), time.Now())
+	}
 	s.agentActed(t.ID(), req.Action, c)
 	writeJSON(w, http.StatusOK, InputResponse{OK: true, Matched: matched})
 }
 
 // matchPollEvery is the pause between hierarchy dumps while a match waits
-// for its node. A dump itself takes from a few hundred ms to over 2s, so
-// this only keeps a fast target from being asked back to back.
-const matchPollEvery = 250 * time.Millisecond
+// for its node. An Android dump takes ~250ms warm and can pass 2s cold, but
+// a simulator's takes 60-100ms, so a longer pause would leave a pushed
+// screen waiting most of a poll after its node appeared.
+const matchPollEvery = 50 * time.Millisecond
 
 // resolveMatch finds the node m names on t's screen, dumping the hierarchy
 // again until m.WaitMs runs out while nothing matches. It writes the error
 // response itself: 404 noMatch, 409 ambiguous with the candidates, or what
-// /api/ui would answer for the dump.
-func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.Target, m target.Match) (*target.Node, bool) {
+// /api/ui would answer for the dump. When the match acts on the node and t
+// took input within settleAfter, or the node was missing from an earlier
+// dump, a found node is returned only once the tree has held still for
+// settleQuiet (settle.go). A wait whose node arrived late counts as input
+// instead, so the step after it is held the same way.
+func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.Target, m target.Match, acts bool) (*target.Node, bool) {
 	if m.Empty() {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "match needs an id, text or desc"})
 		return nil, false
@@ -863,6 +871,10 @@ func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.T
 	defer cancel()
 	ctx = s.peerReadCtx(ctx, r, t)
 	deadline := time.Now().Add(wait)
+	gate := acts && s.inputs.recent(t.ID(), time.Now())
+	polled := false
+	var settleBy, changed time.Time
+	var prevSig string
 	for {
 		ui, err := insp.Inspect(ctx)
 		if err != nil {
@@ -879,6 +891,30 @@ func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.T
 		}
 		n, found, err := target.Pick(ui.Root, m)
 		switch {
+		case err == nil && !gate && polled && !acts:
+			s.inputs.touch(t.ID(), time.Now())
+			return n, true
+		case err == nil && (gate || polled):
+			gate = true
+			sig, now := treeSignature(ui), time.Now()
+			switch {
+			case settleBy.IsZero():
+				settleBy = now.Add(settleMax)
+				changed = now
+			case now.After(settleBy):
+				return n, true
+			case sig != prevSig:
+				changed = now
+			case now.Sub(changed) >= settleQuiet:
+				return n, true
+			}
+			prevSig = sig
+			select {
+			case <-ctx.Done():
+				return n, true
+			case <-time.After(matchPollEvery):
+			}
+			continue
 		case err == nil:
 			return n, true
 		case errors.Is(err, target.ErrAmbiguousMatch):
@@ -888,13 +924,16 @@ func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.T
 			})
 			return nil, false
 		}
-		if time.Now().Add(matchPollEvery).After(deadline) {
+		// A node seen while settling may drop out of one dump mid-animation,
+		// so it keeps its chance until settleBy even past a short waitMs.
+		if time.Now().Add(matchPollEvery).After(deadline) && (settleBy.IsZero() || time.Now().After(settleBy)) {
 			s.traceAgent(r, t.ID(), "match", err)
 			writeJSON(w, http.StatusNotFound, ErrorResponse{
 				Error: err.Error(), Code: ErrCodeNoMatch, Candidates: leaves(found),
 			})
 			return nil, false
 		}
+		polled = true
 		select {
 		case <-ctx.Done():
 			writeJSON(w, http.StatusNotFound, ErrorResponse{Error: err.Error(), Code: ErrCodeNoMatch})
@@ -1567,6 +1606,7 @@ func (s *Server) launchInstalled(r *http.Request, t target.Target, pkg, pkgErr s
 		out.Code, _, _ = launchErrCode(err)
 		return out
 	}
+	s.inputs.touch(t.ID(), time.Now())
 	s.agentActed(t.ID(), "launch", c)
 	out.OK, out.Activity = true, res.Activity
 	return out

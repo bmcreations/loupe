@@ -166,7 +166,7 @@ A node has to satisfy every field given. Other body fields:
 | Field | Effect |
 |---|---|
 | `index` | Picks the nth match in tree order. |
-| `waitMs` | Dumps again every 250ms, up to this many ms (at most 20000), until the node appears. Replaces a sleep-and-retry after a navigation. |
+| `waitMs` | Dumps again every 50ms, up to this many ms (at most 20000), until the node appears. Replaces a sleep-and-retry after a navigation. |
 
 The server taps the node's `center`, moves the cursor there first, and answers
 `{"ok":true,"matched":{...}}` with the node (no children). Nodes with no area
@@ -181,6 +181,16 @@ bounds count once.
 
 The lookup runs before arbitration, so a missing node is a 404 even while a
 person holds the target. Each match tap costs a full dump.
+
+A match that acts (any action but `wait`) first waits for the screen to hold
+still when the target took input in the last 1s, or a `wait` before it, or its
+own first dump, had to wait for the node to appear. It dumps until the tree has
+not changed for 150ms, at most 1.5s, and taps where the node ends up. A tap
+sent while a push or pop is still animating answers 200 and does nothing, and
+the node is already in the tree at its final place, so nothing else catches it.
+Right after a push, a tap takes about 0.7s on a simulator and 1s on an
+emulator instead of being lost. On a screen that is not moving, the wait adds
+about 0.2s on a simulator and 0.25s on an emulator.
 
 #### Scroll
 
