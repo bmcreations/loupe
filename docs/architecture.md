@@ -240,6 +240,72 @@ encoder is configured, so a change means starting a second scrcpy server and
 swapping it in; the new encoder opens before the old one closes, so a failed
 relaunch leaves the session as it was.
 
+### Remote track
+
+A viewer that is not on this machine and acks its frames gets a second encode
+sized for its link, so a phone on cellular no longer shares the main stream's
+rate with a viewer on the LAN. The browser client and the Handset app both ack.
+Local viewers, and viewers that don't ack, stay on the main stream. A viewer's
+track is fixed when it joins.
+
+**Simulators:** simcap's second encoder is gated. It encodes a capture only
+while every remote viewer's link has room, so each frame it makes is
+delivered. Rate control runs from 2 to 8 Mbps.
+
+**Android devices:** a second scrcpy session on the device, with its own scid,
+running only while a viewer is on the track. It starts at 720px and stops 5s
+after the last viewer leaves. The settings were measured on a Solana Seeker
+(MT6878) beside a 1440px 60 fps 4 Mbps main session, which held 57 to 62 fps
+throughout:
+
+| Setting | Measured under scrolling | Keyframes |
+|---|---|---|
+| 480px, 30 fps, 300 kbps | 0.36 to 0.47 Mbps | 6.5 to 9 KB |
+| 720px, 30 fps, 750 kbps | 0.6 to 1.1 Mbps | 8 to 18 KB |
+| 1080px, 30 fps, 1.5 Mbps | 1.3 to 1.8 Mbps | 11 to 29 KB |
+| 1080px, 60 fps, 3 Mbps | 2.4 to 3.1 Mbps | 3.5 to 35 KB |
+| The main session's own | 3.4 to 4.6 Mbps at 1440px 60 fps 4 Mbps | 4 to 91 KB |
+
+A viewer whose link carries the main stream's rate ends on the main session's
+settings. A setting at or over the main session's bitrate is left out, and
+none is larger or faster than the main session. The 480px setting is reached
+only by cutting. The lower settings are smaller rather than just slower
+because that encoder would not go under about 1.4 Mbps at 1080px or 0.9 Mbps
+at 720px, at 30 fps or at 15.
+
+scrcpy can't hold its encoder or change it while it runs, so the adb track
+differs from simcap's:
+
+- **Frames can be dropped.** A frame the link can't take is shed by the
+  viewer's queue, which then waits for a keyframe, as on the main stream.
+- **A keyframe ask is a `RESET_VIDEO` on the second session only.** A slow
+  viewer's resyncs no longer restart the encoder the local viewers watch.
+  Asks are merged while one is outstanding; a reset answers in 100 to 215 ms.
+- **Each setting brings its own SPS, and can bring another H.264 level.** The
+  session reads the codec string from every remote Config and sends remote
+  viewers a new init when it changes, since a browser configures its decoder
+  from init alone.
+- **Rate control runs from 300 kbps to the main session's bitrate, and picks
+  a setting.** A cut applies at once. A raise is one setting at a time, after
+  the rate has held for 2s while the current setting carries the track. A
+  change starts a new session beside the running one, which takes over at its
+  first frame, so the track has no gap.
+- **A cut follows the rate, even straight after a raise.** At 1 Mbps a
+  1.5 Mbps setting that ran for two seconds left a backlog that held rate
+  control at its floor. Going back to 720px, which runs at about the link's
+  rate there, took delay from 1.37 s to 1.02 s in seven seconds; 480px took it
+  from 0.96 s to 44 ms in two. A raise that carried the track and is cut
+  within 10s doubles the wait before that setting is tried again, up to a
+  minute. In the trace, `remoteCapBps` is what rate control asked for and
+  `remoteEncBps` what the encoder runs at.
+- **If three launches in a row fail,** the track carries the main stream for
+  the rest of the session, as before the track existed.
+
+Emulators don't get the track unless `LOUPE_REMOTE_TRACK=on`;
+`LOUPE_REMOTE_TRACK=off` turns it off for simulators and devices alike. The
+mechanism is in `internal/session/remote.go` and
+`internal/target/device_remote.go`.
+
 ## Client telemetry
 
 The client reports what only it can know over `/api/log`, recorded in the trace

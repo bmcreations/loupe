@@ -117,6 +117,10 @@ func (t *ADBTarget) Open(ctx context.Context, opts Options) (Stream, error) {
 		frames: make(chan Frame, 64),
 		clip:   newClipState(),
 	}
+	if adbRemoteWanted(t.kind) {
+		main := remoteLaunch{MaxSize: opts.MaxSize, MaxFPS: opts.MaxFPS, BitRate: opts.BitRate}
+		s.remote = newADBRemote(t.remoteLauncher(opts), main, s.RequestKeyframe)
+	}
 	go s.pump()
 	go s.clip.watch(sess.Clipboard())
 	// A keyboard that fails to attach is not worth the video: the send
@@ -161,6 +165,10 @@ type adbStream struct {
 
 	// clip is the device clipboard as the server last reported it.
 	clip *clipState
+
+	// remote is the remote track, a second scrcpy session; nil without one.
+	// See device_remote.go.
+	remote *adbRemote
 }
 
 func (s *adbStream) Meta() Meta {
@@ -214,6 +222,9 @@ func (s *adbStream) Close() error {
 		if s.untrack != nil {
 			s.untrack()
 		}
+		if s.remote != nil {
+			s.remote.close()
+		}
 		_ = s.sess.Close()
 	})
 	return nil
@@ -222,20 +233,30 @@ func (s *adbStream) Close() error {
 // pump copies frames from the scrcpy session, converting the type. It closes
 // s.frames when the source ends.
 func (s *adbStream) pump() {
-	defer close(s.frames)
+	defer func() {
+		close(s.frames)
+		// The remote track ends with the stream it belongs to.
+		if s.remote != nil {
+			s.remote.close()
+		}
+	}()
 	for f := range s.sess.Frames() {
 		// Before the frame is forwarded, so a viewer cannot see a picture of
 		// the new shape while Meta still describes the old one.
 		if f.Config {
 			s.noteConfig(f.Data)
 		}
-		s.frames <- Frame{
+		frame := Frame{
 			PTS:      f.PTS,
 			Key:      f.Key,
 			Config:   f.Config,
 			Data:     f.Data,
 			Captured: f.Captured,
 		}
+		if s.remote != nil {
+			s.remote.offerMain(frame)
+		}
+		s.frames <- frame
 	}
 }
 

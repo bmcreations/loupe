@@ -23,6 +23,15 @@ import (
 // rather than sitting alongside ours.
 const devicePath = "/data/local/tmp/scrcpy-server.jar"
 
+// secondaryJarPath is where a Secondary launch stages its own copy of the jar.
+// The server deletes the jar it ran from (cleanup defaults to true, trap 17;
+// on a Seeker the file is already gone while the server runs), so a second
+// session sharing devicePath could delete the jar a main Launch had just
+// pushed, and that Launch would abort with ClassNotFoundException.
+func secondaryJarPath(scid string) string {
+	return "/data/local/tmp/scrcpy-server-" + scid + ".jar"
+}
+
 // Config describes one scrcpy-server launch.
 type Config struct {
 	// ADBPath is the adb binary to invoke. Empty means "adb" on PATH.
@@ -53,6 +62,13 @@ type Config struct {
 	// DefaultLogLevel. "verbose" is the only way to see the server report an
 	// input event it discarded, which is what cmd/touchrotprobe reads.
 	LogLevel string
+
+	// Secondary marks a session that runs beside another one on the same
+	// device, like the remote track's. It stages its own copy of the jar
+	// (see secondaryJarPath), leaves the screen's power alone, so starting
+	// one cannot wake a screen the user turned off, and does not sync the
+	// clipboard, which the main session already reports.
+	Secondary bool
 }
 
 // DefaultVideoCodec is the one codec the client is known to decode.
@@ -106,7 +122,11 @@ func (c Config) withDefaults() Config {
 // drift. scrcpy warns on an unknown option and carries on, so a rename lands
 // as changed behaviour and no error at all.
 func serverOptions(cfg Config, scid string) []string {
-	return []string{
+	clipboard := "clipboard_autosync=true"
+	if cfg.Secondary {
+		clipboard = "clipboard_autosync=false"
+	}
+	opts := []string{
 		"scid=" + scid,
 		"log_level=" + cfg.LogLevel,
 		"tunnel_forward=true",
@@ -120,22 +140,32 @@ func serverOptions(cfg Config, scid string) []string {
 		"send_dummy_byte=true",
 		// The default, spelled out because target.ClipboardWatcher depends
 		// on it: the server sends the clipboard each time it changes.
-		"clipboard_autosync=true",
+		clipboard,
 		"video_codec=" + cfg.VideoCodec,
 		"video_codec_options=i-frame-interval:int=" + strconv.Itoa(cfg.KeyframeIntervalSec),
 		"max_size=" + strconv.Itoa(cfg.MaxSize),
 		"max_fps=" + strconv.Itoa(cfg.MaxFPS),
 		"video_bit_rate=" + strconv.Itoa(cfg.BitRate),
 	}
+	if cfg.Secondary {
+		opts = append(opts, "power_on=false")
+	}
+	return opts
 }
 
 // OptionNames returns the option keys Launch sends. It exists so the package
 // that embeds the jar can assert them against its dex.
 func OptionNames() []string {
 	var names []string
-	for _, opt := range serverOptions(Config{}.withDefaults(), "0") {
-		k, _, _ := strings.Cut(opt, "=")
-		names = append(names, k)
+	seen := map[string]bool{}
+	for _, cfg := range []Config{{}, {Secondary: true}} {
+		for _, opt := range serverOptions(cfg.withDefaults(), "0") {
+			k, _, _ := strings.Cut(opt, "=")
+			if !seen[k] {
+				seen[k] = true
+				names = append(names, k)
+			}
+		}
 	}
 	return names
 }
@@ -190,13 +220,27 @@ func Launch(ctx context.Context, cfg Config) (*Session, error) {
 		closed:    make(chan struct{}),
 	}
 
-	if out, err := s.adb(ctx, "push", cfg.ServerJar, devicePath); err != nil {
-		return nil, fmt.Errorf("push server jar: %w (%s)", err, strings.TrimSpace(out))
-	}
-
 	scid, err := newSCID()
 	if err != nil {
 		return nil, err
+	}
+	jarPath := devicePath
+	if cfg.Secondary {
+		jarPath = secondaryJarPath(scid)
+	}
+
+	if out, err := s.adb(ctx, "push", cfg.ServerJar, jarPath); err != nil {
+		return nil, fmt.Errorf("push server jar: %w (%s)", err, strings.TrimSpace(out))
+	}
+	launched := false
+	if cfg.Secondary {
+		// A server that ran deletes its own copy; one that never got going
+		// would leave it behind, one per failed launch.
+		defer func() {
+			if !launched {
+				_, _ = s.adb(context.Background(), "shell", "rm", "-f", jarPath)
+			}
+		}()
 	}
 	socketName := "localabstract:scrcpy_" + scid
 
@@ -218,7 +262,7 @@ func Launch(ctx context.Context, cfg Config) (*Session, error) {
 
 	args := append(s.adbArgs(
 		"shell",
-		"CLASSPATH="+devicePath,
+		"CLASSPATH="+jarPath,
 		"app_process", "/", "com.genymobile.scrcpy.Server",
 		cfg.ServerVersion,
 	), serverOptions(cfg, scid)...)
@@ -281,6 +325,7 @@ func Launch(ctx context.Context, cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("read stream header: %w", err)
 	}
 	s.header = header
+	launched = true
 
 	go s.readFrames()
 	go s.readDeviceMessages()

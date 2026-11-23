@@ -101,17 +101,22 @@ type PassthroughStream interface {
 	PassthroughCodec() string
 }
 
-// RemoteStream is a Stream that also runs a second, gated H.264 encode for
-// viewers on slow links. It is held until a viewer's link has room for the
-// next frame, so every frame it encodes is delivered and none is dropped.
-// Only simcap does this today (see docs/architecture.md).
+// RemoteStream is a Stream that also runs a second H.264 encode for viewers on
+// slow links. simcap gates it: it is held until a viewer's link has room for
+// the next frame, so every frame it encodes is delivered and none is dropped.
+// An adb stream runs a second scrcpy session instead, which cannot be held:
+// the gate starts and stops it, frames a link cannot take are shed as on the
+// main track, and the cap picks one of a few fixed settings (see
+// device_remote.go and docs/architecture.md).
 type RemoteStream interface {
 	// Remote yields the remote track's access units, or nil when this stream
-	// has none. Every keyframe is preceded by a Config frame. The channel
-	// closes when the stream ends.
+	// has none. simcap precedes every keyframe with a Config frame; scrcpy
+	// does so only for the first keyframe of a session and for one it was
+	// asked for. The channel closes when the stream ends.
 	Remote() <-chan Frame
 	// RemoteGate opens (true) or holds (false) the remote encoder. Held, it
-	// encodes nothing; opened, it encodes the next capture at once.
+	// encodes nothing; opened, it encodes the next capture at once. On adb,
+	// opened starts the second session and held stops it a few seconds on.
 	RemoteGate(open bool) error
 	// RemoteKeyframe asks the remote encoder for a keyframe.
 	RemoteKeyframe() error
@@ -119,6 +124,18 @@ type RemoteStream interface {
 	RemoteCap(bps int) error
 	// RemoteMaxSize sets the remote encoder's longest edge in pixels.
 	RemoteMaxSize(px int) error
+}
+
+// SteppedRemoteStream is a RemoteStream whose encoder runs at a few fixed
+// rates rather than at any cap, so rate control works in a range of its own
+// and the cap it asks for is not the rate the encoder runs at.
+type SteppedRemoteStream interface {
+	// RemoteRateRange is rate control's floor, start and ceiling, in bits
+	// per second.
+	RemoteRateRange() (lo, start, hi int)
+	// RemoteEncoderBps is the bitrate the remote encoder is running at, or
+	// zero when none is.
+	RemoteEncoderBps() int
 }
 
 // Frame is one encoded access unit in Annex B byte-stream format, ready to hand

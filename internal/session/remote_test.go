@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -152,6 +153,63 @@ func TestRemoteTrackStartsFromConfigAndKey(t *testing.T) {
 	})
 	if !got[0].Config || !got[1].Key || got[2].Key || got[1].PTSMicros != 2000 || got[2].PTSMicros != 3000 {
 		t.Fatalf("sequence %+v", got)
+	}
+}
+
+// The adb track relaunches scrcpy for each encoder setting, and the new SPS can
+// carry another level. A browser configures its decoder from init alone, so a
+// remote viewer is sent the new codec string ahead of the Config that carries
+// it. A reset's Config repeats the SPS and sends nothing, and a main viewer,
+// whose init has not changed, is sent nothing.
+func TestRemoteCodecChangeResendsInitToRemoteViewersOnly(t *testing.T) {
+	s, fr := remoteSession(t)
+	_, rOut := s.AddViewerWith(ViewerOptions{Acks: true})
+	<-rOut
+	_, mOut := s.AddViewerWith(ViewerOptions{Local: true})
+	<-mOut
+	spsAt := func(level byte) []byte {
+		return []byte{0, 0, 0, 1, 0x67, 0x64, 0x00, level, 0xac, 0xd9, 0x40, 0x78, 0x02, 0x27, 0xe5, 0xc0, 0x44, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0xf0, 0x3c, 0x60, 0xc6, 0x58, 0, 0, 0, 1, 0x68, 0xe9, 0x3b, 0x2c, 0x8b}
+	}
+	key := func(ms int) target.Frame {
+		return target.Frame{PTS: time.Duration(ms) * time.Millisecond, Key: true, Data: []byte{0, 0, 0, 1, 0x65, byte(ms)}}
+	}
+	fr.remote <- target.Frame{Config: true, Data: spsAt(0x28)}
+	fr.remote <- key(1)
+	fr.remote <- target.Frame{Config: true, Data: spsAt(0x28)} // a reset
+	fr.remote <- key(2)
+	fr.remote <- target.Frame{Config: true, Data: spsAt(0x1f)} // a new rung
+	fr.remote <- key(3)
+
+	var seq []string
+	deadline := time.After(time.Second)
+	for configs := 0; configs < 3; {
+		select {
+		case m := <-rOut:
+			switch {
+			case m.Control && m.Data[0] == MsgInit:
+				seq = append(seq, initOf(t, m).Codec)
+			case m.Config:
+				configs++
+				seq = append(seq, "config")
+			}
+		case <-deadline:
+			t.Fatalf("remote viewer got %v", seq)
+		}
+	}
+	want := []string{"avc1.640028", "config", "config", "avc1.64001F", "config"}
+	if fmt.Sprint(seq) != fmt.Sprint(want) {
+		t.Fatalf("remote viewer got %v, want %v", seq, want)
+	}
+	for {
+		select {
+		case m := <-mOut:
+			if m.Control && m.Data[0] == MsgInit {
+				t.Fatalf("main viewer was sent init %+v", initOf(t, m))
+			}
+			continue
+		default:
+		}
+		break
 	}
 }
 
@@ -367,4 +425,48 @@ func TestRemoteQueueOverflowAsksRemoteEncoder(t *testing.T) {
 	s.mu.Unlock()
 	s.broadcast(OutMsg{Data: []byte{1}, track: trackRemote})
 	waitOps(t, fr, "key", "key")
+}
+
+// fakeSteppedRemote is a remote encoder that runs at a few fixed rates, as an
+// adb stream's second scrcpy session does.
+type fakeSteppedRemote struct {
+	*fakeRemote
+	enc int
+}
+
+func (f *fakeSteppedRemote) RemoteRateRange() (lo, start, hi int) {
+	return 750_000, 750_000, 3_000_000
+}
+func (f *fakeSteppedRemote) RemoteEncoderBps() int { return f.enc }
+
+// A stepped stream's rate control runs in the range it asks for, the trace
+// shows the rate its encoder runs at beside the cap, and a plain stream after
+// it goes back to the default range.
+func TestGateUsesAStreamsRateRange(t *testing.T) {
+	s := newTestSession(t)
+	fr := &fakeSteppedRemote{fakeRemote: newFakeRemote(), enc: 1_500_000}
+	s.stream = fr
+	s.attachRemote(fr)
+	now := time.Now()
+	s.remoteGateTick(now, 10*time.Millisecond)
+	if got := s.remote.rate.Cap(); got != 750_000 {
+		t.Fatalf("cap %d on a stepped stream, want its start 750000", got)
+	}
+	var got RemoteSecond
+	s.SetRemoteObserver(func(r RemoteSecond) { got = r })
+	s.reportRemote()
+	if got.EncoderBps != 1_500_000 {
+		t.Fatalf("EncoderBps %d, want 1500000", got.EncoderBps)
+	}
+
+	plain := newFakeRemote()
+	s.attachRemote(plain)
+	s.remoteGateTick(now.Add(10*time.Millisecond), 10*time.Millisecond)
+	if got := s.remote.rate.Cap(); got != remoteCapStart {
+		t.Fatalf("cap %d on a plain stream, want the default start %d", got, remoteCapStart)
+	}
+	s.reportRemote()
+	if got.EncoderBps != 0 {
+		t.Fatalf("EncoderBps %d on a plain stream, want 0", got.EncoderBps)
+	}
 }
