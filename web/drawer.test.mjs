@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const { groupTargets, rowModel, rowHTML, handlePick, pickIntent, refocusTarget, rowActions, swipeDecide, shouldDefer, actionRefusal, swipeStart, readActionResult, agentLine, agentActions, onServer, peerNames, serverFilterOf, serverOptions, readServerFilter, writeServerFilter, serversHTML, addGroupHTML } = await import('./drawer.js');
+const { groupTargets, rowModel, rowHTML, handlePick, pickIntent, refocusTarget, rowActions, swipeDecide, shouldDefer, actionRefusal, swipeStart, readActionResult, agentLine, agentActions, onServer, peerNames, serverFilterOf, serverOptions, readServerFilter, writeServerFilter, serversHTML, addGroupHTML, extensionPages, samePages, pagesGroupHTML } = await import('./drawer.js');
 
 const fixtures = JSON.parse(readFileSync(new URL('../testdata/client/drawer.json', import.meta.url)));
 
@@ -407,6 +407,47 @@ test('rowModel: a running avd with a saved start state ends with it', () => {
 test('rowModel: an unparseable startSavedAt adds nothing', () => {
   const m = rowModel({ ...base, id: 'avd:a', bootsOnOpen: true, startSavedAt: 'soon' }, null, 0);
   assert.equal(m.detail, 'Emulator · Shut down · boots when opened');
+});
+
+// Extension pages: GET /api/extensions entries, as internal/httpapi/extension.go's
+// Extension writes them.
+const SLIPWAY = { name: 'slipway', label: 'Slipway', path: '/api/ext/slipway/', page: '/api/ext/slipway/' };
+const APPMAP = { name: 'appmap', label: 'App map', path: '/api/ext/appmap/' };
+
+test('extensionPages keeps only the extensions with a page', () => {
+  assert.deepEqual(extensionPages([APPMAP, SLIPWAY]), [{ name: 'slipway', label: 'Slipway', page: '/api/ext/slipway/' }]);
+  assert.deepEqual(extensionPages([APPMAP]), []);
+  assert.deepEqual(extensionPages(undefined), []);
+});
+test('extensionPages drops a page that is not under /api/ext/', () => {
+  for (const page of ['javascript:alert(1)', 'https://example.com/', '/', '/api/targets', 42]) {
+    assert.deepEqual(extensionPages([{ ...SLIPWAY, page }]), [], String(page));
+  }
+});
+test('extensionPages falls back to the name for a missing label', () => {
+  assert.equal(extensionPages([{ ...SLIPWAY, label: '' }])[0].label, 'slipway');
+});
+test('pagesGroupHTML: no extension with a page draws no group', () => {
+  assert.equal(pagesGroupHTML([]), '');
+  assert.equal(pagesGroupHTML(extensionPages([APPMAP])), '');
+});
+test('pagesGroupHTML: one row per page, by label, keyed by name', () => {
+  const html = pagesGroupHTML(extensionPages([SLIPWAY, { ...SLIPWAY, name: 'docs', label: 'Docs', page: '/api/ext/docs/' }]));
+  assert.ok(html.includes('>Extensions<'), html);
+  assert.equal(html.match(/class="pickerRow"/g).length, 2);
+  assert.ok(html.includes('data-page="slipway"') && html.includes('>Slipway<'), html);
+  assert.ok(html.includes('data-page="docs"') && html.includes('>Docs<'), html);
+  assert.ok(!html.includes('data-id='), 'a page row must not look like a device row to the picker');
+});
+test('pagesGroupHTML escapes a hostile label and name', () => {
+  const html = pagesGroupHTML([{ name: '"><img src=x onerror=alert(1)>', label: '<script>alert(1)</script>', page: '/api/ext/x/' }]);
+  assert.ok(!html.includes('<script>') && !html.includes('"><img'), html);
+});
+test('samePages compares rows, so an unchanged poll does not repaint', () => {
+  const a = extensionPages([SLIPWAY]);
+  assert.equal(samePages(a, extensionPages([SLIPWAY])), true);
+  assert.equal(samePages(a, []), false);
+  assert.equal(samePages(a, extensionPages([{ ...SLIPWAY, label: 'Builds' }])), false);
 });
 
 console.log(failures ? `\n${failures} failing` : '\nall passing');

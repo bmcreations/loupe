@@ -23,9 +23,10 @@ import { readPanels, writePanels, toggle as togglePanel, applyPanels } from './p
 import { readAppearance, writeAppearance, applyAppearance, themeColor, themeName } from './appearance.js';
 import { dotFor, secondRtt } from './health.js';
 import { paintPill } from './pill.js';
-import { mount as mountDrawer, readActionResult } from './drawer.js';
+import { mount as mountDrawer, readActionResult, extensionPages } from './drawer.js';
 import { mount as mountNewDevice, canCreateFrom, awaitListed } from './newdevice.js';
 import { mount as mountServers } from './servers.js';
+import { mount as mountExtPage } from './extpage.js';
 import { mountConnectHelp, mountSwitchServer, rememberServer } from './helpsheets.js';
 import { fetchTargets, latestOnly, chooseTarget, failureReason, sameShown } from './targets.js';
 import { mount as mountCorners, pageLink } from './corners.js';
@@ -113,6 +114,7 @@ const el = {
   connectHelp: document.getElementById('connectHelp'),
   switchServer: document.getElementById('switchServer'),
   addServer: document.getElementById('addServer'),
+  extPage: document.getElementById('extPage'),
   scrim: document.getElementById('scrim'),
   toolsBtn: document.getElementById('toolsBtn'),
   sheet: document.getElementById('sheet'),
@@ -726,6 +728,7 @@ const drawer = mountDrawer(el.drawer, {
   onOpenBeside,
   paneKey: paneKey(isMac),
   onAddServer: () => openAddServer(),
+  onOpenPage: (p) => openExtPage(p),
   storage: safeStorage(),
 });
 
@@ -772,7 +775,7 @@ function openNewDevice() {
 // The two sheets the full-screen states open. Neither sits over the
 // picker, so closing one hides the scrim unless something else holds it.
 function closeScrimIfIdle() {
-  if (!drawer.isOpen() && !newDevice.isOpen() && !connectHelp.isOpen() && !switchServer.isOpen() && !addServers.isOpen()) el.scrim.hidden = true;
+  if (!drawer.isOpen() && !newDevice.isOpen() && !connectHelp.isOpen() && !switchServer.isOpen() && !addServers.isOpen() && !extPage.isOpen()) el.scrim.hidden = true;
 }
 const connectHelp = mountConnectHelp(el.connectHelp, {
   onClose: closeScrimIfIdle,
@@ -812,6 +815,33 @@ function openAddServer() {
   addServers.open();
 }
 
+// An extension's page opens over the picker like Add server does, so Done
+// lands back on the list. The page sits in a frame on this origin rather than
+// in a new tab, which a Home Screen app would open without loupe's cookie
+// (extpage.js).
+const extPage = mountExtPage(el.extPage, { report, onClose: closeScrimIfIdle });
+function openExtPage(p) {
+  el.scrim.hidden = false;
+  if (!extPage.open(p)) closeScrimIfIdle();
+}
+
+// loadExtensionPages gives the picker the extensions that have a page. It
+// runs when the picker opens, and on each targets poll while it is open: a
+// docked picker opens once and stays, and would otherwise never show an
+// extension that registers, or drops out, after the page loaded. A failed
+// fetch leaves the rows as they were.
+async function loadExtensionPages() {
+  let body;
+  try {
+    const res = await fetch('/api/extensions');
+    if (!res.ok) return;
+    body = await res.json();
+  } catch (_) {
+    return;
+  }
+  drawer.setPages(extensionPages(body && body.extensions));
+}
+
 // canCreate is whether this server can create a device: the options route
 // answers 404 when it can create nothing, and says `profilesFallback` when
 // only the old android CLI is there. Asked once, since the tools do not come
@@ -824,7 +854,7 @@ const canCreateReady = fetch('/api/devices/options').then(async (res) => {
 // A scrim tap closes the sheet on top, not the picker under it; capture on
 // the scrim runs before the picker's own listener there.
 el.scrim.addEventListener('click', (ev) => {
-  const top = [newDevice, connectHelp, switchServer, addServers].find((s) => s.isOpen());
+  const top = [newDevice, connectHelp, switchServer, addServers, extPage].find((s) => s.isOpen());
   if (!top) return;
   ev.stopImmediatePropagation();
   top.close();
@@ -863,6 +893,7 @@ async function openPicker() {
   // waiting on a fresh round trip first. A stale list open behind a scrim
   // beats a pill that visibly does nothing for up to 2s.
   drawer.open(lastTargets, focused().targetId);
+  loadExtensionPages();
   const { current, result } = await fetchTargetsLatest();
   if (result.failed || !current) return; // failed, or superseded by a later fetch -- leave the drawer showing what it has
   takeTargets(result.list);
@@ -874,6 +905,7 @@ async function openPicker() {
 // under a finger moves the row being reached for.
 async function pollTargets() {
   if (document.hidden) return;
+  if (drawer.isOpen()) loadExtensionPages();
   const { current, result } = await fetchTargetsLatest();
   if (result.failed || !current) return;
   takeTargets(result.list);
