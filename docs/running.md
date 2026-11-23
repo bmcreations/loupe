@@ -76,6 +76,11 @@ agree.
 | `source` | `default`, `file` or `flag` |
 | `pinned` | A flag overrides the file, so a write will not take effect |
 
+Beside the settings, `GET /api/config` carries `hostModel`, the machine the
+server runs on: the model name macOS reports (`Mac mini`, `MacBook Pro`), or
+`Linux`. It is absent on other systems and when macOS does not report one.
+Handset picks a server's icon from it.
+
 A `PUT` is all-or-nothing. When a flag pins a setting, the `PUT` still persists
 to disk, changes nothing until the flag goes away, and its response names the
 pinned settings instead of returning a bare 200.

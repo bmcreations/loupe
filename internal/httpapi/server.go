@@ -146,6 +146,10 @@ type Server struct {
 	// ffmpeg finds the binary a contact sheet runs. Nil is record.FFmpeg;
 	// tests replace it to stand for a Mac without ffmpeg.
 	ffmpeg func() (string, error)
+
+	// hostModel names this machine for GET /api/config (hostmodel.go). Nil
+	// leaves the field out.
+	hostModel func() string
 }
 
 // SetAAPT2 gives /api/install the aapt2 binary it reads package names with.
