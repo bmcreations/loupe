@@ -30,12 +30,12 @@ import (
 
 // Server wires the manager to HTTP routes and serves the browser client.
 type Server struct {
-	mgr   *Manager
+	mgr *Manager
 	// inputs remembers when each target last took input, for the settle
 	// gate before a match tap (settle.go).
 	inputs lastInputs
-	web   fs.FS
-	trace *trace.Writer
+	web    fs.FS
+	trace  *trace.Writer
 	// lifeViewers remembers which viewer last shut down or reset each
 	// target, so the boot that follows counts as that person (lifeviewer.go).
 	lifeViewers lifeViewers
