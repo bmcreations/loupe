@@ -1158,6 +1158,9 @@
         "name": {
           "type": "string"
         },
+        "page": {
+          "type": "string"
+        },
         "path": {
           "type": "string"
         }
@@ -1175,6 +1178,9 @@
           "type": "string"
         },
         "name": {
+          "type": "string"
+        },
+        "page": {
           "type": "string"
         },
         "url": {

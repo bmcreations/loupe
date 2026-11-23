@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "loupe",
+  "board": {
+    "channel": "loupe",
+    "mirror": {
+      "to": "github",
+      "repo": "bmcreations/loupe",
+      "kinds": { "bug": "bug", "feature": "enhancement" }
+    }
+  }
+}

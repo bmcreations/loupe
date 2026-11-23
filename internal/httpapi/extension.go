@@ -45,6 +45,9 @@ type ExtensionRequest struct {
 	URL string `json:"url"`
 	// Label is a name to show a person, defaulting to Name.
 	Label string `json:"label,omitempty"`
+	// Page, when set, is a path under URL that the web client opens as the
+	// extension's page, such as "/". See validPage for its rules.
+	Page string `json:"page,omitempty"`
 }
 
 // Extension is one registered extension.
@@ -53,6 +56,9 @@ type Extension struct {
 	Label string `json:"label"`
 	// Path is where clients reach it, "/api/ext/{name}/".
 	Path string `json:"path"`
+	// Page is the request's Page as a loupe path: "/api/ext/{name}/" for a
+	// page of "/". Empty, and left out, when the extension has no page.
+	Page string `json:"page,omitempty"`
 }
 
 // ExtensionsResponse is GET /api/extensions's body.
@@ -96,6 +102,37 @@ func loopbackURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
+// maxPageLen bounds an extension's page path.
+const maxPageLen = 200
+
+// validPage checks an extension's page path. The web client loads it in a
+// frame on loupe's own origin, so it has to stay a plain path under the
+// extension's prefix: nothing that climbs out of it, once decoded, or that
+// a browser reads as a query, a fragment or a separator.
+func validPage(page string) error {
+	if len(page) > maxPageLen {
+		return errors.New("page must be at most 200 characters")
+	}
+	if !strings.HasPrefix(page, "/") {
+		return errors.New(`page must start with "/"`)
+	}
+	decoded, err := url.PathUnescape(page)
+	if err != nil {
+		return errors.New("page is not a valid path: " + err.Error())
+	}
+	for _, p := range []string{page, decoded} {
+		if strings.Contains(p, "..") || strings.ContainsAny(p, "?#\\") {
+			return errors.New(`page must not contain "..", "?", "#" or a backslash`)
+		}
+		for _, c := range p {
+			if c < 0x20 || c == 0x7f {
+				return errors.New("page must not contain control characters")
+			}
+		}
+	}
+	return nil
+}
+
 func (x *extensionRegistry) register(req ExtensionRequest) (Extension, error) {
 	if !extensionNamePattern.MatchString(req.Name) {
 		return Extension{}, errors.New("name must be lowercase letters, digits and dashes, at most 32")
@@ -103,6 +140,11 @@ func (x *extensionRegistry) register(req ExtensionRequest) (Extension, error) {
 	u, err := loopbackURL(req.URL)
 	if err != nil {
 		return Extension{}, err
+	}
+	if req.Page != "" {
+		if err := validPage(req.Page); err != nil {
+			return Extension{}, err
+		}
 	}
 	label := req.Label
 	if label == "" {
@@ -114,8 +156,12 @@ func (x *extensionRegistry) register(req ExtensionRequest) (Extension, error) {
 	if _, ok := x.all[req.Name]; !ok && len(x.all) >= maxExtensions {
 		return Extension{}, errors.New("too many extensions registered")
 	}
+	ext := Extension{Name: req.Name, Label: label, Path: "/api/ext/" + req.Name + "/"}
+	if req.Page != "" {
+		ext.Page = "/api/ext/" + req.Name + req.Page
+	}
 	e := &registeredExtension{
-		Extension: Extension{Name: req.Name, Label: label, Path: "/api/ext/" + req.Name + "/"},
+		Extension: ext,
 		target:    u,
 		expires:   x.now().Add(extensionTTL),
 	}
@@ -198,13 +244,15 @@ func (x *extensionRegistry) newProxy(e *registeredExtension) *httputil.ReversePr
 // handleExtensions lists, registers or removes extensions.
 //
 //	GET    /api/extensions
-//	POST   /api/extensions  {"name", "url", "label"}
+//	POST   /api/extensions  {"name", "url", "label", "page"}
 //	DELETE /api/extensions?name=
 func (s *Server) handleExtensions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
 		writeJSON(w, http.StatusOK, ExtensionsResponse{Extensions: s.exts.list()})
 	case http.MethodPost:
+		// Unknown fields are ignored, not refused, so an extension that sends
+		// a field a newer loupe added still registers with an older one.
 		var req ExtensionRequest
 		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "bad body: " + err.Error()})

@@ -431,6 +431,49 @@ export function addGroupHTML({ newDevice = false, server = false } = {}) {
     </div>`;
 }
 
+// Extension pages (docs/extensions.md, "Pages"). An extension that registers
+// a page gets a row in the Extensions group, and a tap opens the page in a
+// sheet over the picker (extpage.js).
+//
+// extensionPages(list) -> [{name, label, page}] keeps the GET /api/extensions
+// entries that have a page under /api/ext/, which is every page the server
+// lists. Anything else is dropped here rather than put in a frame's src.
+export function extensionPages(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((e) => e && typeof e.name === 'string' && typeof e.page === 'string' && e.page.startsWith('/api/ext/'))
+    .map((e) => ({ name: e.name, label: typeof e.label === 'string' && e.label ? e.label : e.name, page: e.page }));
+}
+
+// samePages reports whether two extensionPages lists would draw the same rows,
+// so a poll that finds nothing new does not repaint the picker.
+export function samePages(a, b) {
+  if (a.length !== b.length) return false;
+  return a.every((p, i) => p.name === b[i].name && p.label === b[i].label && p.page === b[i].page);
+}
+
+// pagesGroupHTML is the Extensions group, or '' when no extension has a page.
+// The label is the extension's own, so it is escaped like a device's.
+export function pagesGroupHTML(pages) {
+  if (!pages || !pages.length) return '';
+  const rows = pages.map((p) => `
+        <button type="button" class="pickerRow" data-page="${escapeHTML(p.name)}">
+          <span class="pickerTile pickerTile--other" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 9h16"/></svg>
+          </span>
+          <span class="pickerRowMain">
+            <span class="pickerRowLabel">${escapeHTML(p.label)}</span>
+          </span>
+        </button>`).join('');
+  return `
+    <div class="pickerGroup">
+      <div class="pickerGroupTitle">Extensions</div>
+      <div class="pickerGroupRows">${rows}
+      </div>
+    </div>`;
+}
+
 // serversHTML is the server filter: a row of buttons, or '' with no peer.
 export function serversHTML(options, active) {
   if (!options.length) return '';
@@ -496,7 +539,9 @@ const DRAG_CLOSE_PX = 80;
 // openIds and onOpenBeside, when given, are the side-by-side picker: openIds()
 // is read on each render (null in single-pane mode), and an Open beside tap
 // or a ⌘/ctrl-click on an offered row calls onOpenBeside(id) instead of onPick.
-export function mount(root, { scrim, trigger, onPick, fps, onNewDevice, onAction, toast, openIds, onOpenBeside, paneKey, onAddServer, storage } = {}) {
+// onOpenPage, when given, shows the Extensions group from setPages(list), and
+// a tap on one of its rows calls onOpenPage({name, label, page}).
+export function mount(root, { scrim, trigger, onPick, fps, onNewDevice, onAction, toast, openIds, onOpenBeside, paneKey, onAddServer, onOpenPage, storage } = {}) {
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-modal', 'true');
   let pinned = false;
@@ -533,6 +578,7 @@ export function mount(root, { scrim, trigger, onPick, fps, onNewDevice, onAction
   let isOpen = false;
   let lastFocused = null;
   let canCreate = false;
+  let pages = [];
   let fpsTicker = null;
 
   // tickFps rewrites the streaming row's detail with the decoder's rate.
@@ -729,7 +775,13 @@ export function mount(root, { scrim, trigger, onPick, fps, onNewDevice, onAction
     list.innerHTML = (groups.length
       ? groups.map((g) => groupHTML(g, { paneKey })).join('')
       : '<div class="pickerEmpty">No devices match.</div>')
-      + (adding ? addGroupHTML({ newDevice: !!(canCreate && onNewDevice), server: !!onAddServer }) : '');
+      + (adding ? pagesGroupHTML(onOpenPage ? pages : []) + addGroupHTML({ newDevice: !!(canCreate && onNewDevice), server: !!onAddServer }) : '');
+    for (const btn of list.querySelectorAll('[data-page]')) {
+      btn.addEventListener('click', () => {
+        const p = pages.find((x) => x.name === btn.getAttribute('data-page'));
+        if (p) onOpenPage(p);
+      });
+    }
     const add = list.querySelector('[data-action="new"]');
     if (add) add.addEventListener('click', () => onNewDevice());
     const addSrv = list.querySelector('[data-action="server"]');
@@ -932,6 +984,15 @@ export function mount(root, { scrim, trigger, onPick, fps, onNewDevice, onAction
     if (isOpen) render();
   }
 
+  // setPages(list) takes extensionPages' output. It repaints only when the
+  // rows would change, and through repaint(), so it waits out a swipe.
+  function setPages(list) {
+    const next = list || [];
+    if (samePages(pages, next)) return;
+    pages = next;
+    repaint();
+  }
+
   // pin(on) makes the picker a permanent panel (app.js, at desktop widths):
   // close() does nothing while it holds, so a pick, Escape or the pill leaves
   // it up. Pinning an open picker drops the dialog parts it opened with;
@@ -949,5 +1010,5 @@ export function mount(root, { scrim, trigger, onPick, fps, onNewDevice, onAction
     }
   }
 
-  return { open, close, pin, refresh, setCurrent, repaint, setCanCreate, isOpen: () => isOpen };
+  return { open, close, pin, refresh, setCurrent, repaint, setCanCreate, setPages, isOpen: () => isOpen };
 }

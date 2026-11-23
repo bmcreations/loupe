@@ -911,14 +911,16 @@ removes all).
 
 ### `/api/extensions`
 
-`POST {name, url, label?}` registers an extension that has something for
+`POST {name, url, label?, page?}` registers an extension that has something for
 viewers to read. `url` must be http or https on `127.0.0.1`, `::1` or
-`localhost`, otherwise 400. A registration lasts 90 seconds, so an extension
+`localhost`, otherwise 400. `page` is a path under `url`, such as `/`, that the
+web client opens from its picker; the listed entry gives it as a loupe path,
+`/api/ext/{name}/`. A registration lasts 90 seconds, so an extension
 re-registers on a timer. `GET` lists them.
 
 `/api/ext/{name}/...` passes through to the extension with the prefix, loupe's
-`Authorization` header and the `token` query parameter removed, so a client
-reads it with loupe's token alone. An extension that does not answer gets 502
+`Authorization` and `Cookie` headers and the `token` query parameter removed,
+so a client reads it with loupe's token alone. An extension that does not answer gets 502
 and drops out of the list. [extensions.md](extensions.md) is the contract for
 writing one.
 

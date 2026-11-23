@@ -41,9 +41,18 @@ the server.
   token, so it opens only in a browser that already holds loupe's cookie.
   Scoped share links don't exist yet.
 - **Extensions see no credentials.** loupe checks the token and then
-  proxies `/api/ext/{name}/...` to the extension without it, so the
+  proxies `/api/ext/{name}/...` to the extension without the
+  `Authorization` header, the `Cookie` header or `?token=`, so the
   extension must listen on loopback and treat every request as coming from
-  a token holder. See Security model in [extensions.md](extensions.md).
+  a token holder.
+- **An extension's page is not isolated from loupe.** The web client opens
+  an extension's page in a frame on loupe's origin, so the viewer's loupe
+  cookie rides on every request the page makes there. The page's script can
+  call any `/api` route as the viewer and read the `loupe_token` cookie,
+  which isn't HttpOnly. Registering already requires the token, so this
+  gives the page the reach the extension's process already has, and an XSS
+  bug in an extension's page is an XSS bug in loupe. See Security model in
+  [extensions.md](extensions.md).
 - **A paired browser cannot open `/wt` yet.** The web client still builds
   the WebTransport URL from the master token cookie. Pairing currently
   serves native clients, bearer tokens and peer servers.

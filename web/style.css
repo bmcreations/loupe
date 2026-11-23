@@ -2058,6 +2058,17 @@ html.multi .pane .overlay .card { max-width: 100%; }
 .pickerTile--add { background: var(--tint); }
 .pickerRowLabel--tint { color: var(--tint); }
 .drawer--over { z-index: 26; }
+/* An extension's page (extpage.js): the tallest a sheet gets, with the frame
+   taking everything under the header. .drawer alone only caps the height,
+   which would leave the frame at its default 150px. */
+.drawer--page { height: calc(100% - 44px - env(safe-area-inset-top)); }
+.extPageFrame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--background-primary);
+}
 .pickerCancel { justify-self: start; font-weight: 400; }
 .pickerFootnote {
   margin: 0;
