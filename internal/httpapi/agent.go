@@ -1424,7 +1424,7 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	downgrade := r.URL.Query().Get("downgrade") == "1"
 	if downgrade && isIOS {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{
-			Error: fmt.Sprintf("target %q cannot downgrade: downgrade=1 is Android only. Uninstall the app first with DELETE /api/install?target=&package=<bundle ID>, which is also Android only, so remove it on the device", t.ID()),
+			Error: fmt.Sprintf("target %q cannot take downgrade=1: it is Android only (adb install -d). Drop it", t.ID()),
 			Code:  ErrCodeUnsupported,
 		})
 		return

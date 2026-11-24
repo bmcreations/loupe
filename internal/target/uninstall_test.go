@@ -8,27 +8,34 @@ import (
 )
 
 func TestUninstallAndroid(t *testing.T) {
-	f := &fakeShell{answers: map[string]string{
-		"pm path 'com.example.app'":      "package:/data/app/base.apk",
-		"pm uninstall 'com.example.app'": "Success",
-	}}
+	f := &fakeShell{answers: map[string]string{"pm uninstall 'com.example.app'": "Success"}}
 	res, err := uninstallAndroid(context.Background(), f.run, "com.example.app")
 	if err != nil || res.Output != "Success" {
 		t.Fatalf("res %+v err %v", res, err)
 	}
-	if got := strings.Join(f.calls, "|"); got != "pm path 'com.example.app'|pm uninstall 'com.example.app'" {
-		t.Errorf("calls = %q; want the name quoted on both", got)
+	if got := strings.Join(f.calls, "|"); got != "pm uninstall 'com.example.app'" {
+		t.Errorf("calls = %q; want the name quoted", got)
 	}
 }
 
 func TestUninstallAndroidNotInstalled(t *testing.T) {
-	f := &fakeShell{}
+	f := &fakeShell{answers: map[string]string{"pm uninstall 'com.example.app'": "Failure [DELETE_FAILED_INTERNAL_ERROR]"}}
 	_, err := uninstallAndroid(context.Background(), f.run, "com.example.app")
 	if !errors.Is(err, ErrAppNotInstalled) {
 		t.Errorf("err = %v; want ErrAppNotInstalled", err)
 	}
-	if len(f.calls) != 1 {
-		t.Errorf("calls = %q; uninstall must not run for a missing package", f.calls)
+}
+
+// A shell that drops during the follow-up lookup must not read as "not
+// installed": the package may well be there.
+func TestUninstallAndroidFailedLookupIsNotNotInstalled(t *testing.T) {
+	f := &fakeShell{
+		answers: map[string]string{"pm uninstall 'com.example.app'": "Failure [DELETE_FAILED_INTERNAL_ERROR]"},
+		fail:    map[string]error{"pm path 'com.example.app'": errors.New("adb: device offline")},
+	}
+	_, err := uninstallAndroid(context.Background(), f.run, "com.example.app")
+	if err == nil || errors.Is(err, ErrAppNotInstalled) {
+		t.Errorf("err = %v; want the refusal, not ErrAppNotInstalled", err)
 	}
 }
 
@@ -45,7 +52,7 @@ func TestUninstallAndroidRefusal(t *testing.T) {
 }
 
 func TestUninstallAndroidNoSuccessLineFails(t *testing.T) {
-	f := &fakeShell{answers: map[string]string{"pm path 'com.example.app'": "package:/x"}}
+	f := &fakeShell{}
 	if _, err := uninstallAndroid(context.Background(), f.run, "com.example.app"); err == nil {
 		t.Error("an empty answer read as success")
 	}

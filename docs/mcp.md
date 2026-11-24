@@ -78,7 +78,7 @@ host instead.
 
 - Every request carries `X-Loupe-Agent` and `X-Loupe-Session`, a UUID per
   process.
-- The first driving call on a target claims it. Reads claim nothing. If
+- The first driving call on a target claims it, `uninstall` included. `install` claims only with `launch`. Reads claim nothing. If
   another agent holds the claim, the call fails with `claimedBy`, and the next
   call tries again.
 - On exit each claim is released: when the client hangs up, and on SIGINT,

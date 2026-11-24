@@ -596,3 +596,32 @@ func TestUninstallClaimsThenDeletesThePackage(t *testing.T) {
 		t.Errorf("requests %v; want a claim, then DELETE /api/install", got)
 	}
 }
+
+// The hint is the point of the 422: an agent that cannot see it is back to
+// raw adb.
+func TestAVersionDowngradeRefusalReachesTheAgentWithItsHint(t *testing.T) {
+	apk := filepath.Join(t.TempDir(), "a.apk")
+	if err := os.WriteFile(apk, []byte("PK\x03\x04x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/install" {
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		io.WriteString(w, `{"target":"avd:P","ok":false,"code":"INSTALL_FAILED_VERSION_DOWNGRADE","hint":"Retry with downgrade=1 or DELETE /api/install first"}`)
+		return true
+	}}
+	cs, stop := connect(t, fake)
+	defer stop()
+	res := call(t, cs, "install", map[string]any{"target": "avd:P", "paths": []string{apk}})
+	if !res.IsError {
+		t.Fatalf("not an error: %s", text(res))
+	}
+	for _, s := range []string{"422", "INSTALL_FAILED_VERSION_DOWNGRADE", "downgrade=1", "DELETE /api/install"} {
+		if !strings.Contains(text(res), s) {
+			t.Errorf("%q lacks %s", text(res), s)
+		}
+	}
+}

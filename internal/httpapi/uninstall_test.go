@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,8 +147,8 @@ func TestUninstallRefusesABadPackageName(t *testing.T) {
 	for _, pkg := range []string{"com.x;rm -rf /", "", "$(reboot)", "com.x com.y"} {
 		f := &uninstallTarget{androidTarget: androidTarget{id: "dev1"}}
 		s := newUninstallServer(t, f)
-		w := serveOn(s, http.MethodDelete, "/api/install?target=dev1&package="+strings.ReplaceAll(pkg, " ", "%20"), "", nil)
-		if w.Code != http.StatusBadRequest || len(f.removed) != 0 {
+		w := serveOn(s, http.MethodDelete, "/api/install?target=dev1&package="+url.QueryEscape(pkg), "", nil)
+		if w.Code != http.StatusBadRequest || len(f.removed) != 0 || !strings.Contains(w.Body.String(), "package name") {
 			t.Errorf("package %q: status %d removed %v; want 400 and nothing removed", pkg, w.Code, f.removed)
 		}
 	}

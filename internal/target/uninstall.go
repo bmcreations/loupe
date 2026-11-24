@@ -35,14 +35,15 @@ func uninstallAndroid(ctx context.Context, sh shellFunc, pkg string) (*InstallRe
 	if !ValidPackageName(pkg) {
 		return nil, fmt.Errorf("%w: %q is not a package name", ErrBadLaunchName, pkg)
 	}
-	// `pm uninstall` answers a package that is not there with the same
-	// DELETE_FAILED_INTERNAL_ERROR as one it could not remove, so ask first.
-	if out, _ := sh(ctx, "pm", "path", shellQuote(pkg)); !strings.Contains(out, "package:") {
-		return nil, fmt.Errorf("%w: %s", ErrAppNotInstalled, pkg)
-	}
 	out, err := sh(ctx, "pm", "uninstall", shellQuote(pkg))
 	out = strings.TrimSpace(out)
 	if m := installFailureRE.FindStringSubmatch(out); m != nil {
+		// A package that is not there fails the same way as one that could
+		// not be removed, so tell them apart only after a Failure line, and
+		// only when the shell answered: a dropped adb must not read as 404.
+		if pathOut, pathErr := sh(ctx, "pm", "path", shellQuote(pkg)); pathErr == nil && !strings.Contains(pathOut, "package:") {
+			return nil, fmt.Errorf("%w: %s", ErrAppNotInstalled, pkg)
+		}
 		return nil, &InstallError{Code: m[1], Reason: strings.TrimSpace(m[2]), Output: out}
 	}
 	for _, line := range strings.Split(out, "\n") {
