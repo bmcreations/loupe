@@ -25,7 +25,9 @@ type LogcatQuery struct {
 	// Zero means the last Lines lines instead.
 	Since time.Time
 	// Lines is how many of the most recent lines to start with when Since is
-	// zero. With Since set, it is left to the caller to trim.
+	// zero. With Since set, or with Tag or Text, a target may return more
+	// and leave the caller to trim; with Tag or Text it counts lines the
+	// filter kept.
 	Lines int
 	PID   int
 	// Package is resolved to its pid with pidof when the log is opened.
@@ -39,6 +41,14 @@ type LogcatQuery struct {
 	// JSON object per line where the target can give one. A target that
 	// cannot answers ErrLogQueryUnsupported.
 	Format string
+	// Tag keeps the entries with this tag, ignoring case: logcat's tag on
+	// Android; on an iOS simulator the subsystem, subsystem:category, or,
+	// for an entry with no subsystem, the sender's image; on a phone the
+	// sender, or the process when the line names none. Text keeps the
+	// entries whose message holds it, ignoring case. Both are matched on the
+	// host by a LogFilter, and every Logcatter must apply them or refuse.
+	Tag  string
+	Text string
 }
 
 // Logcat is an open log. PID and Package say which process it was

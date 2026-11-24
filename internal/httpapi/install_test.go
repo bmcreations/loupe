@@ -226,6 +226,9 @@ func TestLogcatQueryParsing(t *testing.T) {
 		{"format=ndjson", target.LogcatQuery{Lines: defaultLogcatLines, Format: ios.LogFormatNDJSON}},
 		{"format=text", target.LogcatQuery{Lines: defaultLogcatLines}},
 		{"package=dev.bmc-creations.app", target.LogcatQuery{Lines: defaultLogcatLines, Package: "dev.bmc-creations.app"}},
+		{"tag=ReactNativeJS&text=porchlight%20sent", target.LogcatQuery{Lines: defaultLogcatLines, Tag: "ReactNativeJS", Text: "porchlight sent"}},
+		{"tag=%20flutter%20&package=com.a.b", target.LogcatQuery{Lines: defaultLogcatLines, Tag: "flutter", Package: "com.a.b"}},
+		{"tag=a%3B%20reboot%27", target.LogcatQuery{Lines: defaultLogcatLines, Tag: "a; reboot'"}},
 	}
 	for _, c := range ok {
 		v, _ := url.ParseQuery(c.query)
@@ -246,6 +249,8 @@ func TestLogcatQueryParsing(t *testing.T) {
 		"lines=0", "lines=abc", "lines=999999", "pid=-1", "pid=x",
 		"since=yesterday", "since=-5m", "package=com.x%3Breboot", "package=com.x%27%20id", "format=xml",
 		"pid=1&package=com.a.b", "pid=1&foreground=1",
+		"tag=" + strings.Repeat("a", maxLogFilterLen+1), "text=" + strings.Repeat("a", maxLogFilterLen+1),
+		"text=a%0Ab", "tag=a%00",
 	} {
 		v, _ := url.ParseQuery(bad)
 		if _, err := logcatQuery(v, now); err == nil {
@@ -277,6 +282,21 @@ func TestLogcatSinceIsTrimmedToLines(t *testing.T) {
 	w := serveAgent(t, f, http.MethodGet, "/api/logcat?target=dev1&since=1m&lines=2", nil)
 	if w.Body.String() != "c\nd\n" {
 		t.Errorf("body = %q; want the last two lines", w.Body)
+	}
+}
+
+// The target filters the whole buffer, so the lines it kept are trimmed to
+// ?lines= here, as a since dump is.
+func TestLogcatFilteredDumpIsTrimmedToLines(t *testing.T) {
+	for _, q := range []string{"tag=ReactNativeJS", "text=porchlight"} {
+		f := &androidTarget{id: "dev1", logText: "a\nb\nc\nd\n"}
+		w := serveAgent(t, f, http.MethodGet, "/api/logcat?target=dev1&lines=2&"+q, nil)
+		if w.Body.String() != "c\nd\n" {
+			t.Errorf("%s: body = %q; want the last two lines", q, w.Body)
+		}
+		if f.gotQ.Tag+f.gotQ.Text == "" {
+			t.Errorf("%s: the target was not given the filter: %+v", q, f.gotQ)
+		}
 	}
 }
 

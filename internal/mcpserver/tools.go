@@ -197,6 +197,8 @@ type logcatIn struct {
 	Package    string `json:"package,omitempty" jsonschema:"only this app's process"`
 	Foreground bool   `json:"foreground,omitempty" jsonschema:"only the app in front"`
 	Format     string `json:"format,omitempty" jsonschema:"simulators only: ndjson for one JSON object per line; text by default"`
+	Tag        string `json:"tag,omitempty" jsonschema:"only entries with this tag, ignoring case: the logcat tag on Android (ReactNativeJS, flutter); on an iOS simulator the subsystem, subsystem:category, or with no subsystem the sender image (Flutter, or the process for its own messages); on an iPhone the sender, or the process"`
+	Text       string `json:"text,omitempty" jsonschema:"only entries whose message holds this text on any of its lines, ignoring case"`
 }
 
 type crashesIn struct {
@@ -322,7 +324,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "logcat",
-		Description: "Recent log lines, optionally narrowed to one app's process: logcat's threadtime format on Android, the unified log's compact style on an iOS simulator. package is an Android package or an iOS bundle ID. At most one of package and foreground.",
+		Description: "Recent log lines, optionally narrowed to one app's process, a tag and a text: logcat's threadtime format on Android, the unified log's compact style on an iOS simulator. package is an Android package or an iOS bundle ID. At most one of package and foreground. lines counts the lines tag and text keep. In Expo Go or another host app, the process is the host's, so narrow to the app's lines with tag or text.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in logcatIn) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"target": {in.Target}}
 		if in.Lines > 0 {
@@ -339,6 +341,12 @@ func addTools(s *mcp.Server, c *Client) {
 		}
 		if in.Format != "" {
 			q.Set("format", in.Format)
+		}
+		if in.Tag != "" {
+			q.Set("tag", in.Tag)
+		}
+		if in.Text != "" {
+			q.Set("text", in.Text)
 		}
 		b, _, err := c.do(ctx, http.MethodGet, "/api/logcat", q, "", nil)
 		if err != nil {

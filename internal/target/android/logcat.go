@@ -1,6 +1,7 @@
 package android
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -29,7 +30,8 @@ func ValidPackageName(s string) bool { return packageNameRE.MatchString(s) }
 // the time are formatted here as digits, and a package name goes to pidof
 // only after ValidPackageName and through shellQuote. adb 35 escapes each
 // exec-out argument itself and older clients do not, and digits read the
-// same either way.
+// same either way. A tag or text filter is applied here to what logcat
+// prints, never passed to it.
 func (t *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logcat, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
@@ -45,6 +47,7 @@ func (t *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logc
 	if err != nil {
 		return nil, err
 	}
+	rc = target.FilterLog(rc, target.NewLogFilter(q, parseThreadtime))
 	return &target.Logcat{PID: pid, Package: pkg, ReadCloser: rc}, nil
 }
 
@@ -104,6 +107,11 @@ func (t *Device) pidOf(ctx context.Context, pkg string) (int, error) {
 // -t N implies -d and -T does not, so a dump with a start time needs -d
 // said outright, and a follow with a line count uses -T N, the one form of
 // "start N lines back" that keeps reading.
+//
+// A dump with a tag or text filter reads the whole buffer with -d, since
+// its last N lines may hold no match, and the handler trims what the filter
+// kept. A follow with one starts from the last N lines unfiltered and keeps
+// those that match.
 func logcatArgs(q target.LogcatQuery, pid int) []string {
 	args := []string{"logcat", "-v", "threadtime"}
 	switch {
@@ -117,6 +125,8 @@ func logcatArgs(q target.LogcatQuery, pid int) []string {
 		args = append(args, "-T", fmt.Sprintf("%d.%03d", ms/1000, ms%1000))
 	case q.Follow:
 		args = append(args, "-T", strconv.Itoa(q.Lines))
+	case q.Filtered():
+		args = append(args, "-d")
 	default:
 		args = append(args, "-t", strconv.Itoa(q.Lines))
 	}
@@ -138,4 +148,36 @@ func (a ADB) ExecOutStream(ctx context.Context, serial string, args ...string) (
 	full = append(full, args...)
 
 	return target.StartStream(ctx, "adb exec-out "+strings.Join(args, " "), nil, a.bin(), full...)
+}
+
+// parseThreadtime reads a threadtime line,
+// "11-24 07:50:01.123  1234  1250 I ReactNativeJS: msg", for LogFilter.
+// logcat pads a short tag to eight columns before its colon. It prints every
+// line of a multi-line message with a header of its own, so no line
+// continues another, and a buffer marker ("--------- beginning of main")
+// has no tag.
+func parseThreadtime(line []byte) target.LogLine {
+	if len(line) < 19 || line[0] < '0' || line[0] > '9' || line[2] != '-' || line[5] != ' ' {
+		return target.LogLine{}
+	}
+	rest := line
+	for i := 0; i < 4; i++ { // date, time, pid, tid
+		rest = bytes.TrimLeft(rest, " ")
+		sp := bytes.IndexByte(rest, ' ')
+		if sp < 0 {
+			return target.LogLine{}
+		}
+		rest = rest[sp:]
+	}
+	rest = bytes.TrimLeft(rest, " ")
+	if len(rest) < 2 || rest[1] != ' ' { // the level letter
+		return target.LogLine{}
+	}
+	tag, msg, ok := bytes.Cut(rest[2:], []byte(": "))
+	if !ok {
+		if tag, ok = bytes.CutSuffix(rest[2:], []byte(":")); !ok {
+			return target.LogLine{}
+		}
+	}
+	return target.LogLine{Tags: []string{string(bytes.TrimRight(tag, " "))}, Message: msg}
 }
