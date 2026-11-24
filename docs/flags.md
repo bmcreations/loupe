@@ -14,7 +14,8 @@ the focused pane.
 
 - The note is optional.
 - "Watch while I reproduce it" keeps the flag open until the person presses
-  Stop.
+  Stop. If `DELETE /api/flags` removes it first, Stop clears the pill and
+  says the flag was deleted.
 - The card says whether any agent is listening. Its "Send to" menu, on every
   flag and interrupt, starts on the session holding the target and lists the
   listening sessions, "Every agent", and the T3 Code threads below.
