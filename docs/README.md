@@ -43,4 +43,5 @@ The top-level `README.md` says what loupe does. Start with
 
 | Doc | What's in it |
 | --- | --- |
+| [roadmap.md](roadmap.md) | The open issues ranked into ready now, needs a decision and needs hardware, with size, dependencies and a first step |
 | [releasing.md](releasing.md) | Tagging a release, the Homebrew formula, and why simcap builds from source |
