@@ -127,6 +127,14 @@ An app root of `{"frame":[0,0,0,0],"role":"AXApplication"}` with no children,
 while Settings dumps fine, means that app's accessibility is broken: stop and
 fix or replace the test app. No loupe change can be judged on it.
 
+A change to what the tree reports as visible or occluded is judged at its
+container's edges, not in the middle. Before the PR, run match taps scrolled
+and unscrolled: a node centred just inside each edge must open, and one
+centred just outside must answer `noMatch`. Then scan every saved reply for a
+node that is not occluded but has its centre outside its container. simcap#17
+first passed on one mid-page tap, while a link centred between the page and
+Safari's toolbar read as visible and its tap did nothing.
+
 ## Spare server
 
 Test changes against a spare server, never the launchd one. Start it with a
