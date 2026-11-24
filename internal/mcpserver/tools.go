@@ -197,8 +197,8 @@ type logcatIn struct {
 	Package    string `json:"package,omitempty" jsonschema:"only this app's process"`
 	Foreground bool   `json:"foreground,omitempty" jsonschema:"only the app in front"`
 	Format     string `json:"format,omitempty" jsonschema:"simulators only: ndjson for one JSON object per line; text by default"`
-	Tag        string `json:"tag,omitempty" jsonschema:"only entries with this tag, ignoring case: the logcat tag on Android (ReactNativeJS, flutter); on an iOS simulator the subsystem, subsystem:category, or with no subsystem the sender image (Flutter); on an iPhone the sender, or the process"`
-	Text       string `json:"text,omitempty" jsonschema:"only entries whose message holds this text, ignoring case"`
+	Tag        string `json:"tag,omitempty" jsonschema:"only entries with this tag, ignoring case: the logcat tag on Android (ReactNativeJS, flutter); on an iOS simulator the subsystem, subsystem:category, or with no subsystem the sender image (Flutter, or the process for its own messages); on an iPhone the sender, or the process"`
+	Text       string `json:"text,omitempty" jsonschema:"only entries whose message holds this text on any of its lines, ignoring case"`
 }
 
 type crashesIn struct {

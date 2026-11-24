@@ -711,7 +711,7 @@ Returns the device log as plain text.
 | `since` | Everything since a duration back from now (`5m`) or an RFC 3339 time, trimmed to `lines`. |
 | `pid`, `package`, `foreground=1` | At most one of these narrows the log to a process. `foreground` uses the foreground app. |
 | `tag` | Only entries with this tag. Exact, ignoring case. See the table below for what a tag is on each target. |
-| `text` | Only entries whose message holds this text, ignoring case. The header (time, pid, tag) is not searched. |
+| `text` | Only entries whose message holds this text on any of its lines, ignoring case. The header (time, pid, tag) is not searched. |
 | `follow=1` | Keeps the response open and flushes each read. |
 | `format=ndjson` | Simulators only. One JSON object per entry (`application/x-ndjson`). |
 
@@ -722,25 +722,39 @@ when it opens, so it keeps reading the old process after an app restart.
 `tag` and `text` are for apps that share a process with their host. In Expo
 Go, `package` narrows the log to Expo Go, and `tag=ReactNativeJS` narrows it
 to the app's JavaScript. They combine with each other and with a process: an
-entry has to match all of them. `lines` counts the entries they keep, so
-`lines=50&tag=flutter` is the last 50 `flutter` lines, however far back they
-are. Each is printable text up to 256 bytes. Loupe matches them on the Mac
-against what the device prints, so neither reaches the device's shell or the
-unified log's predicate. A line with no header of its own, such as the rest
-of a multi-line dictionary, goes with the entry above it.
+entry has to match all of them. Each is printable text up to 256 bytes. Loupe
+matches them on the Mac against what the device prints, so neither reaches
+the device's shell or the unified log's predicate.
+
+An entry is kept or dropped whole. Its tag comes from its first line, and a
+`text` found on any of its lines, such as inside a multi-line dictionary,
+keeps all of them. `lines` counts the lines kept, not the entries, so
+`lines=50&tag=flutter` is the last 50 lines of `flutter` entries. A compact
+entry over several lines counts each of them, and the cut can fall partway
+through the oldest one.
 
 | Target | `tag` matches | Example |
 |---|---|---|
 | Android | The logcat tag | `ReactNativeJS`, `flutter` |
-| iOS simulator | The subsystem or `subsystem:category`. An entry with no subsystem matches the sender's image, which compact prints in parentheses. | `com.facebook.react.log`, `com.facebook.react.log:javascript`, `Flutter` |
+| iOS simulator | The subsystem or `subsystem:category`. An entry with no subsystem matches its sender's image, which compact prints in parentheses, or the process when the sender is the process's own binary and compact prints nothing there. | `com.facebook.react.log`, `com.facebook.react.log:javascript`, `Flutter`, `launchd_sim` |
 | Physical iPhone | The sender in parentheses, or the process when the line has none | `WiFiPolicy` in `wifid(WiFiPolicy)[56]` |
+
+In compact, a message from the process's own binary that starts with
+`[a:b]` or `(x)` reads as that tag. `format=ndjson` takes the tag from its
+own fields.
+
+A filtered dump only finds what it reads. On Android that is the whole ring
+buffer, which has to come back inside the 15 second dump limit or the dump is
+502. A device with large log buffers can miss it, and `since` or `package`
+narrows the read. On a simulator the dump widens its window from a minute to
+10 minutes to an hour until it has `lines` matching lines. It stops widening
+when the next window looks unable to finish inside the limit, or the limit
+cuts one, and answers with what the last finished window kept, which can be
+nothing. A rare tag with no `package` can take most of the limit.
 
 A follow with a filter starts from the last `lines` lines on Android and keeps
 those that match, so it can start with fewer. On a simulator a follow starts
-live either way. A filtered dump on Android reads the whole ring buffer, and
-one on a simulator widens its window until it has `lines` matching entries
-or runs out of time, so a rare tag with no `package` can take most of the 15
-second dump limit.
+live either way.
 
 Per platform:
 
