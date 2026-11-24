@@ -877,8 +877,9 @@ from the new one.
 An agent reports a problem with loupe itself here, not with the app it is
 testing. The body is `{title, problem, repro, proposedFix, tool, target}`;
 `title`, `problem` and `proposedFix` are required, `title` is one line of at
-most 200 characters, and each field is at most 8000. Unknown fields are
-refused.
+most 200 characters, and each field is at most 8000. `target` is a target id
+such as `avd:<name>`, `sim:<udid>` or an Android serial, not a description;
+anything else gets a 400 that says so. Unknown fields are refused.
 
 The server stamps the report with an `id`, the time `t`, `X-Loupe-Agent`,
 `X-Loupe-Session` and its own version, and writes `report.json` and

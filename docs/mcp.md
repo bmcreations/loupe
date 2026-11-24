@@ -38,7 +38,8 @@ that failed or answered wrongly, a missing tool or option, an error that did
 not say what to do next, a wrong doc. Its description tells the model to
 write the report as an issue (`problem`, `repro`, `proposed_fix`), to send one
 per problem once it has worked around it or given up, and to leave out
-secrets and screen contents. `repro` may be left out. The server's
+secrets and screen contents. `repro` may be left out. `target`, if sent, is a
+target id such as `avd:<name>`, `sim:<udid>` or an Android serial, not a description. The server's
 instructions repeat when to call it. It claims nothing. The route and where reports
 go are in [agent-api.md](agent-api.md#post-apifeedback-get-apifeedback).
 
