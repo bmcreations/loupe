@@ -1,6 +1,7 @@
 package target
 
 import (
+	"errors"
 	"os"
 	"testing"
 )
@@ -38,6 +39,58 @@ func TestParseAXTreeScalesPointsToPixels(t *testing.T) {
 	search := find(ui.Root, func(n *Node) bool { return n.Class == "TextField" })
 	if search == nil || search.Value != "Search" || !search.Interesting() {
 		t.Errorf("search field = %+v", search)
+	}
+}
+
+// testdata/ax-safari-tv-search.json is simcap's `ui` output for Safari on
+// tv.apple.com/search, iPhone 18 Pro simulator, iOS 27.2, 1206x2622. The page
+// is a Group under the application beside Safari's toolbar: simcap finds it by
+// hit test, since Safari's application never lists it. The page's main Group
+// runs far below the screen and is marked occluded, which must not hide the
+// links on screen inside it.
+func TestParseAXTreeReachesSafariPage(t *testing.T) {
+	raw, err := os.ReadFile("testdata/ax-safari-tv-search.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui, err := parseAXTree(raw, 1206, 2622)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back := find(ui.Root, func(n *Node) bool { return n.ID == "BackButton" }); back == nil {
+		t.Error("Safari's toolbar is missing")
+	}
+
+	movies, _, err := Pick(ui.Root, Match{Text: "Movies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Frame [36,505,57,23] in points, at scale 3.
+	if movies.Class != "Link" || !movies.Clickable || movies.Center != [2]int{193, 1549} {
+		t.Errorf("Movies = %+v", movies)
+	}
+
+	// A heading the page also wraps in a wider heading of the same name
+	// reaches the tree once.
+	if _, _, err := Pick(ui.Root, Match{Text: "Search"}); err != nil {
+		t.Errorf("Search heading: %v", err)
+	}
+
+	// Below the fold, so off the screen.
+	if _, _, err := Pick(ui.Root, Match{Text: "Comedies"}); !errors.Is(err, ErrNoMatch) {
+		t.Errorf("Comedies: err = %v, want noMatch", err)
+	}
+
+	// On the screen, but its centre is below the web area, between the page
+	// and Safari's toolbar, where a tap does not reach it.
+	if _, _, err := Pick(ui.Root, Match{Text: "Kids & Family"}); !errors.Is(err, ErrNoMatch) {
+		t.Errorf("Kids & Family: err = %v, want noMatch", err)
+	}
+
+	// WebKit calls every node on the page focused, so simcap leaves the
+	// flag off the page; a drop's field must not come from it.
+	if f := FocusedAll(ui); len(f) > 0 {
+		t.Errorf("focused = %d nodes, first %+v; want none", len(f), f[0])
 	}
 }
 
