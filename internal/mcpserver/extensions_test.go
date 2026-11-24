@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -110,12 +111,45 @@ func TestCallExtensionReturnsANon2xxNonJSONBody(t *testing.T) {
 	}
 }
 
+// The proxy passes an extension's redirect through unchanged, and a Location
+// that starts with / names a path on loupe, outside /api/ext/{name}/. Following
+// it would send the session's token there and report loupe's answer as the
+// extension's.
+func TestCallExtensionReturnsARedirectWithoutFollowingIt(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		status int
+	}{
+		{"GET", http.StatusFound},
+		{"POST", http.StatusTemporaryRedirect},
+	} {
+		fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+			if !strings.HasPrefix(r.URL.Path, "/api/ext/") {
+				return false
+			}
+			w.Header().Set("Location", "/api/claims?target=avd:P")
+			w.WriteHeader(tc.status)
+			return true
+		}}
+		cs, stop := connect(t, fake)
+		res := call(t, cs, "call_extension", map[string]any{"name": "slipway", "method": tc.method, "path": "old", "body": `{"a":1}`})
+		stop()
+		if got := strings.Join(fake.requests(), "\n"); got != tc.method+" /api/ext/slipway/old" {
+			t.Errorf("%s: requests %q, want only the extension call", tc.method, got)
+		}
+		want := fmt.Sprintf("status: %d %s\n", tc.status, http.StatusText(tc.status))
+		if res.IsError || !strings.HasPrefix(text(res), want) || !strings.Contains(text(res), "location: /api/claims?target=avd:P\n") {
+			t.Errorf("%s: isError %v text %q, want %q and the location", tc.method, res.IsError, text(res), want)
+		}
+	}
+}
+
 func TestFormatExtensionAnswerCutsALargeBodyAndHidesBinary(t *testing.T) {
-	out := formatExtensionAnswer(200, "text/plain", []byte(strings.Repeat("a", maxExtensionBody+10)))
+	out := formatExtensionAnswer(200, http.Header{"Content-Type": {"text/plain"}}, []byte(strings.Repeat("a", maxExtensionBody+10)))
 	if !strings.Contains(out, "[truncated: showing 65536 of 65546 bytes]") {
 		t.Errorf("no truncation note: %q", out[len(out)-60:])
 	}
-	if out := formatExtensionAnswer(200, "image/png", []byte{0xff, 0xfe, 0x00}); !strings.Contains(out, "3 bytes of non-text content") {
+	if out := formatExtensionAnswer(200, http.Header{"Content-Type": {"image/png"}}, []byte{0xff, 0xfe, 0x00}); !strings.Contains(out, "3 bytes of non-text content") {
 		t.Errorf("binary: %q", out)
 	}
 }

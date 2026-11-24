@@ -35,6 +35,10 @@ type Client struct {
 	defaultTarget string
 	session       string
 	http          *http.Client
+	// noFollow is http that hands back a redirect instead of following it,
+	// for call_extension: an extension's Location that starts with / names a
+	// path on loupe, outside /api/ext/{name}/.
+	noFollow *http.Client
 	// noPush keeps Run from pushing flags, for tests that count requests.
 	noPush bool
 
@@ -66,7 +70,10 @@ func NewClient(rawURL, token, agent string) (*Client, error) {
 		agent:   agent,
 		session: newSessionID(),
 		http:    &http.Client{Transport: tr},
-		claims:  map[string]bool{},
+		noFollow: &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}},
+		claims: map[string]bool{},
 	}, nil
 }
 
@@ -139,7 +146,7 @@ func (e *APIError) Error() string {
 // Never X-Loupe-Viewer: that header makes a request the person's, which would
 // walk past the human hold this process is meant to respect.
 func (c *Client) do(ctx context.Context, method, path string, q url.Values, contentType string, body io.Reader) ([]byte, http.Header, error) {
-	status, h, b, err := c.send(ctx, method, path, q, contentType, body)
+	status, h, b, err := c.send(ctx, c.http, method, path, q, contentType, body)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,10 +158,10 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, cont
 	return b, h, nil
 }
 
-// send is do without the status check: it returns whatever the server
-// answered, so a caller that wants a 4xx's body and content type can have
-// them (call_extension).
-func (c *Client) send(ctx context.Context, method, path string, q url.Values, contentType string, body io.Reader) (int, http.Header, []byte, error) {
+// send is do without the status check, through hc (c.http or c.noFollow): it
+// returns whatever the server answered, so a caller that wants a 4xx's body
+// and content type can have them (call_extension).
+func (c *Client) send(ctx context.Context, hc *http.Client, method, path string, q url.Values, contentType string, body io.Reader) (int, http.Header, []byte, error) {
 	u := *c.base
 	u.Path = c.base.Path + path
 	u.RawQuery = q.Encode()
@@ -172,18 +179,18 @@ func (c *Client) send(ctx context.Context, method, path string, q url.Values, co
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		if PlainHTTPAnswered(c.base, err) {
 			// A loopback server without TLS, as `brew services` runs it.
 			// Every later request goes to http:// too.
 			c.base.Scheme = "http"
 			if body == nil {
-				return c.send(ctx, method, path, q, contentType, nil)
+				return c.send(ctx, hc, method, path, q, contentType, nil)
 			}
 			if sk, ok := body.(io.Seeker); ok {
 				if _, serr := sk.Seek(0, io.SeekStart); serr == nil {
-					return c.send(ctx, method, path, q, contentType, body)
+					return c.send(ctx, hc, method, path, q, contentType, body)
 				}
 			}
 		}

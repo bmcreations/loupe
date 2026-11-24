@@ -41,7 +41,9 @@ by default, or `POST`, `PUT`, `DELETE`; the proxy routes no `PATCH`) and
 through loupe with the session's token, which the proxy strips before the
 extension sees the request. The answer is the extension's status, content
 type and body as text, whatever the status, so a 404 from the extension
-arrives with its body and is not a tool error. Bodies over 64 KiB are cut and
+arrives with its body and is not a tool error. A redirect is not followed: it
+comes back with its `Location`, which names a path on loupe, not on the
+extension, when it starts with `/`. Bodies over 64 KiB are cut and
 say so; non-text bodies are not shown. A bad extension name, a path with `.`
 or `..` segments, an encoded dot or slash, a leading `//` or a URL, and any
 other method are refused without a request. Neither tool takes a `target`, so

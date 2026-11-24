@@ -81,7 +81,7 @@ func addExtensionTools(s *mcp.Server, c *Client) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "call_extension",
 		Description: "Call a registered extension through loupe, at /api/ext/{name}/{path}, with this session's token (the extension never sees it). " +
-			"The answer is the extension's status, content type and body as text, whatever the status: a 404 or 500 from the extension comes back with its body, not as a tool error. Bodies over 64 KiB are cut and say so. " +
+			"The answer is the extension's status, content type and body as text, whatever the status: a 404 or 500 from the extension comes back with its body, not as a tool error. A redirect is not followed; it comes back with its location. Bodies over 64 KiB are cut and say so. " +
 			"Find names and base paths with list_extensions. Claims nothing.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in callExtensionIn) (*mcp.CallToolResult, any, error) {
 		if !extensionNamePattern.MatchString(in.Name) {
@@ -107,17 +107,24 @@ func addExtensionTools(s *mcp.Server, c *Client) {
 				ct = "application/json"
 			}
 		}
-		status, h, b, err := c.send(ctx, method, "/api/ext/"+in.Name+"/"+p, q, ct, body)
+		// noFollow: the proxy passes a redirect through as the extension sent
+		// it, and following one that starts with / would carry the token to
+		// loupe's own route and report its answer as the extension's.
+		status, h, b, err := c.send(ctx, c.noFollow, method, "/api/ext/"+in.Name+"/"+p, q, ct, body)
 		if err != nil {
 			return errResult(err), nil, nil
 		}
-		return textResult(formatExtensionAnswer(status, h.Get("Content-Type"), b)), nil, nil
+		return textResult(formatExtensionAnswer(status, h, b)), nil, nil
 	})
 }
 
-func formatExtensionAnswer(status int, contentType string, b []byte) string {
+func formatExtensionAnswer(status int, h http.Header, b []byte) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "status: %d %s\ncontent-type: %s\n\n", status, http.StatusText(status), contentType)
+	fmt.Fprintf(&out, "status: %d %s\ncontent-type: %s\n", status, http.StatusText(status), h.Get("Content-Type"))
+	if loc := h.Get("Location"); loc != "" {
+		fmt.Fprintf(&out, "location: %s\n", loc)
+	}
+	out.WriteString("\n")
 	if !utf8.Valid(b) {
 		fmt.Fprintf(&out, "[%d bytes of non-text content not shown]", len(b))
 		return out.String()
