@@ -57,8 +57,10 @@ schema. A negative number is an argument, not a flag, and `--` ends flags,
 for text that starts with a dash.
 
 `tap` takes a point, or names a node with `--text`, `--id` or `--desc`
-(plus `--contains`, `--index`, `--waitMs`) and leaves the point out. Giving
-`x` without `y` is still an error.
+(plus `--contains`, `--index`, `--waitMs`) and leaves the point out. `--text`
+also finds a Flutter or React Native label on Android, which sits in `desc`;
+Tap by selector in [agent-api.md](agent-api.md) has the rule. Giving `x`
+without `y` is still an error.
 
 `sequence` takes its steps as one JSON array of `/api/input` bodies, inline,
 `-` for stdin, or `@path` for a file:

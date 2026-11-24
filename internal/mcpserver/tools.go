@@ -85,7 +85,7 @@ type tapIn struct {
 	Targeted
 	X        *int   `json:"x,omitempty" jsonschema:"device pixels, as /api/ui's center reports them; leave out when naming a node"`
 	Y        *int   `json:"y,omitempty" jsonschema:"device pixels"`
-	Text     string `json:"text,omitempty" jsonschema:"tap the node with this text (a button's label on Android and iOS)"`
+	Text     string `json:"text,omitempty" jsonschema:"tap the node with this text (a button's label on Android and iOS); when no node has this text, a node with no text whose desc is this, as Flutter and React Native label controls on Android"`
 	ID       string `json:"id,omitempty" jsonschema:"tap the node with this resource-id or accessibility identifier; a bare Android name matches any package"`
 	Desc     string `json:"desc,omitempty" jsonschema:"tap the node with this content description, often an icon button's only label"`
 	Contains bool   `json:"contains,omitempty" jsonschema:"match text and desc as case-insensitive substrings"`

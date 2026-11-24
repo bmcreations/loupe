@@ -159,11 +159,22 @@ pulses where it last acted for 20 seconds more, then fades.
 | `match` field | Meaning |
 |---|---|
 | `id` | Resource id on Android, accessibility identifier on iOS. A bare Android name (`send`) matches any package's `:id/send`. |
-| `text` | The node's text. On a simulator a button's label is its `text`. |
+| `text` | The node's text, or the label of a node that has no text (see below). On a simulator a button's label is its `text`. |
 | `desc` | The content description. |
 | `contains` | `true` makes `text` and `desc` case-insensitive substring matches. Otherwise they match exactly. |
 
-A node has to satisfy every field given. Other body fields:
+A node has to satisfy every field given. Flutter and React Native put a
+control's label in `desc` on Android and leave its `text` empty, while iOS
+reports the same label as `text`. So when no node's `text` matches, `text` is
+tried against the `desc` of nodes with no `text`, and `text=Send` finds the
+button on both platforms. A node whose `text` matched always wins: a TextView
+reading "Search" is picked over an icon whose `desc` is "Search", and a node
+with text "Archive" and `desc` "Delete" never matches `text=Delete`. The
+fallback is decided per dump, so a `waitMs` or a scroll `find` can stop on a
+`desc` before a node with that `text` appears. `desc` stays a match on
+`desc` alone.
+
+Other body fields:
 
 | Field | Effect |
 |---|---|

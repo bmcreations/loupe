@@ -12,7 +12,11 @@ import (
 type Match struct {
 	// ID is a resource-id on Android or an accessibility identifier on iOS.
 	// A bare Android name ("send") matches any package's ":id/send".
-	ID   string `json:"id,omitempty"`
+	ID string `json:"id,omitempty"`
+	// Text is the node's text. When no node's text matches, it is tried
+	// against the content-desc of nodes that have no text: Flutter and React
+	// Native put a control's label there on Android, where iOS reports it as
+	// text.
 	Text string `json:"text,omitempty"`
 	Desc string `json:"desc,omitempty"`
 	// Contains matches Text and Desc as case-insensitive substrings instead
@@ -69,16 +73,30 @@ func (m Match) String() string {
 // Compose node and its host at one rectangle with the same label, so a
 // match with the bounds of one already found is the same target and is
 // dropped rather than making the match ambiguous.
+//
+// Text is read from content-desc only when no node matches on its text, so a
+// selector that found a node by its text finds the same one whatever icons
+// on the screen carry that label as a description.
 func FindNodes(root *Node, m Match) []*Node {
 	if root == nil || m.Empty() {
 		return nil
 	}
+	out := m.find(root, false)
+	if len(out) == 0 && m.Text != "" {
+		out = m.find(root, true)
+	}
+	return out
+}
+
+// find walks root for m. With textInDesc, Text is compared with the
+// content-desc of nodes whose text is empty, and nodes with text never match.
+func (m Match) find(root *Node, textInDesc bool) []*Node {
 	var out []*Node
 	seen := map[[4]int]bool{}
 	var walk func(n *Node)
 	walk = func(n *Node) {
 		b := n.Bounds
-		if m.matches(n) && b[2] > b[0] && b[3] > b[1] && !n.Occluded && !seen[b] {
+		if m.matches(n, textInDesc) && b[2] > b[0] && b[3] > b[1] && !n.Occluded && !seen[b] {
 			seen[b] = true
 			out = append(out, n)
 		}
@@ -107,11 +125,18 @@ func Pick(root *Node, m Match) (*Node, []*Node, error) {
 	return found[0], found, nil
 }
 
-func (m Match) matches(n *Node) bool {
+func (m Match) matches(n *Node, textInDesc bool) bool {
 	if m.ID != "" && n.ID != m.ID && !strings.HasSuffix(n.ID, ":id/"+m.ID) {
 		return false
 	}
-	if m.Text != "" && !m.label(n.Text, m.Text) {
+	text := n.Text
+	if textInDesc {
+		if n.Text != "" {
+			return false
+		}
+		text = n.Desc
+	}
+	if m.Text != "" && !m.label(text, m.Text) {
 		return false
 	}
 	if m.Desc != "" && !m.label(n.Desc, m.Desc) {
