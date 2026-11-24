@@ -57,35 +57,6 @@ func SniffMedia(head []byte) (MediaKind, bool) {
 // SniffLen is how many leading bytes SniffMedia needs.
 const SniffLen = 12
 
-// AddMedia pushes the file into Pictures or Movies on shared storage and
-// asks the media scanner for it.
-//
-// Measured on 21 October with adb push to /sdcard/Pictures: on API 34
-// (loupe_headless) the file was in content://media/external/images/media at
-// once, because shared storage is FUSE and the media provider sees the write.
-// On API 29 (loupe_api29) it was not, and the MEDIA_SCANNER_SCAN_FILE
-// broadcast indexed it; `content call --method scan_file` threw a
-// NullPointerException there. So the broadcast is sent on every level: on 34
-// it finds the file already indexed.
-func (t *ADBTarget) AddMedia(ctx context.Context, path, name string, kind MediaKind) error {
-	if !t.info.Ready() {
-		return fmt.Errorf("%w: device %s is in state %q", ErrDeviceUnreachable, t.info.Serial, t.info.State)
-	}
-	dir := "/sdcard/Pictures"
-	if kind.Video {
-		dir = "/sdcard/Movies"
-	}
-	dest := dir + "/" + name
-	if out, err := exec.CommandContext(ctx, t.adb.bin(), "-s", t.info.Serial, "push", path, dest).CombinedOutput(); err != nil {
-		return fmt.Errorf("adb push: %w: %s", err, lastLine(strings.TrimSpace(string(out))))
-	}
-	scan := "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d " + shellQuote("file://"+dest)
-	if out, err := exec.CommandContext(ctx, t.adb.bin(), "-s", t.info.Serial, "shell", scan).CombinedOutput(); err != nil {
-		return fmt.Errorf("media scan: %w: %s", err, lastLine(strings.TrimSpace(string(out))))
-	}
-	return nil
-}
-
 // AddMedia goes through `simctl addmedia`, which puts photos and videos in
 // the simulator's Photos library. It needs the simulator booted.
 func (s *Simulator) AddMedia(ctx context.Context, path, name string, kind MediaKind) error {
@@ -100,22 +71,11 @@ func (s *Simulator) AddMedia(ctx context.Context, path, name string, kind MediaK
 	return nil
 }
 
-func (e *Emulator) AddMedia(ctx context.Context, path, name string, kind MediaKind) error {
-	in, done, err := e.running()
-	if err != nil {
-		return err
-	}
-	defer done()
-	return in.AddMedia(ctx, path, name, kind)
-}
-
 // ErrNotMedia is a file SniffMedia does not recognise.
 var ErrNotMedia = errors.New("not a photo or video this can add (png, jpg, gif, webp, heic, mp4, mov)")
 
 var (
-	_ MediaAdder = (*ADBTarget)(nil)
 	_ MediaAdder = (*Simulator)(nil)
-	_ MediaAdder = (*Emulator)(nil)
 )
 
 // addMediaReason picks simctl addmedia's own failure line. Its last line is
@@ -130,5 +90,5 @@ func addMediaReason(out string) string {
 			return l
 		}
 	}
-	return lastLine(out)
+	return LastLine(out)
 }

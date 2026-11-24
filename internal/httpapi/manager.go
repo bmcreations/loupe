@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/clipshare"
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
@@ -275,16 +277,16 @@ func (m *Manager) Register(t target.Target) {
 // not a device of its own, so it is attached to the AVD rather than listed
 // twice. An AVD adb no longer lists has stopped, and is detached so the next
 // Open boots it again.
-func (m *Manager) SyncDevices(devices []target.DeviceInfo, build func(target.DeviceInfo) target.Target) {
+func (m *Manager) SyncDevices(devices []android.DeviceInfo, build func(android.DeviceInfo) target.Target) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	avds := map[string]*target.Emulator{}
+	avds := map[string]*android.Emulator{}
 	// An emulator this server is booting shows up in adb before it can say
 	// which AVD it is, so its serial is claimed by the port it was given.
-	booting := map[string]*target.Emulator{}
+	booting := map[string]*android.Emulator{}
 	for _, t := range m.targets {
-		if e, ok := t.(*target.Emulator); ok {
+		if e, ok := t.(*android.Emulator); ok {
 			avds[e.AVD()] = e
 			if s := e.BootingAs(); s != "" {
 				booting[s] = e
@@ -326,7 +328,7 @@ func (m *Manager) SyncDevices(devices []target.DeviceInfo, build func(target.Dev
 		switch cur, ok := m.targets[d.Serial]; {
 		case !ok:
 			m.targets[d.Serial] = build(d)
-		case isADB(cur) && cur.(*target.ADBTarget).Info() != d:
+		case isADB(cur) && cur.(*android.ADBTarget).Info() != d:
 			m.targets[d.Serial] = build(d)
 		}
 		m.setPresence(d.Serial, d.State)
@@ -491,7 +493,7 @@ func (m *Manager) SyncIOSDevices(devs []target.IOSDeviceInfo) {
 
 // traceAVD records an AVD starting or stopping. It is not presence: an AVD
 // that is not running is still available, since opening it boots it.
-func (m *Manager) traceAVD(e *target.Emulator, state, serial string) {
+func (m *Manager) traceAVD(e *android.Emulator, state, serial string) {
 	fmt.Printf("target: %s is %s as %s\n", e.ID(), state, serial)
 	m.trace.Record(map[string]any{
 		"kind": "target-state", "target": e.ID(), "state": state, "serial": serial,
@@ -507,7 +509,7 @@ func (m *Manager) canonical(id string) string {
 		return id
 	}
 	for _, t := range m.targets {
-		if e, ok := t.(*target.Emulator); ok && e.Serial() == id {
+		if e, ok := t.(*android.Emulator); ok && e.Serial() == id {
 			return e.ID()
 		}
 	}
@@ -515,7 +517,7 @@ func (m *Manager) canonical(id string) string {
 }
 
 func isADB(t target.Target) bool {
-	_, ok := t.(*target.ADBTarget)
+	_, ok := t.(*android.ADBTarget)
 	return ok
 }
 
@@ -553,7 +555,7 @@ func (m *Manager) adbBlocked(id string, t target.Target) bool {
 	if _, live := m.sessions[id]; live {
 		return false
 	}
-	_, emu := t.(*target.Emulator)
+	_, emu := t.(*android.Emulator)
 	return emu || isADB(t)
 }
 
@@ -730,7 +732,7 @@ func (m *Manager) targetRows(ctx context.Context, withPeers bool) []TargetInfo {
 				info.StartSavedAt = at.UTC().Format(time.RFC3339)
 			}
 		}
-		if e, ok := t.(*target.Emulator); ok {
+		if e, ok := t.(*android.Emulator); ok {
 			info.Serial = e.Serial()
 		}
 		out = append(out, info)
@@ -782,7 +784,7 @@ func (m *Manager) targetRows(ctx context.Context, withPeers bool) []TargetInfo {
 	// After Describe, which is what asks the console about an emulator a
 	// previous process paused.
 	for i := range out {
-		if e, ok := targets[out[i].ID].(*target.Emulator); ok && !out[i].BootsOnOpen {
+		if e, ok := targets[out[i].ID].(*android.Emulator); ok && !out[i].BootsOnOpen {
 			out[i].Paused = e.Paused()
 		}
 	}
@@ -870,7 +872,7 @@ func (m *Manager) SetPeerRows(rows []TargetInfo) {
 func (m *Manager) markHeadless(ctx context.Context, out []TargetInfo, targets map[string]target.Target) {
 	var running []int
 	for i := range out {
-		if _, ok := targets[out[i].ID].(*target.Emulator); ok && !out[i].BootsOnOpen {
+		if _, ok := targets[out[i].ID].(*android.Emulator); ok && !out[i].BootsOnOpen {
 			running = append(running, i)
 		}
 	}
@@ -879,13 +881,13 @@ func (m *Manager) markHeadless(ctx context.Context, out []TargetInfo, targets ma
 	}
 	headless := headlessAVDs(ctx)
 	for _, i := range running {
-		e := targets[out[i].ID].(*target.Emulator)
+		e := targets[out[i].ID].(*android.Emulator)
 		out[i].Headless = headless[e.AVD()]
 	}
 }
 
 // headlessAVDs is a var so a test can say which AVDs run headless.
-var headlessAVDs = target.HeadlessAVDs
+var headlessAVDs = android.HeadlessAVDs
 
 // simulatorOrder puts running simulators first, then sorts by name. Their ids
 // are UDIDs, so ordering by id alone would scatter a dozen iPhones at random.

@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/clipshare"
 	"github.com/bmcreations/loupe/internal/config"
 	"github.com/bmcreations/loupe/internal/httpapi"
@@ -354,7 +356,7 @@ var marshalerSchemas = map[reflect.Type]map[string]any{
 // fails generation rather than silently applying to nothing.
 var fieldOverrides = map[reflect.Type]map[string]map[string]any{
 	reflect.TypeOf(httpapi.InputRequest{}): {
-		"button": {"enum": stringsToAny(target.ButtonNames())},
+		"button": {"enum": stringsToAny(android.ButtonNames())},
 		"to":     {"minimum": httpapi.InputToMin, "maximum": httpapi.InputToMax},
 		"scale":  {"exclusiveMinimum": 0},
 	},

@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/h264"
 	"github.com/bmcreations/loupe/internal/target"
 )
@@ -1104,7 +1106,7 @@ func (s *Session) ViewerKey(viewerID uint64, e KeyEvent) error {
 
 	if e.Action == uint8(target.KeyUp) {
 		ev := Event{Source: "viewer", Viewer: viewerID}
-		if name, ok := target.ButtonForKeycode(int(e.Keycode)); ok {
+		if name, ok := android.ButtonForKeycode(int(e.Keycode)); ok {
 			ev.Kind = "button"
 			ev.Button = name
 		} else {

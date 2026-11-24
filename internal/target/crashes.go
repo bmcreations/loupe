@@ -64,7 +64,7 @@ var crashIDRE = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4
 
 // ValidCrashID reports whether s is shaped like a crash id: a simulator's
 // incident id, or an Android dropbox entry's tag and millis.
-func ValidCrashID(s string) bool { return crashIDRE.MatchString(s) || dropboxIDRE.MatchString(s) }
+func ValidCrashID(s string) bool { return crashIDRE.MatchString(s) || DropboxIDRE.MatchString(s) }
 
 // bugTypeCrash is the .ips bug_type of a crash. The directory also holds
 // other kinds (226 is a .diag of something else entirely), and only this

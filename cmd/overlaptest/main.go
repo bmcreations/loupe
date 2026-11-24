@@ -12,6 +12,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	scrcpyserver "github.com/bmcreations/loupe/internal/scrcpy/server"
 	"github.com/bmcreations/loupe/internal/target"
 )
@@ -39,7 +41,7 @@ func count(s target.Stream, d time.Duration) (frames, keys int) {
 
 func main() {
 	serial := os.Args[1]
-	adb := target.ADB{Path: "adb"}
+	adb := android.ADB{Path: "adb"}
 	devices, err := adb.Devices(context.Background())
 	if err != nil {
 		fmt.Println("devices:", err)
@@ -51,10 +53,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	var tgt *target.ADBTarget
+	var tgt *android.ADBTarget
 	for _, d := range devices {
 		if d.Serial == serial {
-			tgt = target.NewADBTarget(adb, d, jar, scrcpyserver.Version)
+			tgt = android.NewADBTarget(adb, d, jar, scrcpyserver.Version)
 		}
 	}
 	if tgt == nil {

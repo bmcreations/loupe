@@ -6,17 +6,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
-func buildADB(d target.DeviceInfo) target.Target {
-	return target.NewADBTarget(target.ADB{}, d, "", "")
+func buildADB(d android.DeviceInfo) target.Target {
+	return android.NewADBTarget(android.ADB{}, d, "", "")
 }
 
 var (
-	acmeReady = target.DeviceInfo{Serial: "ACME00000000001", State: "device", Model: "Acme One"}
-	acmeAuth  = target.DeviceInfo{Serial: "ACME00000000001", State: "unauthorized"}
-	emulator  = target.DeviceInfo{Serial: "emulator-5554", State: "device", Model: "sdk_gphone16k_arm64", Emulator: true}
+	acmeReady = android.DeviceInfo{Serial: "ACME00000000001", State: "device", Model: "Acme One"}
+	acmeAuth  = android.DeviceInfo{Serial: "ACME00000000001", State: "unauthorized"}
+	emulator  = android.DeviceInfo{Serial: "emulator-5554", State: "device", Model: "sdk_gphone16k_arm64", Emulator: true}
 )
 
 func infoFor(t *testing.T, m *Manager, id string) TargetInfo {
@@ -35,12 +37,12 @@ func infoFor(t *testing.T, m *Manager, id string) TargetInfo {
 // "failed to get feature set: device 'ACME00000000001' not found".
 func TestADeviceAdbStopsListingIsKeptAndSaysWhy(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncDevices([]target.DeviceInfo{acmeReady, emulator}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady, emulator}, buildADB)
 	if !infoFor(t, m, acmeReady.Serial).Available {
 		t.Fatal("a ready device is listed unavailable")
 	}
 
-	m.SyncDevices([]target.DeviceInfo{emulator}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{emulator}, buildADB)
 
 	got := infoFor(t, m, acmeReady.Serial)
 	if got.Available || got.State != "missing" {
@@ -53,7 +55,7 @@ func TestADeviceAdbStopsListingIsKeptAndSaysWhy(t *testing.T) {
 		t.Error("the device still attached became unavailable")
 	}
 
-	m.SyncDevices([]target.DeviceInfo{acmeReady, emulator}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady, emulator}, buildADB)
 	if !infoFor(t, m, acmeReady.Serial).Available {
 		t.Error("plugging the device back in did not make it available")
 	}
@@ -61,7 +63,7 @@ func TestADeviceAdbStopsListingIsKeptAndSaysWhy(t *testing.T) {
 
 func TestAcquiringAMissingDeviceFailsWithoutTouchingAdb(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncDevices([]target.DeviceInfo{acmeReady}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 	m.SyncDevices(nil, buildADB)
 
 	// The zero ADB has no jar and no device, so reaching adb would fail with
@@ -80,16 +82,16 @@ func TestAcquiringAMissingDeviceFailsWithoutTouchingAdb(t *testing.T) {
 // be rebuilt or it stays unopenable for the life of the process.
 func TestADeviceThatBecomesAuthorizedIsRebuilt(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncDevices([]target.DeviceInfo{acmeAuth}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeAuth}, buildADB)
 
 	got := infoFor(t, m, acmeAuth.Serial)
 	if got.Available || !strings.Contains(got.Reason, "USB debugging") {
 		t.Fatalf("unauthorized: available=%v reason=%q", got.Available, got.Reason)
 	}
 
-	m.SyncDevices([]target.DeviceInfo{acmeReady}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 	tgt, _ := m.Target(acmeReady.Serial)
-	if info := tgt.(*target.ADBTarget).Info(); info != acmeReady {
+	if info := tgt.(*android.ADBTarget).Info(); info != acmeReady {
 		t.Errorf("target still carries %+v, want %+v", info, acmeReady)
 	}
 	if got := infoFor(t, m, acmeReady.Serial); !got.Available || got.Label != acmeReady.Label() {
@@ -97,11 +99,11 @@ func TestADeviceThatBecomesAuthorizedIsRebuilt(t *testing.T) {
 	}
 }
 
-func newAVD(name string) *target.Emulator {
-	return target.NewEmulator(target.ADB{Path: "/nonexistent/loupe-test-adb"}, target.EmulatorConfig{AVD: name}, "", "")
+func newAVD(name string) *android.Emulator {
+	return android.NewEmulator(android.ADB{Path: "/nonexistent/loupe-test-adb"}, android.EmulatorConfig{AVD: name}, "", "")
 }
 
-func named(d target.DeviceInfo, avd string) target.DeviceInfo {
+func named(d android.DeviceInfo, avd string) android.DeviceInfo {
 	d.AVD = avd
 	return d
 }
@@ -110,7 +112,7 @@ func TestARunningAVDIsNotListedTwice(t *testing.T) {
 	m := NewManager(target.Options{})
 	e := newAVD("pixel_10")
 	m.Register(e)
-	m.SyncDevices([]target.DeviceInfo{named(emulator, "pixel_10")}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{named(emulator, "pixel_10")}, buildADB)
 
 	if e.Serial() != emulator.Serial {
 		t.Fatalf("AVD attached as %q, want %q", e.Serial(), emulator.Serial)
@@ -128,7 +130,7 @@ func TestARunningAVDAnswersToItsSerial(t *testing.T) {
 	m := NewManager(target.Options{})
 	e := newAVD("pixel_10")
 	m.Register(e)
-	m.SyncDevices([]target.DeviceInfo{named(emulator, "pixel_10")}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{named(emulator, "pixel_10")}, buildADB)
 
 	got, ok := m.Target(emulator.Serial)
 	if !ok || got != target.Target(e) {
@@ -142,11 +144,11 @@ func TestARunningAVDAnswersToItsSerial(t *testing.T) {
 func TestASerialListedBeforeItsNameWasKnownIsRemoved(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.Register(newAVD("pixel_10"))
-	m.SyncDevices([]target.DeviceInfo{emulator}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{emulator}, buildADB)
 	if _, ok := m.targets[emulator.Serial]; !ok {
 		t.Fatal("an unnamed emulator should be listed by serial")
 	}
-	m.SyncDevices([]target.DeviceInfo{named(emulator, "pixel_10")}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{named(emulator, "pixel_10")}, buildADB)
 	if _, ok := m.targets[emulator.Serial]; ok {
 		t.Error("the serial entry survived its emulator being named")
 	}
@@ -156,7 +158,7 @@ func TestAnAVDThatStopsIsDetached(t *testing.T) {
 	m := NewManager(target.Options{})
 	e := newAVD("pixel_10")
 	m.Register(e)
-	m.SyncDevices([]target.DeviceInfo{named(emulator, "pixel_10")}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{named(emulator, "pixel_10")}, buildADB)
 	m.SyncDevices(nil, buildADB)
 
 	if e.Serial() != "" || !e.BootsOnOpen() {
@@ -176,7 +178,7 @@ func TestAnAVDThatStopsIsDetached(t *testing.T) {
 func TestAnEmulatorOfAnUnknownAVDIsListedBySerial(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.Register(newAVD("pixel_10"))
-	m.SyncDevices([]target.DeviceInfo{named(emulator, "someone_elses")}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{named(emulator, "someone_elses")}, buildADB)
 	if _, ok := m.targets[emulator.Serial]; !ok {
 		t.Error("an emulator of an unregistered AVD was not listed")
 	}
@@ -233,7 +235,7 @@ func TestTheLastErrorClearsOnceATargetOpens(t *testing.T) {
 func TestTheTargetListHasAFixedOrder(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.Register(&target.Synthetic{})
-	m.SyncDevices([]target.DeviceInfo{
+	m.SyncDevices([]android.DeviceInfo{
 		emulator,
 		acmeReady,
 		{Serial: "emulator-5556", State: "device", Emulator: true},
@@ -257,11 +259,11 @@ func TestTheTargetListHasAFixedOrder(t *testing.T) {
 // "missing" (10 Nov, localhost:50060).
 func TestAnUnregisteredDeviceAdbStillListsDoesNotComeBack(t *testing.T) {
 	m := NewManager(target.Options{})
-	remote := target.DeviceInfo{Serial: "localhost:50060", State: "device"}
-	m.SyncDevices([]target.DeviceInfo{remote}, buildADB)
+	remote := android.DeviceInfo{Serial: "localhost:50060", State: "device"}
+	m.SyncDevices([]android.DeviceInfo{remote}, buildADB)
 	m.Unregister(remote.Serial)
 
-	m.SyncDevices([]target.DeviceInfo{remote}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{remote}, buildADB)
 	m.SyncDevices(nil, buildADB)
 
 	for _, ti := range m.Targets(context.Background()) {

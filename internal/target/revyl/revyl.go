@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/pion/webrtc/v4"
 
 	"github.com/bmcreations/loupe/internal/target"
@@ -413,7 +415,7 @@ var (
 )
 
 // errRevylNoStream is an agent's input with no stream to send it through.
-var errRevylNoStream = target.NoSessionError("revyl: open this device in a viewer first; loupe sends a Revyl device's input through the viewer's stream")
+var errRevylNoStream = android.NoSessionError("revyl: open this device in a viewer first; loupe sends a Revyl device's input through the viewer's stream")
 
 func (t *Target) ID() string        { return "revyl:" + t.Session.SessionID }
 func (t *Target) Kind() target.Kind { return target.KindRevyl }
@@ -945,8 +947,8 @@ func revylHideText(err error, text string) error {
 // Once the stream closes there is nothing to send an agent's gesture
 // through, which /api/input answers as having no session.
 var (
-	errRevylClosed         = target.NoSessionError("revyl: the viewer's stream closed before the gesture was sent; open the device in a viewer again")
-	errRevylClosedInFlight = target.NoSessionError("revyl: the viewer's stream closed while the gesture was in flight, so it may have landed; open the device in a viewer again")
+	errRevylClosed         = android.NoSessionError("revyl: the viewer's stream closed before the gesture was sent; open the device in a viewer again")
+	errRevylClosedInFlight = android.NoSessionError("revyl: the viewer's stream closed while the gesture was in flight, so it may have landed; open the device in a viewer again")
 )
 
 func (in *revylInput) close() {

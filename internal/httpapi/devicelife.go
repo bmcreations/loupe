@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -195,7 +197,7 @@ func (s *Server) deviceLife(w http.ResponseWriter, r *http.Request, action strin
 		"platform": platform, "tookMs": time.Since(began).Milliseconds(), "outcome": outcome, "saved": saved,
 		"save": action == "save",
 	})
-	if errors.Is(err, target.ErrStreamLingering) {
+	if errors.Is(err, android.ErrStreamLingering) {
 		writeJSON(w, http.StatusConflict, ErrorResponse{
 			Error: fmt.Sprintf("%s is still streaming, so its state was not saved; try again", id),
 			Code:  ErrCodeBusy,
