@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bmcreations/loupe/internal/target"
+	"github.com/bmcreations/loupe/internal/target/android"
 )
 
 // ErrCodeAVDExists is the 409 of POST /api/avds and POST /api/devices when a
@@ -94,7 +94,7 @@ type AVDCreatorConfig struct {
 	// and when that scan began, so the new one becomes a target without a
 	// restart. It must skip names already registered, and names Unregister
 	// forgot after the scan began (Manager.RegisterScanned).
-	Registered func(scannedAt time.Time, installed []target.AVD)
+	Registered func(scannedAt time.Time, installed []android.AVD)
 	Trace      func(map[string]any)
 }
 
@@ -271,7 +271,7 @@ func (c *AVDCreator) create(job *createJob, cli string) {
 	}
 	if failure == "" {
 		scannedAt := time.Now()
-		installed, err := target.ScanAVDs(c.cfg.AVDHome)
+		installed, err := android.ScanAVDs(c.cfg.AVDHome)
 		if err != nil {
 			failure = "listing AVDs: " + err.Error()
 		} else if c.cfg.Registered != nil {

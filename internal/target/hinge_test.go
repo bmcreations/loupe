@@ -2,7 +2,6 @@ package target
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"slices"
 	"sync"
@@ -12,12 +11,12 @@ import (
 
 func TestParseHingeAngle(t *testing.T) {
 	for _, v := range []any{0.0, 1.0, 90.0, 180.0} {
-		if got, err := parseHingeAngle(v); err != nil || float64(got) != v.(float64) {
+		if got, err := ParseHingeAngle(v); err != nil || float64(got) != v.(float64) {
 			t.Errorf("parseHingeAngle(%v) = %v, %v", v, got, err)
 		}
 	}
 	for _, v := range []any{-1.0, 180.5, 181.0, 90.5, "90", nil, true} {
-		if _, err := parseHingeAngle(v); err == nil {
+		if _, err := ParseHingeAngle(v); err == nil {
 			t.Errorf("parseHingeAngle(%v) took it", v)
 		}
 	}
@@ -27,7 +26,7 @@ func TestParseHingeAngle(t *testing.T) {
 // of the five is sent. The four it replaced wait for that write and answer
 // with it, so none returns while the first write is still running.
 func TestHingeCoalescerSendsOnlyTheNewestQueuedAngle(t *testing.T) {
-	var c hingeCoalescer
+	var c HingeCoalescer
 	var mu sync.Mutex
 	var sent []int
 	started := make(chan struct{}, 10)
@@ -77,7 +76,7 @@ func TestHingeCoalescerSendsOnlyTheNewestQueuedAngle(t *testing.T) {
 	}
 }
 
-func waitQueued(t *testing.T, c *hingeCoalescer, deg int) {
+func waitQueued(t *testing.T, c *HingeCoalescer, deg int) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
@@ -95,7 +94,7 @@ func waitQueued(t *testing.T, c *hingeCoalescer, deg int) {
 // The write's own error reaches the caller that is waiting on it, and the
 // coalescer is ready for the next one afterwards.
 func TestHingeCoalescerReportsTheWriteError(t *testing.T) {
-	var c hingeCoalescer
+	var c HingeCoalescer
 	boom := errors.New("console gone")
 	if err := setErr(&c, t.Context(), 90, func(context.Context, int) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("err = %v", err)
@@ -108,7 +107,7 @@ func TestHingeCoalescerReportsTheWriteError(t *testing.T) {
 // A caller that gives up stops waiting; the write still finishes, and the
 // next Set goes out after it.
 func TestHingeCoalescerCallerContextEnds(t *testing.T) {
-	var c hingeCoalescer
+	var c HingeCoalescer
 	var mu sync.Mutex
 	var applied []int
 	record := func(deg int) {
@@ -144,20 +143,7 @@ func TestHingeCoalescerCallerContextEnds(t *testing.T) {
 	}
 }
 
-// A range's min and max are on the wire even at zero; a bool has neither.
-func TestSettingJSONKeepsARangesZeroMin(t *testing.T) {
-	b, err := json.Marshal([]Setting{hingeSetting(0), {ID: "darkMode", Type: SettingBool, Value: true, Supported: true, Applies: "immediately"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `[{"id":"hingeAngle","type":"range","value":0,"min":0,"max":180,"step":1,"supported":true,"applies":"immediately"},` +
-		`{"id":"darkMode","type":"bool","value":true,"supported":true,"applies":"immediately"}]`
-	if string(b) != want {
-		t.Fatalf("got  %s\nwant %s", b, want)
-	}
-}
-
-func setErr(c *hingeCoalescer, ctx context.Context, deg int, apply func(context.Context, int) error) error {
+func setErr(c *HingeCoalescer, ctx context.Context, deg int, apply func(context.Context, int) error) error {
 	_, err := c.Set(ctx, deg, apply)
 	return err
 }
@@ -170,7 +156,7 @@ type hingeResult struct {
 // coalescerUnderTest runs Sets on c whose apply records the angle and holds
 // the first write until release is closed. Every later write returns
 // failWith.
-func coalescerUnderTest(t *testing.T, c *hingeCoalescer, failWith error) (set func(deg int) chan hingeResult, release func(), sent func() []int) {
+func coalescerUnderTest(t *testing.T, c *HingeCoalescer, failWith error) (set func(deg int) chan hingeResult, release func(), sent func() []int) {
 	var mu sync.Mutex
 	var got []int
 	started, hold := make(chan struct{}), make(chan struct{})
@@ -208,7 +194,7 @@ func coalescerUnderTest(t *testing.T, c *hingeCoalescer, failWith error) (set fu
 // A chain of replacements, 20 by 30 by 40 while 10 is going out: 30 is
 // never sent, so all three answer 40, the one that was.
 func TestHingeCoalescerReportsTheAngleSentInItsPlace(t *testing.T) {
-	var c hingeCoalescer
+	var c HingeCoalescer
 	set, release, sent := coalescerUnderTest(t, &c, nil)
 	var chain []chan hingeResult
 	for _, deg := range []int{20, 30, 40} {
@@ -229,7 +215,7 @@ func TestHingeCoalescerReportsTheAngleSentInItsPlace(t *testing.T) {
 // A replaced Set does not answer 200 for a write that failed in its place:
 // it gets that write's error.
 func TestHingeCoalescerReportsTheReplacingWritesError(t *testing.T) {
-	var c hingeCoalescer
+	var c HingeCoalescer
 	boom := errors.New("console gone")
 	set, release, _ := coalescerUnderTest(t, &c, boom)
 	replaced := set(20)

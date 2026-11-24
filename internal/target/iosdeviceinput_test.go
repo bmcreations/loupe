@@ -340,11 +340,11 @@ func requireExited(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if err := signalPid(pid, 0); errors.Is(err, syscall.ESRCH) {
+		if err := SignalPid(pid, 0); errors.Is(err, syscall.ESRCH) {
 			return
 		}
 		if time.Now().After(deadline) {
-			_ = signalPid(pid, syscall.SIGKILL)
+			_ = SignalPid(pid, syscall.SIGKILL)
 			t.Fatalf("process %d is still running", pid)
 		}
 		time.Sleep(20 * time.Millisecond)

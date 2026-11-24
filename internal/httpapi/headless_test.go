@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -19,11 +21,11 @@ func TestMarkHeadlessMarksRunningAVDsOnly(t *testing.T) {
 	}
 	t.Cleanup(func() { headlessAVDs = restore })
 
-	adb := target.ADB{Path: "/nonexistent/loupe-test-adb"}
+	adb := android.ADB{Path: "/nonexistent/loupe-test-adb"}
 	targets := map[string]target.Target{
-		"avd:fold":     target.NewEmulator(adb, target.EmulatorConfig{AVD: "fold"}, "", ""),
-		"avd:Pixel_10": target.NewEmulator(adb, target.EmulatorConfig{AVD: "Pixel_10"}, "", ""),
-		"avd:stopped":  target.NewEmulator(adb, target.EmulatorConfig{AVD: "stopped"}, "", ""),
+		"avd:fold":     android.NewEmulator(adb, android.EmulatorConfig{AVD: "fold"}, "", ""),
+		"avd:Pixel_10": android.NewEmulator(adb, android.EmulatorConfig{AVD: "Pixel_10"}, "", ""),
+		"avd:stopped":  android.NewEmulator(adb, android.EmulatorConfig{AVD: "stopped"}, "", ""),
 		"synthetic":    &target.Synthetic{},
 	}
 	out := []TargetInfo{
@@ -53,7 +55,7 @@ func TestMarkHeadlessSkipsThePsWithNoAVDRunning(t *testing.T) {
 	}
 	t.Cleanup(func() { headlessAVDs = restore })
 
-	adb := target.ADB{Path: "/nonexistent/loupe-test-adb"}
-	targets := map[string]target.Target{"avd:a": target.NewEmulator(adb, target.EmulatorConfig{AVD: "a"}, "", "")}
+	adb := android.ADB{Path: "/nonexistent/loupe-test-adb"}
+	targets := map[string]target.Target{"avd:a": android.NewEmulator(adb, android.EmulatorConfig{AVD: "a"}, "", "")}
 	(&Manager{}).markHeadless(context.Background(), []TargetInfo{{ID: "avd:a", BootsOnOpen: true}}, targets)
 }

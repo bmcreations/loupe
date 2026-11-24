@@ -42,7 +42,7 @@ var simLogWindows = []time.Duration{time.Minute, 10 * time.Minute, time.Hour}
 // for simctl.
 var simLogStart = func(ctx context.Context, udid string, args []string) (io.ReadCloser, error) {
 	full := append([]string{"simctl", "spawn", udid, "log"}, args...)
-	s, err := startStream(ctx, "simctl spawn log "+args[0], func(cmd *exec.Cmd) {
+	s, err := StartStream(ctx, "simctl spawn log "+args[0], func(cmd *exec.Cmd) {
 		// SIGTERM rather than the default SIGKILL, so simctl can pass the
 		// end on to the log process it started inside the simulator.
 		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }

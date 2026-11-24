@@ -26,6 +26,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/awake"
 	"github.com/bmcreations/loupe/internal/clipshare"
 	"github.com/bmcreations/loupe/internal/config"
@@ -386,7 +388,7 @@ func main() {
 	share := clipshare.New()
 	share.SetEnabled(*shareClipFlag)
 	mgr.SetClipShare(share)
-	adb := target.ADB{Path: *adbPath}
+	adb := android.ADB{Path: *adbPath}
 
 	needScrcpy := !*noDevices
 	jar, version := *serverJar, *serverVersion
@@ -409,7 +411,7 @@ func main() {
 	defer cancel()
 
 	registered := 0
-	var registerAVDs func(time.Time, []target.AVD)
+	var registerAVDs func(time.Time, []android.AVD)
 	// Closed when the device watcher has exited, so shutdown can wait for it
 	// to kill its adb child rather than orphaning one per restart -- and the
 	// supervisor restarts on every build.
@@ -418,8 +420,8 @@ func main() {
 	// The android CLI and the SDK are looked up per call, so either one
 	// installed while loupe runs (POST /api/android/cli, or the CLI fetching
 	// the emulator for its first AVD) needs no restart.
-	findCLI := func() string { return target.AndroidCLI(*androidCLI) }
-	sdkRoot := func() string { return target.SDKRoot(*androidSDK) }
+	findCLI := func() string { return android.AndroidCLI(*androidCLI) }
+	sdkRoot := func() string { return android.SDKRoot(*androidSDK) }
 	// adbKick cuts the device watcher's wait short once adb is installed or
 	// an AVD create has brought it, so adb reads as reachable at once and not
 	// up to 30s later.
@@ -434,23 +436,23 @@ func main() {
 		if *emulatorPath != "" {
 			return *emulatorPath
 		}
-		return target.EmulatorBinary(sdkRoot())
+		return android.EmulatorBinary(sdkRoot())
 	}
 
 	if needScrcpy {
 		emu := emulatorBin()
 		scannedAt := time.Now()
-		installed, err := target.ScanAVDs(target.AVDHome())
+		installed, err := android.ScanAVDs(android.AVDHome())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: listing AVDs: %v\n", err)
 		}
-		byName := map[string]*target.Emulator{}
+		byName := map[string]*android.Emulator{}
 		// registerAVDs makes a target of each AVD not already one. It runs at
 		// startup and again after /api/avds creates one, so a new AVD is in
 		// the picker without a restart. One deleted after the scan began is
 		// skipped, since the scan could still read its .ini.
 		var registerMu sync.Mutex
-		registerAVDs = func(scannedAt time.Time, installed []target.AVD) {
+		registerAVDs = func(scannedAt time.Time, installed []android.AVD) {
 			// Serialized: the rescan runs from request handlers.
 			registerMu.Lock()
 			defer registerMu.Unlock()
@@ -461,14 +463,14 @@ func main() {
 				if mgr.Registered("avd:" + a.Name) {
 					continue
 				}
-				e := target.NewEmulator(adb, target.EmulatorConfig{
+				e := android.NewEmulator(adb, android.EmulatorConfig{
 					AVD:          a.Name,
 					DisplayName:  a.DisplayName,
 					Desc:         a.Description(),
 					EmulatorPath: emu,
 					GPU:          *gpu,
 					Dir:          a.Dir,
-					Home:         target.AVDHome(),
+					Home:         android.AVDHome(),
 					Trace:        tracer.Record,
 					Window:       emuWindow.Load,
 					KeepState:    emuKeep.Load,
@@ -486,7 +488,7 @@ func main() {
 		// on the next listing, or the first boot that names it.
 		mgr.SetAVDRescan(func() {
 			at := time.Now()
-			if found, err := target.ScanAVDs(target.AVDHome()); err == nil {
+			if found, err := android.ScanAVDs(android.AVDHome()); err == nil {
 				registerAVDs(at, found)
 			}
 		})
@@ -496,10 +498,10 @@ func main() {
 		for _, name := range avds {
 			e, ok := byName[name]
 			if !ok {
-				e = target.NewEmulator(adb, target.EmulatorConfig{
+				e = android.NewEmulator(adb, android.EmulatorConfig{
 					AVD: name, EmulatorPath: emu, GPU: *gpu,
-					Dir:       filepath.Join(target.AVDHome(), name+".avd"),
-					Home:      target.AVDHome(),
+					Dir:       filepath.Join(android.AVDHome(), name+".avd"),
+					Home:      android.AVDHome(),
 					Trace:     tracer.Record,
 					Window:    emuWindow.Load,
 					KeepState: emuKeep.Load,
@@ -520,13 +522,13 @@ func main() {
 	// unauthorized is listed with the reason, which is how the user learns to
 	// accept the prompt.
 	if needScrcpy && !*noDevices {
-		build := func(d target.DeviceInfo) target.Target {
-			return target.NewADBTarget(adb, d, jar, version)
+		build := func(d android.DeviceInfo) target.Target {
+			return android.NewADBTarget(adb, d, jar, version)
 		}
-		avds, models := target.NewAVDResolver(adb), target.NewModelResolver(adb)
+		avds, models := android.NewAVDResolver(adb), android.NewModelResolver(adb)
 		// names fills in what adb's listing leaves out: an emulator's AVD,
 		// and the model of a device listed without one.
-		names := func(ctx context.Context, ds []target.DeviceInfo) []target.DeviceInfo {
+		names := func(ctx context.Context, ds []android.DeviceInfo) []android.DeviceInfo {
 			return models.Resolve(ctx, avds.Resolve(ctx, ds))
 		}
 		devices, err := adb.Devices(ctx)
@@ -663,7 +665,7 @@ func main() {
 	hostModel := sync.OnceValue(func() string { return httpapi.DetectHostModel(context.Background()) })
 	go hostModel()
 	api.SetHostModel(hostModel)
-	api.SetAAPT2(target.AAPT2Binary(target.SDKRoot(*androidSDK)))
+	api.SetAAPT2(android.AAPT2Binary(android.SDKRoot(*androidSDK)))
 	// Presets beside it, for the same reason.
 	if err := api.SetPresetsPath(filepath.Join(filepath.Dir(cfgPath), "presets.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: presets unreadable, starting with none: %v\n", err)
@@ -708,13 +710,13 @@ func main() {
 		// The CLI ignores ANDROID_AVD_HOME, so with it pointing elsewhere an
 		// AVD would land where loupe never looks. The creator offers no
 		// create then, checked per request like the CLI itself.
-		if findCLI() != "" && filepath.Clean(target.AVDHome()) != filepath.Clean(target.CLIAVDHome()) {
-			fmt.Fprintf(os.Stderr, "warning: %s\n", httpapi.AVDHomeMismatch(target.AVDHome(), target.CLIAVDHome()))
+		if findCLI() != "" && filepath.Clean(android.AVDHome()) != filepath.Clean(android.CLIAVDHome()) {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", httpapi.AVDHomeMismatch(android.AVDHome(), android.CLIAVDHome()))
 		}
 		api.SetAVDCreator(httpapi.NewAVDCreator(httpapi.AVDCreatorConfig{
 			FindCLI: findCLI, SDK: sdkRoot,
-			AVDHome: target.AVDHome(), CLIAVDHome: target.CLIAVDHome,
-			Registered: func(at time.Time, avds []target.AVD) {
+			AVDHome: android.AVDHome(), CLIAVDHome: android.CLIAVDHome,
+			Registered: func(at time.Time, avds []android.AVD) {
 				registerAVDs(at, avds)
 				// A first create on a Mac with no SDK brings adb too.
 				kickADB()
@@ -726,9 +728,9 @@ func main() {
 	// SDK. One install at a time, shared by /api/android/cli and
 	// /api/remote/cli.
 	androidTools := httpapi.NewAndroidTools(httpapi.AndroidToolsConfig{
-		Installer: httpapi.NewCLIInstaller(target.PrivateAndroidCLI()),
+		Installer: httpapi.NewCLIInstaller(android.PrivateAndroidCLI()),
 		FindCLI:   findCLI, SDK: sdkRoot,
-		FindADB:      func() string { return target.FindADB(*adbPath) },
+		FindADB:      func() string { return android.FindADB(*adbPath) },
 		ADBInstalled: kickADB,
 		Trace:        tracer.Record,
 	})
@@ -766,10 +768,10 @@ func main() {
 	sdkAtStart := sdkRoot()
 	avdMgr := ""
 	if registerAVDs != nil {
-		avdMgr = target.AVDManagerBinary(sdkAtStart, *avdManager)
+		avdMgr = android.AVDManagerBinary(sdkAtStart, *avdManager)
 	}
 	if dc := httpapi.NewDeviceCreator(httpapi.DeviceCreatorConfig{
-		Manager: mgr, SDK: sdkAtStart, AVDManager: avdMgr, AVDHome: target.AVDHome(),
+		Manager: mgr, SDK: sdkAtStart, AVDManager: avdMgr, AVDHome: android.AVDHome(),
 		RegisterAVDs: registerAVDs, Simcap: simcapBin, Trace: tracer.Record,
 	}); dc != nil {
 		api.SetDeviceCreator(dc)
@@ -1152,12 +1154,12 @@ func watchIOSDevices(ctx context.Context, mgr *httpapi.Manager) {
 // a row adb targets are reported unavailable with the reason, and after a
 // few more the server is restarted. A receive on kick ends the wait between
 // tries early, for adb that has just been installed.
-func watchDevices(ctx context.Context, adb target.ADB, names func(context.Context, []target.DeviceInfo) []target.DeviceInfo, mgr *httpapi.Manager, build func(target.DeviceInfo) target.Target, tr *trace.Writer, kick <-chan struct{}) {
-	health := target.NewADBHealth()
+func watchDevices(ctx context.Context, adb android.ADB, names func(context.Context, []android.DeviceInfo) []android.DeviceInfo, mgr *httpapi.Manager, build func(android.DeviceInfo) target.Target, tr *trace.Writer, kick <-chan struct{}) {
+	health := android.NewADBHealth()
 	backoff := time.Second
 	for {
 		heard := false
-		err := adb.TrackDevices(ctx, func(ds []target.DeviceInfo) {
+		err := adb.TrackDevices(ctx, func(ds []android.DeviceInfo) {
 			if !heard {
 				heard = true
 				if health.Heard() {

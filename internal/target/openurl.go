@@ -96,11 +96,11 @@ func RedactURL(u string) string {
 	return scheme + ":…"
 }
 
-// redactErr rewrites err's text with every copy of u replaced, keeping
+// RedactErr rewrites err's text with every copy of u replaced, keeping
 // whichever of the sentinels a caller branches on it wraps. The text
 // already starts with that sentinel's, so it is wrapped back on in its
 // place rather than in front of it.
-func redactErr(err error, u string) error {
+func RedactErr(err error, u string) error {
 	if err == nil || !strings.Contains(err.Error(), u) {
 		return err
 	}
@@ -111,38 +111,6 @@ func redactErr(err error, u string) error {
 		}
 	}
 	return errors.New(msg)
-}
-
-// OpenURL starts a VIEW intent for u with `am start -W`, so the reply
-// names the activity that took it.
-func (t *ADBTarget) OpenURL(ctx context.Context, u string) (*LaunchResult, error) {
-	if !t.info.Ready() {
-		return nil, fmt.Errorf("%w: device %s is in state %q", ErrDeviceUnreachable, t.info.Serial, t.info.State)
-	}
-	return openURLAndroid(ctx, func(ctx context.Context, args ...string) (string, error) {
-		return t.adb.Shell(ctx, t.info.Serial, args...)
-	}, u)
-}
-
-// CheckURL implements URLOpener.
-func (t *ADBTarget) CheckURL(u string) error { return CheckURL(u) }
-
-// openURLAndroid is OpenURL over a shellFunc, so it can be tested without
-// a device. u reaches the device's shell only after CheckURL and through
-// shellQuote.
-//
-// A URL nothing handles prints "Error: Activity not started, unable to
-// resolve Intent" and exits 1, which parseAm reads as ErrNoURLHandler.
-// parseAm gets u itself as the label, not RedactURL(u): redactErr cuts
-// every copy of u afterwards, and a label already cut would be cut again,
-// since RedactURL(u) can contain u.
-func openURLAndroid(ctx context.Context, sh shellFunc, u string) (*LaunchResult, error) {
-	if err := CheckURL(u); err != nil {
-		return nil, err
-	}
-	out, err := sh(ctx, "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", shellQuote(u))
-	res, err := parseAm(u, out, err)
-	return res, redactErr(err, u)
 }
 
 // OpenURL opens u with `simctl openurl`. It gets u as its own exec
@@ -162,7 +130,7 @@ func (s *Simulator) OpenURL(ctx context.Context, u string) (*LaunchResult, error
 		if simOpenURLUnhandled(err) {
 			return nil, fmt.Errorf("%w: %s", ErrNoURLHandler, RedactURL(u))
 		}
-		return nil, redactErr(fmt.Errorf("simctl openurl: %w: %s", err, strings.TrimSpace(string(out))), u)
+		return nil, RedactErr(fmt.Errorf("simctl openurl: %w: %s", err, strings.TrimSpace(string(out))), u)
 	}
 	return &LaunchResult{}, nil
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/bmcreations/loupe/internal/target"
+	"github.com/bmcreations/loupe/internal/target/android"
 )
 
 // pauseCheckEvery is how often idle emulators are looked for. It adds at
@@ -37,7 +37,7 @@ func (m *Manager) WakeEmulator(ctx context.Context, id string) {
 	if !ok {
 		return
 	}
-	if e, ok := t.(*target.Emulator); ok {
+	if e, ok := t.(*android.Emulator); ok {
 		_ = e.Resume(ctx)
 	}
 }
@@ -75,9 +75,9 @@ func (m *Manager) PauseIdleEmulators(ctx context.Context) {
 func (m *Manager) pauseIdle(ctx context.Context) {
 	m.mu.Lock()
 	pause, shutdown := m.emulatorPause, m.emulatorShutdown
-	var candidates []*target.Emulator
+	var candidates []*android.Emulator
 	for id, t := range m.targets {
-		e, ok := t.(*target.Emulator)
+		e, ok := t.(*android.Emulator)
 		if !ok || e.Serial() == "" {
 			continue
 		}
@@ -104,7 +104,7 @@ func (m *Manager) pauseIdle(ctx context.Context) {
 		return
 	}
 	now := time.Now()
-	var toStop, toPause []*target.Emulator
+	var toStop, toPause []*android.Emulator
 	for _, e := range candidates {
 		if e.InUse() {
 			continue
@@ -144,7 +144,7 @@ func (m *Manager) pauseIdle(ctx context.Context) {
 // The guard is lifted as soon as the stop returns: its grace is there to
 // turn away a viewer reconnecting after a shutdown, and an idle emulator had
 // no viewer, so the next open boots it from its snapshot.
-func (m *Manager) stopIdle(ctx context.Context, e *target.Emulator, idle time.Duration) {
+func (m *Manager) stopIdle(ctx context.Context, e *android.Emulator, idle time.Duration) {
 	id := e.ID()
 	armed, ok := m.armIdleStop(id)
 	if !ok {

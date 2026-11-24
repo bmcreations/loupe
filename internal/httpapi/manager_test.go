@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -433,7 +435,7 @@ func TestTargetsDoesNotWaitOutAnInProgressEmulatorBoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := target.NewEmulator(target.ADB{Path: fakeADB}, target.EmulatorConfig{
+	e := android.NewEmulator(android.ADB{Path: fakeADB}, android.EmulatorConfig{
 		AVD:        "test_avd",
 		Port:       5554,
 		BootBudget: time.Second,

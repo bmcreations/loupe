@@ -2,7 +2,6 @@ package target
 
 import (
 	"context"
-	"errors"
 	"io"
 	"reflect"
 	"strings"
@@ -143,14 +142,6 @@ func TestSimLogTailStopsWideningPastTheDeadline(t *testing.T) {
 	}
 	if len(*asked) != 1 {
 		t.Errorf("windows = %q; want it to stop after the first", *asked)
-	}
-}
-
-func TestADBLogcatRefusesAFormat(t *testing.T) {
-	tg := &ADBTarget{info: DeviceInfo{Serial: "s", State: "device"}}
-	_, err := tg.Logcat(context.Background(), LogcatQuery{Format: LogFormatNDJSON})
-	if !errors.Is(err, ErrLogQueryUnsupported) {
-		t.Errorf("err = %v; want ErrLogQueryUnsupported", err)
 	}
 }
 

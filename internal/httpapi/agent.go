@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/composetree"
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
@@ -201,7 +203,7 @@ func composables(ctx context.Context, t target.Target, root *target.Node) ([]*co
 	if err != nil {
 		return nil, dump.Package + ": " + err.Error()
 	}
-	target.AnnotateComposables(root, comps)
+	android.AnnotateComposables(root, comps)
 	return comps, ""
 }
 
@@ -639,11 +641,11 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 				}
 				break
 			}
-			code, bok := target.ButtonKeycode(req.Button)
+			code, bok := android.ButtonKeycode(req.Button)
 			if !bok {
 				writeJSON(w, http.StatusBadRequest, ErrorResponse{
 					Error: fmt.Sprintf("unknown button %q; want %s",
-						req.Button, strings.Join(target.ButtonNames(), ", ")),
+						req.Button, strings.Join(android.ButtonNames(), ", ")),
 				})
 				return
 			}
@@ -788,7 +790,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 		// A Revyl device types at the last tap, so typing before one is
 		// asked out of turn, like input with no session.
-		if errors.Is(err, target.ErrNoSession) || errors.Is(err, revyl.ErrNeedsTap) {
+		if errors.Is(err, android.ErrNoSession) || errors.Is(err, revyl.ErrNeedsTap) {
 			writeJSON(w, http.StatusConflict, ErrorResponse{Error: safeErr.Error()})
 			return
 		}
@@ -803,7 +805,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusConflict, ErrorResponse{Error: safeErr.Error(), Code: ErrCodeHubHeld})
 			return
 		}
-		if errors.Is(err, target.ErrTouchRejected) {
+		if errors.Is(err, android.ErrTouchRejected) {
 			writeJSON(w, http.StatusConflict, ErrorResponse{Error: safeErr.Error(), Code: ErrCodeTouchRejected})
 			return
 		}
@@ -984,7 +986,7 @@ func sanitizeActionErr(req InputRequest, err error, redaction *textRedaction) er
 	if errors.Is(err, target.ErrPhoneUnreachable) || errors.Is(err, target.ErrPhoneDeliveryUnknown) {
 		return err
 	}
-	if ns, ok := errors.AsType[target.NoSessionError](err); ok {
+	if ns, ok := errors.AsType[android.NoSessionError](err); ok {
 		return ns
 	}
 	if errors.Is(err, revyl.ErrNeedsTap) {
@@ -1176,7 +1178,7 @@ func (s *Server) publishAgentEvent(ctx context.Context, t target.Target, req Inp
 		// kind:"key" with the raw code -- see the known gap in Task 5: this
 		// path is not covered by the text-action password redaction, so a
 		// PIN typed one digit at a time as key actions is not redacted.
-		if name, ok := target.ButtonForKeycode(req.Keycode); ok {
+		if name, ok := android.ButtonForKeycode(req.Keycode); ok {
 			e.Kind = "button"
 			e.Button = name
 		} else {
@@ -1562,7 +1564,7 @@ func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkg := r.URL.Query().Get("package")
-	if !target.ValidPackageName(pkg) {
+	if !android.ValidPackageName(pkg) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: fmt.Sprintf("?package= must be an Android package name such as com.example.app, got %q", pkg),
 		})
@@ -1673,13 +1675,13 @@ func stageIPA(r *http.Request, body io.Reader, dir string) ([]string, error) {
 // read it, since a launch of the wrong package would open some other app.
 func (s *Server) installedPackage(ctx context.Context, r *http.Request, apks []string) (string, string) {
 	asked := r.URL.Query().Get("package")
-	name, err := target.APKPackage(ctx, s.aapt2, apks[0])
+	name, err := android.APKPackage(ctx, s.aapt2, apks[0])
 	switch {
 	case err == nil && asked != "" && asked != name:
 		return name, fmt.Sprintf("?package=%s does not match the APK's %s", asked, name)
 	case err == nil:
 		return name, ""
-	case asked != "" && target.ValidPackageName(asked):
+	case asked != "" && android.ValidPackageName(asked):
 		return asked, ""
 	case asked != "":
 		return "", fmt.Sprintf("%q is not a package name", asked)
@@ -1860,7 +1862,7 @@ func logcatQuery(q url.Values, now time.Time) (target.LogcatQuery, error) {
 	if v := q.Get("package"); v != "" {
 		// An Android package or an Apple bundle ID; each target checks
 		// its own rule again before using it.
-		if !target.ValidPackageName(v) && !target.ValidBundleID(v) {
+		if !android.ValidPackageName(v) && !target.ValidBundleID(v) {
 			return lq, fmt.Errorf("package %q is not a package name or bundle ID", v)
 		}
 		lq.Package = v
@@ -2060,9 +2062,9 @@ func launchErrCode(err error) (code string, status int, ok bool) {
 	switch {
 	case errors.Is(err, target.ErrAppNotInstalled):
 		return ErrCodeNotInstalled, http.StatusNotFound, true
-	case errors.Is(err, target.ErrNoLaunchActivity):
+	case errors.Is(err, android.ErrNoLaunchActivity):
 		return ErrCodeNoLaunchActivity, http.StatusUnprocessableEntity, true
-	case errors.Is(err, target.ErrNoSuchActivity):
+	case errors.Is(err, android.ErrNoSuchActivity):
 		return ErrCodeNoSuchActivity, http.StatusNotFound, true
 	case errors.Is(err, target.ErrNoURLHandler):
 		return ErrCodeNoURLHandler, http.StatusUnprocessableEntity, true

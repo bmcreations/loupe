@@ -239,7 +239,7 @@ func renderSimFrame(ctx context.Context, deviceType string, screen int) (*Device
 		return nil, nil, nil, err
 	}
 	frame.Background, frame.Mask = simFrameAssets(screen)
-	return frame.turned(ch.turns), back, mask, nil
+	return frame.Turned(ch.turns), back, mask, nil
 }
 
 // simFrameGeometry places the screen inside the composite. The composite is

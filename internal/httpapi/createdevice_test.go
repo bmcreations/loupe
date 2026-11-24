@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -89,7 +91,7 @@ func avdManagerStub(t *testing.T, script string) string {
 	return bin
 }
 
-func devServer(t *testing.T, android, ios bool) *devEnv {
+func devServer(t *testing.T, withAndroid, ios bool) *devEnv {
 	t.Helper()
 	home := t.TempDir()
 	tools := &fakeTools{home: home}
@@ -98,9 +100,9 @@ func devServer(t *testing.T, android, ios bool) *devEnv {
 	trace := make(chan map[string]any, 8)
 	cfg := DeviceCreatorConfig{Manager: NewManager(target.Options{}), SDK: t.TempDir(), AVDHome: home,
 		Trace: func(m map[string]any) { trace <- m }}
-	if android {
+	if withAndroid {
 		cfg.AVDManager = avdManagerStub(t, "exit 0")
-		cfg.RegisterAVDs = func(_ time.Time, a []target.AVD) {
+		cfg.RegisterAVDs = func(_ time.Time, a []android.AVD) {
 			mu.Lock()
 			defer mu.Unlock()
 			for _, x := range a {
@@ -116,14 +118,14 @@ func devServer(t *testing.T, android, ios bool) *devEnv {
 		return &devEnv{s: &Server{mgr: cfg.Manager}}
 	}
 	c.run = tools.run
-	c.images = func() []target.SystemImage {
-		return []target.SystemImage{
+	c.images = func() []android.SystemImage {
+		return []android.SystemImage{
 			{ID: img36, API: "36", Family: "google_apis_playstore", Tags: []string{"google_apis_playstore"}, TagDisplay: "Google Play"},
 			{ID: img34, API: "34", Family: "google_apis", Tags: []string{"google_apis"}, TagDisplay: "Google APIs"},
 		}
 	}
-	c.devices = func() ([]target.AVDDevice, error) {
-		return []target.AVDDevice{
+	c.devices = func() ([]android.AVDDevice, error) {
+		return []android.AVDDevice{
 			{ID: "pixel_9", Name: "Pixel 9", Group: target.GroupPhone, DiagonalIn: 6.24, Width: 1080, Height: 2424},
 			{ID: "pixel_fold", Name: "Pixel Fold", Group: target.GroupFoldable, MinAPI: 35, DiagonalIn: 7.58, Width: 2208, Height: 1840},
 		}, nil
@@ -195,7 +197,7 @@ func TestDeviceOptionsShape(t *testing.T) {
 
 func TestDeviceOptionsListsAPlatformWithNoImages(t *testing.T) {
 	e := devServer(t, true, false)
-	e.s.devs.images = func() []target.SystemImage { return nil }
+	e.s.devs.images = func() []android.SystemImage { return nil }
 	raw := do(e.s, http.MethodGet, "/api/devices/options", "").Body.String()
 	if !strings.Contains(raw, `"os":[]`) {
 		t.Errorf("want an empty os list, got %s", raw)
@@ -235,7 +237,7 @@ echo "Please visit http://www.java.com for information on installing Java." >&2
 exit 1`)
 	var mu sync.Mutex
 	var registered []string
-	register := func(_ time.Time, a []target.AVD) {
+	register := func(_ time.Time, a []android.AVD) {
 		mu.Lock()
 		defer mu.Unlock()
 		for _, x := range a {

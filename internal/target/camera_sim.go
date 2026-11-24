@@ -48,7 +48,7 @@ func loupecamBuild(ctx context.Context, sdk string) (string, error) {
 		return "", fmt.Errorf("%w: no %s SDK: %v", ErrCameraShim, sdk, err)
 	}
 	sum := sha256.Sum256(append(append([]byte(sdk), loupecamSource...), ver...))
-	dir, err := cameraDir()
+	dir, err := CameraDir()
 	if err != nil {
 		return "", err
 	}
@@ -97,11 +97,11 @@ func (s *Simulator) SetCamera(ctx context.Context, png []byte) (CameraApplies, e
 	if _, err := loupecamDylib(ctx); err != nil {
 		return "", err
 	}
-	path, err := cameraFile("sim-" + s.UDID())
+	path, err := CameraFile("sim-" + s.UDID())
 	if err != nil {
 		return "", err
 	}
-	if err := writeCameraFile(path, png); err != nil {
+	if err := WriteCameraFile(path, png); err != nil {
 		return "", err
 	}
 	s.syncCameraEnvBooted(ctx)
@@ -114,7 +114,7 @@ func (s *Simulator) SetCamera(ctx context.Context, png []byte) (CameraApplies, e
 // ClearCamera implements CameraFeeder. Apps running with the shim keep it
 // and see black, a covered lens; the next launch of each is a plain one.
 func (s *Simulator) ClearCamera(ctx context.Context) (CameraApplies, error) {
-	path, err := cameraFile("sim-" + s.UDID())
+	path, err := CameraFile("sim-" + s.UDID())
 	if err != nil {
 		return "", err
 	}
@@ -130,7 +130,7 @@ func (s *Simulator) ClearCamera(ctx context.Context) (CameraApplies, error) {
 
 // stagedCamera is the simulator's staged image, or "" when there is none.
 func (s *Simulator) stagedCamera() string {
-	path, err := cameraFile("sim-" + s.UDID())
+	path, err := CameraFile("sim-" + s.UDID())
 	if err != nil {
 		return ""
 	}
@@ -155,7 +155,7 @@ func (s *Simulator) anyShimmed() bool {
 		return true
 	}
 	// One started from its icon got the shim from the simulator's launchd.
-	path, err := cameraFile("sim-" + s.UDID())
+	path, err := CameraFile("sim-" + s.UDID())
 	return err == nil && markerAlive(path)
 }
 
@@ -177,7 +177,7 @@ func (s *Simulator) noteShimmed(bundle string, pid int) {
 // alive reports whether pid is running. A simulator's apps are processes on
 // this Mac, so signal 0 answers for them.
 func alive(pid int) bool {
-	return pid > 0 && signalPid(pid, 0) == nil
+	return pid > 0 && SignalPid(pid, 0) == nil
 }
 
 // simctlLaunchPid reads the pid out of `simctl launch`'s "bundle: pid".

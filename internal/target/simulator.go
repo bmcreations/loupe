@@ -132,7 +132,7 @@ type Simulator struct {
 	panels atomic.Int32
 	// hinge coalesces hingeAngle writes, and hingeSent is the last angle
 	// sent (simposture.go).
-	hinge     hingeCoalescer
+	hinge     HingeCoalescer
 	hingeSent simHinge
 	// panelsRead is set once Describe has started the capabilities.plist
 	// read, so a single-panel device type is read once, not every listing.
@@ -250,7 +250,7 @@ func (s *Simulator) Open(ctx context.Context, opts Options) (Stream, error) {
 		return nil, err
 	}
 	live := s.liveBitRate(ctx)
-	st, err := openSimcapTracks(ctx, s.simcap, s.UDID(), s.Label(), opts, simcapTracks{remote: remoteTrackWanted(s.remoteCap)})
+	st, err := openSimcapTracks(ctx, s.simcap, s.UDID(), s.Label(), opts, simcapTracks{remote: RemoteTrackWanted(s.remoteCap)})
 	if err != nil {
 		return nil, err
 	}

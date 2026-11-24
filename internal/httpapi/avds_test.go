@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -55,7 +57,7 @@ func avdServer(t *testing.T, cli *fakeCLI) (*Server, *[]string) {
 	t.Helper()
 	var mu sync.Mutex
 	var got []string
-	c := testAVDCreator(cli.home, func(_ time.Time, avds []target.AVD) {
+	c := testAVDCreator(cli.home, func(_ time.Time, avds []android.AVD) {
 		mu.Lock()
 		defer mu.Unlock()
 		for _, a := range avds {
@@ -70,7 +72,7 @@ func avdServer(t *testing.T, cli *fakeCLI) (*Server, *[]string) {
 
 // testAVDCreator finds its CLI at "android" and keeps AVDs in home. Set run
 // before anything reaches the CLI: nothing here may exec a real one.
-func testAVDCreator(home string, registered func(time.Time, []target.AVD)) *AVDCreator {
+func testAVDCreator(home string, registered func(time.Time, []android.AVD)) *AVDCreator {
 	return NewAVDCreator(AVDCreatorConfig{
 		FindCLI: func() string { return "android" }, SDK: func() string { return "/sdk" },
 		AVDHome: home, Registered: registered,
