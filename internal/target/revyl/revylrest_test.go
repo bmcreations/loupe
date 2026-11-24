@@ -180,7 +180,7 @@ func (l *traceLog) wait(t *testing.T, n int) []map[string]any {
 type restRig struct {
 	in   *revylInput
 	clk  *fixedClock
-	rest *RevylREST
+	rest *REST
 	log  *traceLog
 	key  atomic.Value // string
 }
@@ -189,9 +189,9 @@ func restGestures(t *testing.T, f *fakeRevyl, baseURL, platform string, screenW,
 	t.Helper()
 	g := &restRig{log: &traceLog{}}
 	g.key.Store(testRevylKey)
-	g.rest = &RevylREST{BaseURL: baseURL, UserAgent: "loupe/test", Timeout: 5 * time.Second,
+	g.rest = &REST{BaseURL: baseURL, UserAgent: "loupe/test", Timeout: 5 * time.Second,
 		Key: func() string { return g.key.Load().(string) }}
-	g.in = newRevylInput(f.cli, g.rest, RevylSession{SessionID: testSession, WorkflowRunID: testRunID,
+	g.in = newRevylInput(f.cli, g.rest, Session{SessionID: testSession, WorkflowRunID: testRunID,
 		Platform: platform, ScreenWidth: screenW, ScreenHeight: screenH}, g.log.record)
 	t.Cleanup(g.in.close)
 	// The input looks for its worker socket as it opens; let that settle
@@ -609,7 +609,7 @@ func TestRevylRESTFallsBackToTheCLI(t *testing.T) {
 		if rec := g.log.wait(t, 1)[0]; rec["via"] != "cli" || rec["rest"] != "no key" {
 			t.Fatalf("trace %v", rec)
 		}
-		in := newRevylInput(f.cli, g.rest, RevylSession{SessionID: testSession, Platform: "android", ScreenWidth: 1080, ScreenHeight: 2400}, nil)
+		in := newRevylInput(f.cli, g.rest, Session{SessionID: testSession, Platform: "android", ScreenWidth: 1080, ScreenHeight: 2400}, nil)
 		t.Cleanup(in.close)
 		g.key.Store(testRevylKey)
 		press(t, in, m, g.clk, 10*time.Millisecond, [2]int32{20, 20})
@@ -828,9 +828,9 @@ func TestRevylTargetSendsInputOverREST(t *testing.T) {
 	p := newFakeProxy(t)
 	f.respond("device-info", "device-info", w.srv.URL+"/whep/endpoint")
 	log := &traceLog{}
-	tgt := &RevylTarget{
-		CLI: f.cli, Session: RevylSession{SessionID: testSession, Platform: "android"},
-		REST:     &RevylREST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
+	tgt := &Target{
+		CLI: f.cli, Session: Session{SessionID: testSession, Platform: "android"},
+		REST:     &REST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
 		Trace:    log.record,
 		settings: loopbackSettings(), poll: 20 * time.Millisecond,
 	}
@@ -997,8 +997,8 @@ func TestRevylAgentTextNeedsATapAndKeepsItsOwnJob(t *testing.T) {
 	ctx := context.Background()
 
 	err := g.in.agentText(ctx, "x")
-	if !errors.Is(err, ErrRevylNeedsTap) {
-		t.Fatalf("text before any tap = %v, want ErrRevylNeedsTap", err)
+	if !errors.Is(err, ErrNeedsTap) {
+		t.Fatalf("text before any tap = %v, want ErrNeedsTap", err)
 	}
 	if c := p.requests(); len(c) != 0 {
 		t.Fatalf("text before a tap sent %d requests", len(c))
@@ -1175,9 +1175,9 @@ func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	f.respond("device-info", "device-info", w.srv.URL+"/whep/endpoint")
-	tgt := &RevylTarget{
-		CLI: f.cli, Session: RevylSession{SessionID: testSession, Platform: "android"},
-		REST:     &RevylREST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
+	tgt := &Target{
+		CLI: f.cli, Session: Session{SessionID: testSession, Platform: "android"},
+		REST:     &REST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
 		settings: loopbackSettings(), poll: 20 * time.Millisecond,
 	}
 	var act target.Actuator = tgt

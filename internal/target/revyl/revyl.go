@@ -29,8 +29,8 @@ import (
 // `device tap` were checked against a live account on 2026-11-18, with
 // v0.2.18.
 
-// RevylCLI runs the revyl binary.
-type RevylCLI struct {
+// CLI runs the revyl binary.
+type CLI struct {
 	// Path is the binary.
 	Path string
 	// Dir is the working directory. revyl reads a project's .revyl/config.yaml
@@ -47,7 +47,7 @@ type RevylCLI struct {
 var revylEnv = []string{"REVYL_TELEMETRY_DISABLED=1", "REVYL_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1"}
 
 // Command builds a revyl invocation with the environment above plus extra.
-func (c RevylCLI) Command(ctx context.Context, extra []string, args ...string) *exec.Cmd {
+func (c CLI) Command(ctx context.Context, extra []string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, c.Path, args...)
 	cmd.Dir = c.Dir
 	cmd.Env = append(append(os.Environ(), revylEnv...), extra...)
@@ -57,14 +57,14 @@ func (c RevylCLI) Command(ctx context.Context, extra []string, args ...string) *
 // Run runs revyl and returns its stdout. --json output goes to stdout and
 // progress to stderr (cmd/revyl/device.go:264 jsonOrPrint), so stderr is
 // only read for the error.
-func (c RevylCLI) Run(ctx context.Context, extra []string, args ...string) ([]byte, error) {
+func (c CLI) Run(ctx context.Context, extra []string, args ...string) ([]byte, error) {
 	if c.Path == "" {
 		return nil, errors.New("revyl: CLI not installed")
 	}
 	return c.run(c.Command(ctx, extra, args...), args)
 }
 
-func (c RevylCLI) run(cmd *exec.Cmd, args []string) ([]byte, error) {
+func (c CLI) run(cmd *exec.Cmd, args []string) ([]byte, error) {
 	stdout, stderr, err := capture(cmd)
 	if err != nil {
 		msg := lastLine(stderr)
@@ -111,10 +111,10 @@ func revylVerb(args []string) string {
 	return strings.Join(words, " ")
 }
 
-// RevylSession is one cloud device session, as `revyl device start|info
+// Session is one cloud device session, as `revyl device start|info
 // --json` print it: mcp.DeviceSession, internal/mcp/device_session.go:109.
 // Only the fields loupe reads are kept.
-type RevylSession struct {
+type Session struct {
 	SessionID string `json:"session_id"`
 	// WorkflowRunID names the session to Revyl's device proxy
 	// (internal/mcp/device_session.go:125), which input goes through. It
@@ -143,34 +143,34 @@ type RevylSession struct {
 }
 
 // Ready reports whether the session can be streamed.
-func (s RevylSession) Ready() bool {
+func (s Session) Ready() bool {
 	return s.WHEPURL != nil && *s.WHEPURL != "" && (s.DeviceReady == nil || *s.DeviceReady)
 }
 
-// RevylDeviceTarget is one model and OS a session can start on. The struct
+// DeviceTarget is one model and OS a session can start on. The struct
 // in internal/devicetargets/targets.go:25 has no JSON tags, so the keys are
 // the Go field names.
-type RevylDeviceTarget struct {
+type DeviceTarget struct {
 	Model   string `json:"Model"`
 	Runtime string `json:"Runtime"`
 }
 
 // Targets lists the models and OS versions per platform, from `revyl device
 // targets --json` (cmd/revyl/device.go:2708): {"android":[...],"ios":[...]}.
-func (c RevylCLI) Targets(ctx context.Context) (map[string][]RevylDeviceTarget, error) {
+func (c CLI) Targets(ctx context.Context) (map[string][]DeviceTarget, error) {
 	out, err := c.Run(ctx, nil, "device", "targets", "--json")
 	if err != nil {
 		return nil, err
 	}
-	var t map[string][]RevylDeviceTarget
+	var t map[string][]DeviceTarget
 	if err := json.Unmarshal(out, &t); err != nil {
 		return nil, fmt.Errorf("revyl device targets: %w", err)
 	}
 	return t, nil
 }
 
-// RevylStart says what device to start.
-type RevylStart struct {
+// Start says what device to start.
+type Start struct {
 	Platform  string // "android" or "ios"
 	Model     string // optional, e.g. "Pixel 7"
 	OSVersion string // optional, e.g. "Android 14"
@@ -195,12 +195,12 @@ type RevylStart struct {
 // interrupted just after it finished still prints its session, and Start
 // returns that session with the error: the caller owns a device it must
 // stop.
-func (c RevylCLI) Start(ctx context.Context, s RevylStart) (RevylSession, error) {
+func (c CLI) Start(ctx context.Context, s Start) (Session, error) {
 	if s.Platform != "android" && s.Platform != "ios" {
-		return RevylSession{}, fmt.Errorf("revyl: platform %q, want android or ios", s.Platform)
+		return Session{}, fmt.Errorf("revyl: platform %q, want android or ios", s.Platform)
 	}
 	if c.Path == "" {
-		return RevylSession{}, errors.New("revyl: CLI not installed")
+		return Session{}, errors.New("revyl: CLI not installed")
 	}
 	args := []string{"device", "start", "--platform", s.Platform, "--json", "--open=false", "--computer", "none"}
 	if s.Model != "" {
@@ -219,12 +219,12 @@ func (c RevylCLI) Start(ctx context.Context, s RevylStart) (RevylSession, error)
 		cmd.WaitDelay = 5 * time.Second
 	}
 	out, err := c.run(cmd, args)
-	var sess RevylSession
+	var sess Session
 	if json.Unmarshal(out, &sess) != nil || sess.SessionID == "" {
 		if err != nil {
-			return RevylSession{}, err
+			return Session{}, err
 		}
-		return RevylSession{}, errors.New("revyl device start: no session in its output")
+		return Session{}, errors.New("revyl device start: no session in its output")
 	}
 	return sess, err
 }
@@ -232,25 +232,25 @@ func (c RevylCLI) Start(ctx context.Context, s RevylStart) (RevylSession, error)
 // Info reads one session, from `revyl device info --json`. A session that
 // has ended prints {"active":false,...} (cmd/revyl/device.go:3130), which
 // is reported as ok == false.
-func (c RevylCLI) Info(ctx context.Context, sessionID string) (s RevylSession, ok bool, err error) {
+func (c CLI) Info(ctx context.Context, sessionID string) (s Session, ok bool, err error) {
 	out, err := c.Run(ctx, nil, "device", "info", "--session-id", sessionID, "--json")
 	if err != nil {
-		return RevylSession{}, false, err
+		return Session{}, false, err
 	}
 	if err := json.Unmarshal(out, &s); err != nil {
-		return RevylSession{}, false, fmt.Errorf("revyl device info: %w", err)
+		return Session{}, false, fmt.Errorf("revyl device info: %w", err)
 	}
 	return s, s.SessionID != "", nil
 }
 
 // List reads the sessions the account has open, from `revyl device list
 // --json` (cmd/revyl/device.go:3239).
-func (c RevylCLI) List(ctx context.Context) ([]RevylSession, error) {
+func (c CLI) List(ctx context.Context) ([]Session, error) {
 	out, err := c.Run(ctx, nil, "device", "list", "--json")
 	if err != nil {
 		return nil, err
 	}
-	var ss []RevylSession
+	var ss []Session
 	if err := json.Unmarshal(out, &ss); err != nil {
 		return nil, fmt.Errorf("revyl device list: %w", err)
 	}
@@ -260,7 +260,7 @@ func (c RevylCLI) List(ctx context.Context) ([]RevylSession, error) {
 // Stop ends a session, from `revyl device stop --json`: {"stopped":true},
 // or stopped false with stop_requested true while it winds down
 // (cmd/revyl/device.go, deviceStopCmd).
-func (c RevylCLI) Stop(ctx context.Context, sessionID string) error {
+func (c CLI) Stop(ctx context.Context, sessionID string) error {
 	out, err := c.Run(ctx, nil, "device", "stop", "--session-id", sessionID, "--json")
 	if err != nil {
 		return err
@@ -276,9 +276,9 @@ func (c RevylCLI) Stop(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// RevylAuth is `revyl auth status --json` (cmd/revyl/auth.go:629). The
+// Auth is `revyl auth status --json` (cmd/revyl/auth.go:629). The
 // account's key never appears in it.
-type RevylAuth struct {
+type Auth struct {
 	Authenticated bool   `json:"authenticated"`
 	Email         string `json:"email,omitempty"`
 	OrgName       string `json:"org_name,omitempty"`
@@ -288,60 +288,60 @@ type RevylAuth struct {
 
 // AuthStatus reports whether the CLI has credentials: a login in
 // ~/.revyl/credentials.json, or REVYL_API_KEY in loupe's environment.
-func (c RevylCLI) AuthStatus(ctx context.Context) (RevylAuth, error) {
+func (c CLI) AuthStatus(ctx context.Context) (Auth, error) {
 	out, err := c.Run(ctx, nil, "auth", "status", "--json")
-	var a RevylAuth
+	var a Auth
 	if jerr := json.Unmarshal(out, &a); jerr == nil {
 		// Signed out may exit non-zero with the JSON still printed.
 		return a, nil
 	}
 	if err != nil {
-		return RevylAuth{}, err
+		return Auth{}, err
 	}
-	return RevylAuth{}, errors.New("revyl auth status: unreadable output")
+	return Auth{}, errors.New("revyl auth status: unreadable output")
 }
 
-// RevylBilling is the part of `revyl billing status --json` loupe reads,
+// Billing is the part of `revyl billing status --json` loupe reads,
 // from billingstatus.Status (internal/billingstatus/status.go:241), which
 // cmd/revyl/billing.go:65 runBillingStatus writes. The rest of it (card,
 // payment, prepaid balance, spending, and the organization ID in
 // add_card_url) is never decoded.
-type RevylBilling struct {
+type Billing struct {
 	Plan     string `json:"plan"`
 	PlanName string `json:"plan_name"`
 	// PeriodEnd is RFC 3339, when this period's free minutes reset.
 	PeriodEnd string `json:"period_end"`
 	// FreeMinutes is null off the Free plan (status.go:410).
-	FreeMinutes *RevylBillingMinutes `json:"free_minutes"`
-	Rates       []RevylBillingRate   `json:"rates"`
-	BillingURL  string               `json:"billing_url"`
+	FreeMinutes *BillingMinutes `json:"free_minutes"`
+	Rates       []BillingRate   `json:"rates"`
+	BillingURL  string          `json:"billing_url"`
 }
 
-// RevylBillingMinutes is FreeMinutes, status.go:229. Each platform's
+// BillingMinutes is FreeMinutes, status.go:229. Each platform's
 // minutes are null when Revyl does not know its credit rate.
-type RevylBillingMinutes struct {
+type BillingMinutes struct {
 	AndroidLeft  *int `json:"android_left"`
 	AndroidTotal *int `json:"android_total"`
 	IOSLeft      *int `json:"ios_left"`
 	IOSTotal     *int `json:"ios_total"`
 }
 
-// RevylBillingRate is one device type's price, Rate at status.go:216:
+// BillingRate is one device type's price, Rate at status.go:216:
 // platform "android" with device_type "Emulator", "ios" with "Simulator",
 // and others loupe does not start.
-type RevylBillingRate struct {
+type BillingRate struct {
 	Platform     string   `json:"platform"`
 	DeviceType   string   `json:"device_type"`
 	USDPerMinute *float64 `json:"usd_per_minute"`
 }
 
 var (
-	// ErrRevylUnsupported is a CLI older than the command: cobra's
+	// ErrUnsupported is a CLI older than the command: cobra's
 	// `unknown command "billing" for "revyl"`.
-	ErrRevylUnsupported = errors.New("revyl: the CLI has no such command")
-	// ErrRevylSignedOut is getAPIKey's refusal with no credentials
+	ErrUnsupported = errors.New("revyl: the CLI has no such command")
+	// ErrSignedOut is getAPIKey's refusal with no credentials
 	// (cmd/revyl/cancel.go:252): "Error: not authenticated".
-	ErrRevylSignedOut = errors.New("revyl: not signed in")
+	ErrSignedOut = errors.New("revyl: not signed in")
 
 	revylUnknownCommand = regexp.MustCompile(`unknown command "`)
 	revylNoAuth         = regexp.MustCompile(`(?i)\bnot authenticated\b`)
@@ -354,36 +354,36 @@ var (
 // hints (cmd/revyl/feedback_hint.go:149) after cobra's "Error:" line. The
 // output, the signed-out stderr and the form of cobra's unknown-command
 // stderr were checked against a live account on 2026-11-19, with v0.2.18.
-func (c RevylCLI) BillingStatus(ctx context.Context) (RevylBilling, error) {
+func (c CLI) BillingStatus(ctx context.Context) (Billing, error) {
 	if c.Path == "" {
-		return RevylBilling{}, errors.New("revyl: CLI not installed")
+		return Billing{}, errors.New("revyl: CLI not installed")
 	}
 	args := []string{"billing", "status", "--json"}
 	out, stderr, err := capture(c.Command(ctx, nil, args...))
 	if err != nil {
 		switch {
 		case revylUnknownCommand.MatchString(stderr):
-			return RevylBilling{}, ErrRevylUnsupported
+			return Billing{}, ErrUnsupported
 		case revylNoAuth.MatchString(stderr):
-			return RevylBilling{}, ErrRevylSignedOut
+			return Billing{}, ErrSignedOut
 		}
 		msg := lastLine(stderr)
 		if m := revylErrorLine.FindAllStringSubmatch(stderr, -1); m != nil {
 			msg = strings.TrimSpace(m[len(m)-1][1])
 		}
-		return RevylBilling{}, revylError(args, msg, err)
+		return Billing{}, revylError(args, msg, err)
 	}
-	var b RevylBilling
+	var b Billing
 	if err := json.Unmarshal(out, &b); err != nil {
-		return RevylBilling{}, fmt.Errorf("revyl billing status: %w", err)
+		return Billing{}, fmt.Errorf("revyl billing status: %w", err)
 	}
 	return b, nil
 }
 
-// RevylTarget is one Revyl session as a loupe target.
-type RevylTarget struct {
-	CLI     RevylCLI
-	Session RevylSession
+// Target is one Revyl session as a loupe target.
+type Target struct {
+	CLI     CLI
+	Session Session
 	// Model and OSVersion are what was asked for at start; Revyl's session
 	// does not echo them back. Either may be empty for an adopted session.
 	Model, OSVersion string
@@ -392,7 +392,7 @@ type RevylTarget struct {
 	WHEPHeader http.Header
 	// REST sends input over Revyl's device proxy. Nil sends every gesture
 	// through the CLI.
-	REST *RevylREST
+	REST *REST
 	// Trace gets one record per gesture: which way it went and how long it
 	// took. Nil drops them.
 	Trace func(map[string]any)
@@ -408,17 +408,17 @@ type RevylTarget struct {
 }
 
 var (
-	_ target.Actuator    = (*RevylTarget)(nil)
-	_ target.ScreenSizer = (*RevylTarget)(nil)
+	_ target.Actuator    = (*Target)(nil)
+	_ target.ScreenSizer = (*Target)(nil)
 )
 
 // errRevylNoStream is an agent's input with no stream to send it through.
 var errRevylNoStream = target.NoSessionError("revyl: open this device in a viewer first; loupe sends a Revyl device's input through the viewer's stream")
 
-func (t *RevylTarget) ID() string        { return "revyl:" + t.Session.SessionID }
-func (t *RevylTarget) Kind() target.Kind { return target.KindRevyl }
+func (t *Target) ID() string        { return "revyl:" + t.Session.SessionID }
+func (t *Target) Kind() target.Kind { return target.KindRevyl }
 
-func (t *RevylTarget) Label() string {
+func (t *Target) Label() string {
 	if t.Model != "" {
 		return "Revyl " + t.Model
 	}
@@ -432,7 +432,7 @@ func (t *RevylTarget) Label() string {
 }
 
 // Describe needs no round trip: everything it says was known at start.
-func (t *RevylTarget) Describe(context.Context) (target.Description, error) {
+func (t *Target) Describe(context.Context) (target.Description, error) {
 	d := target.Description{OS: t.Session.Platform, OSVersion: t.OSVersion, Form: "phone", Transport: "cloud"}
 	if strings.Contains(strings.ToLower(t.Model), "tablet") || strings.Contains(t.Model, "iPad") {
 		d.Form = "tablet"
@@ -441,7 +441,7 @@ func (t *RevylTarget) Describe(context.Context) (target.Description, error) {
 }
 
 // Open waits for the session to stream, then connects to its WHEP URL.
-func (t *RevylTarget) Open(ctx context.Context, _ target.Options) (target.Stream, error) {
+func (t *Target) Open(ctx context.Context, _ target.Options) (target.Stream, error) {
 	s, err := t.readySession(ctx)
 	if err != nil {
 		return nil, err
@@ -463,7 +463,7 @@ func (t *RevylTarget) Open(ctx context.Context, _ target.Options) (target.Stream
 }
 
 // forget drops a stream that is closing, so agent input stops going to it.
-func (t *RevylTarget) forget(st *revylStream) {
+func (t *Target) forget(st *revylStream) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for i, s := range t.streams {
@@ -475,7 +475,7 @@ func (t *RevylTarget) forget(st *revylStream) {
 }
 
 // liveStream is the newest open stream, or nil.
-func (t *RevylTarget) liveStream() *revylStream {
+func (t *Target) liveStream() *revylStream {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if n := len(t.streams); n > 0 {
@@ -484,7 +484,7 @@ func (t *RevylTarget) liveStream() *revylStream {
 	return nil
 }
 
-func (t *RevylTarget) agentStream() (*revylStream, error) {
+func (t *Target) agentStream() (*revylStream, error) {
 	if st := t.liveStream(); st != nil {
 		return st, nil
 	}
@@ -495,7 +495,7 @@ func (t *RevylTarget) agentStream() (*revylStream, error) {
 // the open stream's queue, in order with a viewer's gestures, and return
 // what Revyl answered. Coordinates are stream pixels, mapped the same way
 // as a viewer's touches. With no stream open they return ErrNoSession.
-func (t *RevylTarget) Tap(ctx context.Context, x, y int) error {
+func (t *Target) Tap(ctx context.Context, x, y int) error {
 	st, err := t.agentStream()
 	if err != nil {
 		return err
@@ -507,7 +507,7 @@ func (t *RevylTarget) Tap(ctx context.Context, x, y int) error {
 // device proxy's drag body and `revyl device drag` have only the two
 // points), and its swipe, which has one, takes a direction instead of an
 // end point.
-func (t *RevylTarget) Swipe(ctx context.Context, x1, y1, x2, y2, _ int) error {
+func (t *Target) Swipe(ctx context.Context, x1, y1, x2, y2, _ int) error {
 	st, err := t.agentStream()
 	if err != nil {
 		return err
@@ -516,8 +516,8 @@ func (t *RevylTarget) Swipe(ctx context.Context, x1, y1, x2, y2, _ int) error {
 }
 
 // TypeText types at the last tap, an agent's or a viewer's, since Revyl
-// types at a point. Before any tap it returns ErrRevylNeedsTap.
-func (t *RevylTarget) TypeText(ctx context.Context, s string) error {
+// types at a point. Before any tap it returns ErrNeedsTap.
+func (t *Target) TypeText(ctx context.Context, s string) error {
 	st, err := t.agentStream()
 	if err != nil {
 		return err
@@ -525,7 +525,7 @@ func (t *RevylTarget) TypeText(ctx context.Context, s string) error {
 	return st.in.agentText(ctx, s)
 }
 
-func (t *RevylTarget) PressKey(ctx context.Context, keycode int) error {
+func (t *Target) PressKey(ctx context.Context, keycode int) error {
 	st, err := t.agentStream()
 	if err != nil {
 		return err
@@ -535,7 +535,7 @@ func (t *RevylTarget) PressKey(ctx context.Context, keycode int) error {
 
 // ScreenSize is the open stream's size: an agent's coordinates are stream
 // pixels, so this is the space its taps are placed in.
-func (t *RevylTarget) ScreenSize(context.Context) (int, int, error) {
+func (t *Target) ScreenSize(context.Context) (int, int, error) {
 	st, err := t.agentStream()
 	if err != nil {
 		return 0, 0, err
@@ -551,7 +551,7 @@ func clamp32(v int) int32 {
 	return int32(min(max(v, math.MinInt32), math.MaxInt32))
 }
 
-func (t *RevylTarget) inputTrace() func(map[string]any) {
+func (t *Target) inputTrace() func(map[string]any) {
 	if t.Trace == nil {
 		return nil
 	}
@@ -564,7 +564,7 @@ func (t *RevylTarget) inputTrace() func(map[string]any) {
 
 // readySession re-reads the session until it has a WHEP URL. A device
 // that was just started can report ready before its stream is up.
-func (t *RevylTarget) readySession(ctx context.Context) (RevylSession, error) {
+func (t *Target) readySession(ctx context.Context) (Session, error) {
 	poll := t.poll
 	if poll <= 0 {
 		poll = 2 * time.Second
@@ -575,15 +575,15 @@ func (t *RevylTarget) readySession(ctx context.Context) (RevylSession, error) {
 		s, ok, err := t.CLI.Info(ctx, t.Session.SessionID)
 		switch {
 		case err != nil:
-			return RevylSession{}, err
+			return Session{}, err
 		case !ok:
-			return RevylSession{}, errors.New("revyl: the session has ended")
+			return Session{}, errors.New("revyl: the session has ended")
 		case s.Ready():
 			return s, nil
 		}
 		select {
 		case <-ctx.Done():
-			return RevylSession{}, errors.New("revyl: the device has not started streaming")
+			return Session{}, errors.New("revyl: the device has not started streaming")
 		case <-time.After(poll):
 		}
 	}
@@ -593,7 +593,7 @@ func (t *RevylTarget) readySession(ctx context.Context) (RevylSession, error) {
 type revylStream struct {
 	*whepReceiver
 	in    *revylInput
-	owner *RevylTarget // forgets the stream on Close
+	owner *Target // forgets the stream on Close
 }
 
 func (s *revylStream) Touch(t target.Touch) error { return s.in.touch(t, s.Meta()) }
@@ -646,9 +646,9 @@ const (
 // agent* methods) joins the same queue as a finished gesture and waits for
 // Revyl's answer, which the worker gives back on the job's done channel.
 type revylInput struct {
-	cli      RevylCLI
-	rest     *RevylREST // nil: the CLI sends everything
-	runID    string     // the session's workflow_run_id; "" leaves REST out
+	cli      CLI
+	rest     *REST  // nil: the CLI sends everything
+	runID    string // the session's workflow_run_id; "" leaves REST out
 	session  string
 	platform string
 	screenW  int // device units; 0 when Revyl did not say
@@ -783,7 +783,7 @@ func (j *revylJob) argv() (env, args []string) {
 	return nil, nil
 }
 
-func newRevylInput(cli RevylCLI, rest *RevylREST, s RevylSession, trace func(map[string]any)) *revylInput {
+func newRevylInput(cli CLI, rest *REST, s Session, trace func(map[string]any)) *revylInput {
 	ctx, cancel := context.WithCancel(context.Background())
 	in := &revylInput{
 		cli: cli, rest: rest, runID: s.WorkflowRunID, session: s.SessionID, platform: s.Platform,
@@ -1208,9 +1208,9 @@ type revylNoKey string
 func (e revylNoKey) Error() string     { return string(e) }
 func (e revylNoKey) Is(err error) bool { return err == target.ErrNoControl }
 
-// ErrRevylNeedsTap is typing on a Revyl device before anything was
+// ErrNeedsTap is typing on a Revyl device before anything was
 // tapped: Revyl types at a point, and the last tap is the field.
-var ErrRevylNeedsTap = errors.New("revyl: tap a text field first; Revyl types at a point")
+var ErrNeedsTap = errors.New("revyl: tap a text field first; Revyl types at a point")
 
 // text types at the last tap, the field the user picked: Revyl types at a
 // point.
@@ -1229,7 +1229,7 @@ func (in *revylInput) typingPoint() (int, int, error) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	if !in.haveTap {
-		return 0, 0, ErrRevylNeedsTap
+		return 0, 0, ErrNeedsTap
 	}
 	return in.tapX, in.tapY, nil
 }

@@ -85,7 +85,7 @@ type revylLiveConn struct {
 // openLive looks up and dials the session's worker socket. trace gets a
 // record each time the socket reports another screen size. ios says the
 // session's sizes are in points.
-func (r *RevylREST) openLive(ctx context.Context, key, runID string, ios bool, trace func(map[string]any)) (*revylLiveConn, error) {
+func (r *REST) openLive(ctx context.Context, key, runID string, ios bool, trace func(map[string]any)) (*revylLiveConn, error) {
 	ws, err := r.workerSocket(ctx, key, runID)
 	if err != nil {
 		return nil, err

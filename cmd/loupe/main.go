@@ -748,10 +748,10 @@ func main() {
 	// Revyl cloud devices, through the user's own revyl CLI and account. The
 	// CLI is looked up per call too. Sessions on the account are listed as
 	// targets; the ones loupe starts are stopped at exit.
-	revylDevs := httpapi.NewRevylDevices(func() string { return revyl.FindRevylCLI(*revylCLI) }, revyl.RevylWorkDir(),
+	revylDevs := httpapi.NewRevylDevices(func() string { return revyl.FindCLI(*revylCLI) }, revyl.WorkDir(),
 		mgr.Register, mgr.UnregisterAs, tracer.Record)
-	revylDevs.SetInstaller(httpapi.NewRevylInstaller(revyl.PrivateRevylCLI()))
-	revylDevs.SetREST(revyl.NewRevylREST(loupeVersion()))
+	revylDevs.SetInstaller(httpapi.NewRevylInstaller(revyl.PrivateCLI()))
+	revylDevs.SetREST(revyl.NewREST(loupeVersion()))
 	api.SetRevylDevices(revylDevs)
 	go revylDevs.Watch(ctx)
 	// New device… from installed images. It does not depend on device
