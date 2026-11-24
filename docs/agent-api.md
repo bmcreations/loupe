@@ -722,11 +722,19 @@ Per platform:
 | Target | Source | Limits |
 |---|---|---|
 | Android | `logcat -v threadtime` | `format=ndjson` is 422. |
-| iOS simulator | Unified log. `package` is a bundle ID. | `since` with `follow` is 422 `notSupported`. |
+| iOS simulator | Unified log at Default and Info, with errors and faults. `package` is a bundle ID. | No Debug lines. `since` with `follow` is 422 `notSupported`. |
 | Physical iPhone | The device's syslog relay, over USB or Wi-Fi | Text only. `format=ndjson`, `since`, `package` and `foreground` are 422 `notSupported`. A dump waits for the backlog to go quiet, up to 3 seconds. An unlisted phone is 502. |
 | Synthetic | | 501 |
 
 A shut-down AVD answers 502 "open it in the viewer to boot it".
+
+On a simulator, Info carries React Native's `console.log`. Debug is left out:
+the store keeps almost none of it, so it would mostly add to a follow. On one
+React Native dev build's pid over 20 seconds it took a follow from 1,788
+entries to 4,591, every added one from Apple's frameworks. An app's Info lines leave the store sooner than its
+Default lines, so a `since` hours back can miss them: a `console.log` line was
+still there after 15 minutes, but one from 7 hours earlier was gone while the
+app's Default lines from that minute were not.
 
 ### `GET /api/crashes?target=<id>`
 

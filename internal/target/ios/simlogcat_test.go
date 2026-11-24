@@ -21,15 +21,15 @@ func TestSimLogArgs(t *testing.T) {
 		want   []string
 	}{
 		{"dump", target.LogcatQuery{Lines: 10}, 0, time.Minute,
-			[]string{"show", "--style", "compact", "--last", "60s"}},
+			[]string{"show", "--style", "compact", "--last", "60s", "--info"}},
 		{"since", target.LogcatQuery{Since: since}, 0, 0,
-			[]string{"show", "--style", "compact", "--start", "2026-10-22 09:05:07-0400"}},
+			[]string{"show", "--style", "compact", "--start", "2026-10-22 09:05:07-0400", "--info"}},
 		{"follow", target.LogcatQuery{Follow: true, Lines: 10}, 0, 0,
-			[]string{"stream", "--style", "compact"}},
+			[]string{"stream", "--style", "compact", "--info"}},
 		{"pid", target.LogcatQuery{Lines: 10}, 959, time.Hour,
-			[]string{"show", "--style", "compact", "--last", "3600s", "--predicate", "processID == 959"}},
+			[]string{"show", "--style", "compact", "--last", "3600s", "--info", "--predicate", "processID == 959"}},
 		{"ndjson", target.LogcatQuery{Follow: true, Format: LogFormatNDJSON}, 0, 0,
-			[]string{"stream", "--style", "ndjson"}},
+			[]string{"stream", "--style", "ndjson", "--info"}},
 	} {
 		if got := simLogArgs(c.q, c.pid, c.window); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: %q; want %q", c.name, got, c.want)
@@ -106,7 +106,12 @@ func fakeSimLog(t *testing.T, byWindow map[string]string) *[]string {
 	var asked []string
 	old := simLogStart
 	simLogStart = func(ctx context.Context, udid string, args []string) (io.ReadCloser, error) {
-		w := args[len(args)-1]
+		w := ""
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--last" {
+				w = args[i+1]
+			}
+		}
 		asked = append(asked, w)
 		return io.NopCloser(strings.NewReader("Timestamp header\n" + byWindow[w])), nil
 	}
