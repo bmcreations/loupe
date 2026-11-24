@@ -1932,15 +1932,25 @@ func (c *countingReader) Read(p []byte) (int, error) {
 const (
 	defaultLogcatLines = 500
 	maxLogcatLines     = 20000
-	// maxLogcatBytes bounds a dump held in memory before it is trimmed to
-	// the lines asked for. A full main buffer is a few megabytes.
-	maxLogcatBytes = 32 << 20
 	// logcatDumpTimeout bounds a dump. A filtered dump widens its reads
 	// back through the buffer until this would cut them.
 	logcatDumpTimeout = 15 * time.Second
 	// maxLogFilterLen bounds ?tag= and ?text=, in bytes.
 	maxLogFilterLen = 256
 )
+
+// maxLogcatBytes bounds a dump held in memory before it is trimmed to the
+// lines asked for. A full main buffer is a few megabytes. Past it the dump
+// keeps its newest bytes, since a log comes oldest first. A var so tests
+// can shrink it.
+var maxLogcatBytes = 32 << 20
+
+// HeaderLogTruncated is set on a dump that holds fewer lines than were
+// asked for because loupe stopped reading, not because the log has no
+// more: "size" when it passed maxLogcatBytes, "time" when a dump read in
+// widening windows ran out of time reading further back. Either way the
+// lines are the newest.
+const HeaderLogTruncated = "X-Loupe-Log-Truncated"
 
 // logcatQuery reads GET /api/logcat's parameters. since takes a duration
 // back from now ("30s", "5m") or an RFC 3339 time; either is compared
@@ -2098,7 +2108,11 @@ func (s *Server) handleLogcat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, err := io.ReadAll(io.LimitReader(log, maxLogcatBytes))
+	// Read to the end, keeping the newest maxLogcatBytes. A dump its
+	// deadline stops holds the oldest part instead, and Close reports that
+	// as an error rather than letting it pass for the newest.
+	tail := &tailBuffer{limit: maxLogcatBytes}
+	_, err = io.Copy(tail, log)
 	if cerr := log.Close(); err == nil {
 		err = cerr
 	}
@@ -2109,12 +2123,66 @@ func (s *Server) handleLogcat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.traceAgent(r, t.ID(), "logcat", nil)
-	// -T has no line limit of its own, and a filtered dump can read more
-	// lines than it keeps, so both are trimmed here.
+	raw := tail.Bytes()
+	// A target may return more than lines for a since or filtered dump
+	// (target.LogcatQuery.Lines), so both are trimmed here.
 	if !q.Since.IsZero() || q.Filtered() {
 		raw = lastLines(raw, q.Lines)
 	}
+	switch {
+	case log.Cut != "":
+		h.Set(HeaderLogTruncated, log.Cut)
+	case tail.dropped && bytes.Count(raw, []byte{'\n'}) < q.Lines:
+		h.Set(HeaderLogTruncated, target.LogCutSize)
+	}
 	w.Write(raw)
+}
+
+// tailBuffer keeps the last limit bytes written to it, in a ring once it
+// is full.
+type tailBuffer struct {
+	limit   int
+	buf     []byte
+	start   int // the oldest byte, once buf is full
+	dropped bool
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if room := t.limit - len(t.buf); room > 0 {
+		k := min(room, len(p))
+		t.buf = append(t.buf, p[:k]...)
+		p = p[k:]
+	}
+	if len(p) == 0 {
+		return n, nil
+	}
+	t.dropped = true
+	if len(p) > t.limit {
+		p = p[len(p)-t.limit:]
+	}
+	k := copy(t.buf[t.start:], p)
+	copy(t.buf, p[k:])
+	t.start = (t.start + len(p)) % t.limit
+	return n, nil
+}
+
+// Bytes is what was kept, oldest first. Once anything was dropped it
+// starts after the first newline, so it never opens partway through a
+// line.
+func (t *tailBuffer) Bytes() []byte {
+	b := t.buf
+	if t.start > 0 {
+		b = append(append(make([]byte, 0, len(t.buf)), t.buf[t.start:]...), t.buf[:t.start]...)
+	}
+	if !t.dropped {
+		return b
+	}
+	i := bytes.IndexByte(b, '\n')
+	if i < 0 {
+		return nil
+	}
+	return b[i+1:]
 }
 
 // followLogcat copies a following log to the response, flushing after each

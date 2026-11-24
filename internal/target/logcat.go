@@ -21,13 +21,14 @@ type Logcatter interface {
 // LogcatQuery narrows what Logcat returns. At most one of PID, Package and
 // Foreground names a process; with none of them every process is read.
 type LogcatQuery struct {
-	// Since starts the log at a wall-clock time, read by the device's clock.
-	// Zero means the last Lines lines instead.
+	// Since starts the log at a wall-clock time, read by the device's clock:
+	// a dump keeps the last Lines lines logged from then on. Zero means the
+	// last Lines lines of the whole log.
 	Since time.Time
-	// Lines is how many of the most recent lines to start with when Since is
-	// zero. With Since set, or with Tag or Text, a target may return more
-	// and leave the caller to trim; with Tag or Text it counts lines the
-	// filter kept.
+	// Lines is how many of the newest lines a dump returns, or a follow
+	// starts with when Since is zero. With Tag or Text it counts lines the
+	// filter kept. With Since set, or with Tag or Text, a target may return
+	// more and leave the caller to trim.
 	Lines int
 	PID   int
 	// Package is resolved to its pid with pidof when the log is opened.
@@ -57,8 +58,21 @@ type LogcatQuery struct {
 type Logcat struct {
 	PID     int
 	Package string
+	// Cut is set when the dump holds fewer lines than were asked for
+	// because reading stopped early, not because the log has no more: one
+	// of LogCutSize and LogCutTime.
+	Cut string
 	io.ReadCloser
 }
+
+const (
+	// LogCutSize is a dump that passed the size it may hold, so only its
+	// newest part was kept.
+	LogCutSize = "size"
+	// LogCutTime is a dump that ran out of time reading further back. What
+	// it holds is still the newest.
+	LogCutTime = "time"
+)
 
 // ErrAppNotRunning is a package that has no process to filter on. logcat
 // filters by pid, and a package that is not running has none.

@@ -156,15 +156,18 @@ func TestLogcatArgs(t *testing.T) {
 	}{
 		{"tail", target.LogcatQuery{Lines: 500}, 0, "logcat -v threadtime -t 500"},
 		{"tail one pid", target.LogcatQuery{Lines: 10}, 959, "logcat -v threadtime -t 10 --pid=959"},
-		// -T does not imply -d, so a dump since a time has to say it.
-		{"since", target.LogcatQuery{Since: since, Lines: 10}, 0, "logcat -v threadtime -d -T 1790607053.042"},
+		// -T does not imply -d, so a dump since a time has to say it. Only a
+		// filtered dump reads one this way: with a pid as newestDump's first
+		// try, and after a window that falls short of since. An unfiltered
+		// since dump reads the newest lines.
+		{"since", target.LogcatQuery{Since: since, Lines: 10, Tag: "a"}, 4, "logcat -v threadtime -d -T 1790607053.042 --pid=4"},
+		{"since no pid", target.LogcatQuery{Since: since, Lines: 10, Text: "x"}, 0, "logcat -v threadtime -d -T 1790607053.042"},
 		{"follow", target.LogcatQuery{Follow: true, Lines: 20}, 0, "logcat -v threadtime -T 20"},
 		{"follow since", target.LogcatQuery{Follow: true, Since: since}, 7, "logcat -v threadtime -T 1790607053.042 --pid=7"},
 		// The last lines of the buffer may hold no match, so a filtered dump
 		// reads all of it and is trimmed after the filter.
 		{"tail filtered", target.LogcatQuery{Lines: 500, Tag: "flutter"}, 0, "logcat -v threadtime -d"},
 		{"tail text", target.LogcatQuery{Lines: 5, Text: "x"}, 9, "logcat -v threadtime -d --pid=9"},
-		{"since filtered", target.LogcatQuery{Since: since, Lines: 10, Tag: "a"}, 0, "logcat -v threadtime -d -T 1790607053.042"},
 		{"follow filtered", target.LogcatQuery{Follow: true, Lines: 20, Tag: "a"}, 0, "logcat -v threadtime -T 20"},
 	}
 	for _, c := range cases {
