@@ -101,6 +101,13 @@ const ErrCodeInterrupted = "interrupted"
 // until its holder releases it or stops calling for claimLease.
 const ErrCodeClaimed = "claimedBy"
 
+// ErrCodeClaimLapsed is the 409 a caller gets for input on a target it held
+// until its claim lapsed (no call for claimLease) and nobody has claimed
+// since. Nothing was sent to the device. It repeats on each input until the
+// caller claims the target again, or claimLapsedFor after the lapse; any
+// other agent's claim answers ErrCodeClaimed instead.
+const ErrCodeClaimLapsed = "claimLapsed"
+
 // ErrCodeHandsOff is the 409 every agent gets for input on a target the
 // person has marked hands off. It lasts until they clear it.
 const ErrCodeHandsOff = "handsOff"

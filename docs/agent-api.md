@@ -28,6 +28,7 @@ Common refusals on routes that change a device:
 |---|---|---|
 | 409 | `humanHeld` | A person is touching the target. Has `retryAfterMs` and a `Retry-After` header. |
 | 409 | `claimedBy` | Another agent holds a claim. The holder is in `claim`. |
+| 409 | `claimLapsed` | The caller's own claim ran out (no call for 10 minutes) and nobody has claimed since. Claim again. |
 | 409 | `handsOff` | The target is marked off limits. No retry time. |
 | 409 | `interrupted` | A person sent an interrupt flag the agent has not read ([flags.md](flags.md)). |
 
@@ -997,7 +998,14 @@ holder is waiting on holds the claim until it ends (see Device lifecycle).
 While a claim lasts, any other agent's input on the target answers 409
 `code: "claimedBy"` with the holder in `claim`, before anything reaches the
 device. Every call from the holder, `/api/ui` and `/api/screenshot` included,
-renews the lease, and it lapses 10 minutes after the last call. Claims are
+renews the lease, and it lapses 10 minutes after the last call. If nobody
+claims the target after a lapse, the former holder's input answers 409
+`code: "claimLapsed"` instead of passing through unclaimed, and nothing reaches
+the device. It repeats on every input until the holder claims the target again
+(`POST /api/claims`), or an hour after the lapse. Another caller is unaffected,
+and an agent that claims in between makes the former holder's input answer
+`claimedBy`. Releasing a claim yourself leaves no such marker, and the markers
+are not saved across a restart. Claims are
 saved to `claims.json` beside the config file and survive a restart, unless
 the lease ran out while the server was down. A renewal is saved at most once a
 minute, so a restored lease can be up to a minute short. Claims are kept out of
