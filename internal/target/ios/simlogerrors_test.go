@@ -204,12 +204,29 @@ func TestSimulatorLogErrorScanIsBounded(t *testing.T) {
 	simLogErrorTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { simLogErrorTimeout = old })
 	start := time.Now()
-	_, err := bootedCrashSim().Crashes(context.Background(), target.CrashQuery{})
-	if err == nil || !strings.Contains(err.Error(), "took over") {
-		t.Errorf("err = %v", err)
+	got, err := bootedCrashSim().Crashes(context.Background(), target.CrashQuery{})
+	// The reports come back without the log's errors, and the error says
+	// the log was skipped.
+	var skipped *target.LogSkippedError
+	if !errors.As(err, &skipped) || !strings.Contains(err.Error(), "took over") {
+		t.Errorf("err = %v; want a LogSkippedError", err)
+	}
+	if len(got) != 2 || got[0].Kind != "crash" || got[1].Kind != "crash" {
+		t.Errorf("got %+v", got)
 	}
 	if d := time.Since(start); d > 2*time.Second {
 		t.Errorf("took %v", d)
+	}
+}
+
+func TestSimulatorCrashesListsReportsWhenTheLogWillNotStart(t *testing.T) {
+	fakeSimErrors(t, func(context.Context) (io.ReadCloser, error) {
+		return nil, errors.New("simctl spawn: exit status 148")
+	})
+	got, err := bootedCrashSim().Crashes(context.Background(), target.CrashQuery{})
+	var skipped *target.LogSkippedError
+	if !errors.As(err, &skipped) || len(got) != 2 {
+		t.Errorf("got %+v, %v", got, err)
 	}
 }
 

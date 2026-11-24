@@ -215,10 +215,11 @@ func (t *Device) Crashes(ctx context.Context, q target.CrashQuery) ([]target.Cra
 		return nil, err
 	}
 	logged, err := t.logErrorReports(ctx, q.Since)
+	list := target.MergeCrashReports(dropboxReports(entries, q), logged, q)
 	if err != nil {
-		return nil, err
+		return list, &target.LogSkippedError{Err: err}
 	}
-	return target.MergeCrashReports(dropboxReports(entries, q), logged, q), nil
+	return list, nil
 }
 
 func dropboxReports(entries []dropboxEntry, q target.CrashQuery) []target.CrashReport {

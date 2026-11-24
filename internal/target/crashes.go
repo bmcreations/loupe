@@ -10,7 +10,9 @@ import (
 // Crasher is implemented by targets whose crash reports can be read. It is
 // optional the way Logcatter is.
 type Crasher interface {
-	// Crashes lists the target's crash reports, newest first.
+	// Crashes lists the target's crash reports, newest first. When the
+	// device log could not be read for JS and Dart errors, it returns the
+	// crash reports with a *LogSkippedError.
 	Crashes(ctx context.Context, q CrashQuery) ([]CrashReport, error)
 	// Crash returns one report as it was written. A report that does not
 	// exist and one that belongs to another target are both ErrCrashNotFound.
@@ -53,6 +55,13 @@ type CrashReport struct {
 
 // ErrCrashNotFound is a crash id this target has no report for.
 var ErrCrashNotFound = errors.New("no such crash report")
+
+// LogSkippedError comes with a listing of crash reports that lacks the
+// JS and Dart errors because the device log could not be read.
+type LogSkippedError struct{ Err error }
+
+func (e *LogSkippedError) Error() string { return "JS and Dart errors not listed: " + e.Err.Error() }
+func (e *LogSkippedError) Unwrap() error { return e.Err }
 
 var crashIDRE = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
 

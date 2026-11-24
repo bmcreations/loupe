@@ -97,14 +97,21 @@ func parseLogErrorDump(out []byte) []logcatEntry {
 }
 
 // logErrors scans the device log for JS and Dart errors since since. The
-// log is the main buffer, which held the last 22 minutes on an API 37
-// emulator running two apps (256 KiB), so an error older than that is gone.
+// log is the main buffer, 256 KiB on an API 37 emulator, so how far back
+// it reaches depends on how much the device logs.
 func (t *Device) logErrors(ctx context.Context, since time.Time) ([]target.LogError, error) {
 	out, err := t.adb.ExecOut(ctx, t.info.Serial, logErrorArgs(since)...)
 	if err != nil {
 		return nil, fmt.Errorf("logcat: %w", err)
 	}
 	parsed := parseLogErrorDump(out)
+	if len(parsed) == 0 {
+		// logcat refuses an option it does not know on stdout and exits 0,
+		// "logcat: Invalid -v 'uid'.", which would read as an empty log.
+		if line := firstNonLogLine(out); line != "" {
+			return nil, fmt.Errorf("logcat printed no log lines: %q", line)
+		}
+	}
 	entries := make([]target.LogEntry, len(parsed))
 	// An error's time and pid are its first entry's, which says its uid.
 	type at struct {
@@ -149,6 +156,22 @@ func (t *Device) logErrors(ctx context.Context, since time.Time) ([]target.LogEr
 		}
 	}
 	return errs, nil
+}
+
+// firstNonLogLine is the dump's first line that is neither blank nor one of
+// logcat's "--------- beginning of main" dividers, cut to 200 bytes.
+func firstNonLogLine(out []byte) string {
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "--------- ") {
+			continue
+		}
+		if len(line) > 200 {
+			line = strings.ToValidUTF8(line[:200], "")
+		}
+		return line
+	}
+	return ""
 }
 
 // parsePackageUIDs reads `pm list packages -U`, a "package:<name> uid:<n>"

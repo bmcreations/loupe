@@ -210,3 +210,47 @@ func TestDeviceCrashesMergesTheDropboxAndTheLog(t *testing.T) {
 		t.Errorf("adb calls = %s", args)
 	}
 }
+
+// A logcat that fails, or refuses an option, costs the JS and Dart errors
+// and not the dropbox's crashes, and says so.
+func TestDeviceCrashesListsTheDropboxWhenTheLogFails(t *testing.T) {
+	for name, tc := range map[string]struct {
+		dump string
+		fail bool
+		want string
+	}{
+		// API 37's logcat answers an option it does not know on stdout,
+		// and exec-out exits 0.
+		"refused": {dump: "logcat: Invalid -v 'uid'.\n", want: `JS and Dart errors not listed: logcat printed no log lines: "logcat: Invalid -v 'uid'."`},
+		"failed":  {fail: true, want: "JS and Dart errors not listed: logcat: adb exec-out logcat"},
+		// A log with nothing under the two tags is no failure.
+		"empty":   {dump: ""},
+		"divider": {dump: "--------- beginning of main\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			adb, _ := writeFakeLogcatADB(t, []byte(tc.dump), "", "")
+			if err := os.WriteFile(filepath.Join(filepath.Dir(adb), "data_app_crash.txt"), readDropboxFixture(t, "dropbox-data_app_crash-api37.txt"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if tc.fail {
+				script, _ := os.ReadFile(adb)
+				failing := strings.Replace(string(script), "#!/bin/sh\n", "#!/bin/sh\ncase \"$*\" in *logcat*) echo 'error: closed' >&2; exit 1;; esac\n", 1)
+				if err := os.WriteFile(adb, []byte(failing), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+			list, err := tgt.Crashes(context.Background(), target.CrashQuery{})
+			if len(list) != 1 || list[0].ID != "data_app_crash-1792722095531" {
+				t.Errorf("list = %+v", list)
+			}
+			var skipped *target.LogSkippedError
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("err = %v", err)
+			case tc.want != "" && (!errors.As(err, &skipped) || !strings.HasPrefix(err.Error(), tc.want)):
+				t.Errorf("err = %v; want a LogSkippedError %q", err, tc.want)
+			}
+		})
+	}
+}

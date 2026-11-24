@@ -214,10 +214,11 @@ func (s *Simulator) Crashes(ctx context.Context, q target.CrashQuery) ([]target.
 		return nil, err
 	}
 	logged, err := s.logErrorReports(ctx, q.Since)
+	list = target.MergeCrashReports(list, logged, q)
 	if err != nil {
-		return nil, err
+		return list, &target.LogSkippedError{Err: err}
 	}
-	return target.MergeCrashReports(list, logged, q), nil
+	return list, nil
 }
 
 // Crash returns one of the simulator's crash reports as macOS wrote it, or

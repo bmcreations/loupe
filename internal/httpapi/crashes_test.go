@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,11 +20,39 @@ type crashTarget struct {
 	stubTarget
 	gotQ  target.CrashQuery
 	gotID string
+	err   error
 }
 
 func (f *crashTarget) Crashes(_ context.Context, q target.CrashQuery) ([]target.CrashReport, error) {
 	f.gotQ = q
-	return []target.CrashReport{{ID: crashID, Kind: "crash", Process: "Acmechat", Summary: "EXC_CRASH (SIGABRT)"}}, nil
+	return []target.CrashReport{{ID: crashID, Kind: "crash", Process: "Acmechat", Summary: "EXC_CRASH (SIGABRT)"}}, f.err
+}
+
+// A device log that could not be read loses the JS and Dart errors, not
+// the crash reports: they come back with a warning that says so.
+func TestCrashesListsTheReportsWhenTheLogFails(t *testing.T) {
+	f := &crashTarget{err: &target.LogSkippedError{Err: errors.New("logcat: exit status 1")}}
+	w := serveAgent(t, f, http.MethodGet, "/api/crashes?target=stub", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body)
+	}
+	var got CrashList
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Crashes) != 1 || got.Warning != "JS and Dart errors not listed: logcat: exit status 1" {
+		t.Errorf("got %+v", got)
+	}
+	// A whole listing has no warning field at all.
+	w = serveAgent(t, &crashTarget{}, http.MethodGet, "/api/crashes?target=stub", nil)
+	if strings.Contains(w.Body.String(), "warning") {
+		t.Errorf("body = %s", w.Body)
+	}
+	// Any other failure is still the call's.
+	w = serveAgent(t, &crashTarget{err: errors.New("dumpsys: exit status 1")}, http.MethodGet, "/api/crashes?target=stub", nil)
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("status %d; want 502", w.Code)
+	}
 }
 
 func (f *crashTarget) Crash(_ context.Context, id string) ([]byte, error) {

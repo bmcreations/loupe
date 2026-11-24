@@ -796,6 +796,14 @@ cannot push a crash report out of the listing.
 Each row has `id`, `kind`, `time`, `process`, `bundleID` (empty for a daemon),
 `version`, `build`, `pid` and `summary` (`EXC_CRASH (SIGABRT), Abort trap: 6`).
 
+The answer is `{"target", "crashes"}`. When the device log cannot be read
+for JS and Dart errors, it is still 200 with the crash reports, and a
+`warning` says the log's rows are missing and why:
+`"warning": "JS and Dart errors not listed: logcat: ..."`. That covers a
+logcat that fails, one that refuses an option and prints no log line, and a
+simulator log read that takes over 10 s. A listing without `warning` is
+whole. Any other failure is 502 `{"error"}`.
+
 `GET /api/crashes/<id>?target=<id>` returns one report as `text/plain`. An id
 that belongs to another target, or does not exist, is 404. An iOS report's id
 is a UUID, an Android one's is its dropbox tag and millis
@@ -845,10 +853,10 @@ error's lines as the log printed them, with the Dart stack where Flutter
 logged one. React Native logs no stack on this line.
 
 The rows last only as long as the log does. Android reads the main buffer,
-which held the last 22 minutes on an API 37 emulator running two apps (256
-KiB), and `logcat -c` empties it. A
-simulator reads the last hour, or from `since`, and a read that takes over
-10 s fails the call; pass a later `since`.
+256 KiB on an emulator, so how far back it reaches depends on how much the
+device logs, and `logcat -c` empties it. A simulator reads the last hour, or
+from `since`. A read that takes over 10 s lists the crash reports with a
+`warning`; pass a later `since`.
 
 ## Device settings and presets
 
