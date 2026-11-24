@@ -754,7 +754,9 @@ buffer, sizing each wider read to finish inside the limit. A phone with large
 log buffers can take longer than the limit to send the whole buffer: one with
 16 MiB main and system buffers took 33 s. There a match older than the widest
 read that fits is missed. With `package`, `pid` or `foreground`, logcat reads
-only that process's lines, and the whole buffer is tried first. On a
+only that process's lines, and the whole buffer is tried first. That try
+gets half the limit, so for a busy process such as `system_server` it can
+leave the dump reaching less far back than the same filter without a process. On a
 simulator the dump widens its window from a minute to 10 minutes to an hour
 until it has `lines` matching lines. On either, it stops widening when the
 next read looks unable to finish inside the limit, or the limit cuts one, and
