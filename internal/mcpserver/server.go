@@ -25,12 +25,19 @@ func NewServer(c *Client) *mcp.Server {
 	})
 	addTools(s, c)
 	addFlagTools(s, c)
+	s.AddReceivingMiddleware(defaultTargetMiddleware(c))
 	return s
 }
 
 // instructions reach the model on connect. They explain the channel
 // messages pushFlags sends, which arrive as <channel source="loupe" ...> tags.
 const instructions = `loupe streams Android and iOS devices to a person watching them, and lets you read and drive those devices with these tools.
+
+Every tool call is a round trip through you, so a task finishes as fast as its number of calls allows. To drive in few calls:
+- Read a screen with ui (interactive: true), not screenshot. It names every node you can act on by text, desc or id. Take a screenshot only to judge how something looks.
+- On a screen you have read, put every step you can predict into one sequence call, through to the next screen, and end it with a wait whose match is what that screen should show. A wait fails unless its node appears, so it is also the check. A tap with a match waits for its node up to waitMs, and a scroll with find scrolls until its node is on screen.
+- A sequence's answer ends with the screen it stopped on, so plan the next sequence from that instead of calling ui. If a step failed, the answer names it and why.
+- Asked to check that something works, prove it once on the shortest path, answer, and stop. Ask before widening the check.
 
 The person can flag something that looks off on a device's screen. In a Claude Code session started with channels, each flag arrives as a <channel source="loupe" target="..." flag_id="..." state="..."> message; claimed_by, when present, names the agent holding that target, and held_by_you="true" means that claim is yours. Act on a flag when to_you or held_by_you is set, or claimed_by is absent; leave it to its holder otherwise. to_you="true" means the person sent it to this session by name, so it is yours even if another agent holds the target. To act: read it with the flag tool (note, boxed region, UI tree, screenshots), then look into it. state="watching" means the person is reproducing it and a second message comes with state="ended" and their inputs. state="interrupt" (kind="interrupt") means the person stopped you mid-task: stop driving that target now and wait for the state="ended" message, or state="released", which means they sent it to another session and you may go on. Until you then read that flag with the flag tool, input on the target fails with code "interrupted"; read it, look at the screen as it is now, and decide whether what you were doing still applies before you act again. An input error with code "interrupted" means the same thing without channels. Without channels, check the flags tool, or wait on it with wait_seconds.
 

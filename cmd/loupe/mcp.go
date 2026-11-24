@@ -28,6 +28,7 @@ func runMCP(args []string) int {
 		addr  = fs.String("url", "https://localhost:18456", "the loupe server to drive")
 		token = fs.String("token", "", "shared token (default: LOUPE_TOKEN, then the server's token file)")
 		agent = fs.String("agent", "claude", "name sent as X-Loupe-Agent, shown on the viewer's banner and in claims")
+		tgt   = fs.String("target", os.Getenv("LOUPE_TARGET"), "the target a device tool drives when its call names none (default: LOUPE_TARGET, else the one running device)")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -44,6 +45,7 @@ func runMCP(args []string) int {
 		logger.Print(err)
 		return 1
 	}
+	c.SetDefaultTarget(*tgt)
 
 	// SIGHUP too: an agent in a terminal that closes, or a tmux pane that is
 	// killed or respawned, takes this process down with that hangup, and Go's

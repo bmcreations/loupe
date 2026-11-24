@@ -71,6 +71,12 @@ other people's agents run, prefer a webhook to a thread.
 | `-url` | `https://localhost:18456` | The loupe server. |
 | `-token` | `LOUPE_TOKEN`, then the server's token file | `loupe mcp` never writes one. |
 | `-agent` | `claude` | Name shown in the trace and on the banner. |
+| `-target` | `LOUPE_TARGET` | The target a device tool drives when its call leaves `target` out. Unset, a call without one drives the only device that is up; with several up it fails and lists them. `targets`, `flags`, `flag`, `boot`, `boot_status` and `submit_feedback` never get a default. |
+
+`ui`, and the screen that `sequence` and `scroll` end with, come as one line
+per node: class, text, `desc=`, `value=`, `id=`, the `@x,y` center and flags.
+Layout containers that carry only an id are left out, and ids in the app's own
+package are printed without it. `ui` with `json: true` returns `/api/ui`'s JSON.
 
 TLS is verified except for a loopback host, whose certificate names the ts.net
 host instead.
