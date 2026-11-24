@@ -1947,8 +1947,9 @@ var maxLogcatBytes = 32 << 20
 
 // HeaderLogTruncated is set on a dump that holds fewer lines than were
 // asked for because loupe stopped reading, not because the log has no
-// more: "size" when it passed maxLogcatBytes, "time" when a simulator ran
-// out of time reading further back. Either way the lines are the newest.
+// more: "size" when it passed maxLogcatBytes, "time" when a dump read in
+// widening windows ran out of time reading further back. Either way the
+// lines are the newest.
 const HeaderLogTruncated = "X-Loupe-Log-Truncated"
 
 // logcatQuery reads GET /api/logcat's parameters. since takes a duration

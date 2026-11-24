@@ -45,11 +45,11 @@ func (t *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logc
 		return nil, err
 	}
 	if q.Filtered() && q.Since.IsZero() && !q.Follow {
-		b, err := t.filteredDump(ctx, q, pid)
+		b, cut, err := t.filteredDump(ctx, q, pid)
 		if err != nil {
 			return nil, err
 		}
-		return &target.Logcat{PID: pid, Package: pkg, ReadCloser: io.NopCloser(bytes.NewReader(b))}, nil
+		return &target.Logcat{PID: pid, Package: pkg, Cut: cut, ReadCloser: io.NopCloser(bytes.NewReader(b))}, nil
 	}
 	rc, err := t.adb.ExecOutStream(ctx, t.info.Serial, logcatArgs(q, pid)...)
 	if err != nil {
@@ -79,16 +79,17 @@ const (
 // fast the last came back so it ends before ctx's deadline. A window that
 // comes back with fewer lines than it asked for was the whole buffer. When
 // the deadline cuts a wider window, or the next would not fit, the last
-// finished window is the answer, which may be nothing.
+// finished window is the answer, which may be nothing, with
+// target.LogCutTime.
 //
 // A pid narrows the read on the device, and that usually brings the whole
 // buffer back in time, so with one that is tried first, with half of what
 // is left of the deadline, and windows follow only when it does not finish.
-func (t *Device) filteredDump(ctx context.Context, q target.LogcatQuery, pid int) ([]byte, error) {
+func (t *Device) filteredDump(ctx context.Context, q target.LogcatQuery, pid int) ([]byte, string, error) {
 	if pid > 0 {
 		b, done, err := t.wholeFiltered(ctx, q, pid)
 		if done {
-			return b, err
+			return b, "", err
 		}
 	}
 	n := max(firstLogWindow, q.Lines)
@@ -97,23 +98,23 @@ func (t *Device) filteredDump(ctx context.Context, q target.LogcatQuery, pid int
 		start := time.Now()
 		rc, err := t.adb.ExecOutStream(ctx, t.info.Serial, logcatWindowArgs(n, pid)...)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		raw := &countedLog{src: rc, start: start}
 		lines, err := target.LastLines(target.FilterLog(raw, target.NewLogFilter(q, parseThreadtime)), q.Lines)
 		if err != nil {
 			if i > 0 && ctx.Err() != nil {
-				return best, nil
+				return best, target.LogCutTime, nil
 			}
-			return nil, err
+			return nil, "", err
 		}
 		best = target.JoinLines(lines)
 		if len(lines) >= q.Lines || raw.lines < n {
-			return best, nil
+			return best, "", nil
 		}
 		next, ok := nextLogWindow(ctx, n, raw.lines, raw.first, time.Since(start))
 		if !ok {
-			return best, nil
+			return best, target.LogCutTime, nil
 		}
 		n = next
 	}

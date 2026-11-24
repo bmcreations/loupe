@@ -770,9 +770,10 @@ live either way.
 
 A dump holds at most 32 MiB, and keeps the newest part. When that leaves
 fewer lines than asked for, `X-Loupe-Log-Truncated` is `size`. A simulator
-dump, filtered or not and `since` included, reads back from now in the
-widening windows above, and when the 15 second limit stops it widening
-before it has `lines` lines, the header is `time`. Either way the lines are
+dump, filtered or not and `since` included, and a filtered Android dump with
+no `since`, read back from now in the widening windows above, and when the
+15 second limit stops them widening before they have `lines` lines, the
+header is `time`. Either way the lines are
 the newest. The MCP `logcat` tool adds a note after the log when the header
 is set, and `loupe logcat` prints that note to stderr, so a piped log stays as
 sent.
