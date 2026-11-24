@@ -340,11 +340,11 @@ func requireExited(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+		if err := signalPid(pid, 0); errors.Is(err, syscall.ESRCH) {
 			return
 		}
 		if time.Now().After(deadline) {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+			_ = signalPid(pid, syscall.SIGKILL)
 			t.Fatalf("process %d is still running", pid)
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -580,7 +580,7 @@ func TestPhoneInputARealWakeThatHangsIsBounded(t *testing.T) {
 			t.Errorf("wake = %v; want an error saying it was cut short", err)
 		}
 	case <-time.After(5 * time.Second):
-		_ = syscall.Kill(-shell, syscall.SIGKILL)
+		_ = signalGroup(shell, syscall.SIGKILL)
 		t.Fatal("the wake did not return after its context ended")
 	}
 
@@ -590,11 +590,11 @@ func TestPhoneInputARealWakeThatHangsIsBounded(t *testing.T) {
 	// The group id is the shim's pid: both the shell and its sleep must be gone.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if err := syscall.Kill(-shell, 0); errors.Is(err, syscall.ESRCH) {
+		if err := signalGroup(shell, 0); errors.Is(err, syscall.ESRCH) {
 			break
 		}
 		if time.Now().After(deadline) {
-			_ = syscall.Kill(-shell, syscall.SIGKILL)
+			_ = signalGroup(shell, syscall.SIGKILL)
 			t.Fatalf("process group %d (shell %d, sleep %d) outlived the wake", shell, shell, sleeper)
 		}
 		time.Sleep(20 * time.Millisecond)

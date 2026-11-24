@@ -168,8 +168,8 @@ func (d *IOSDevice) phoneHome(ctx context.Context, bundle string) (string, error
 	// devicectl block-buffers the console into a pipe, and a kill loses
 	// the buffer: NSUnbufferedIO makes it write each line as it comes.
 	cmd.Env = append(os.Environ(), "DEVICECTL_CHILD_DYLD_PRINT_ENV=1", "NSUnbufferedIO=YES")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.SysProcAttr = procGroupAttr()
+	cmd.Cancel = func() error { return signalGroup(cmd.Process.Pid, syscall.SIGKILL) }
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", err

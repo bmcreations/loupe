@@ -5,7 +5,7 @@ LABEL := dev.bmcreations.loupe
 PLIST := $(HOME)/Library/LaunchAgents/$(LABEL).plist
 GUI   := gui/$(shell id -u)
 
-.PHONY: build composeagent a11ydump simcap camfeed xcrunner test vet fmt run synthetic clean dist \
+.PHONY: build composeagent a11ydump simcap camfeed xcrunner test vet windows-check fmt run synthetic clean dist \
 	agent-install agent-uninstall agent-restart agent-status agent-log
 
 # A checkout can add its own targets in private.mk, which is not part of this
@@ -115,6 +115,12 @@ test:
 
 vet:
 	go vet ./...
+
+# Keeps the Windows binary from `make dist` compiling. Vet also compiles the
+# test files. Running loupe on Windows is not supported.
+windows-check:
+	GOOS=windows GOARCH=amd64 go build ./...
+	GOOS=windows GOARCH=amd64 go vet ./...
 
 fmt:
 	gofmt -w .

@@ -37,7 +37,7 @@ type Resetter interface {
 }
 
 var (
-	defaultKillPid = func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
+	defaultKillPid = func(pid int) error { return signalPid(pid, syscall.SIGTERM) }
 	defaultSimctl  = func(ctx context.Context, args ...string) ([]byte, error) {
 		return exec.CommandContext(ctx, "xcrun", append([]string{"simctl"}, args...)...).CombinedOutput()
 	}

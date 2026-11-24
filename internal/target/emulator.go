@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -304,7 +303,7 @@ func (e *Emulator) ensureBooted(ctx context.Context) (*ADBTarget, error) {
 	// Its own session, so the supervisor restarting this process on every
 	// build does not take the emulator down with it. The next process finds
 	// it running and attaches by name.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = sessionAttr()
 	started := time.Now()
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start emulator %s with %s: %w", e.cfg.AVD, e.cfg.EmulatorPath, err)
