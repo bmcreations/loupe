@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -115,6 +116,34 @@ func TestFlagTargetWinsWithoutListing(t *testing.T) {
 	<-done
 	if got := uiTarget(f); got != "sim:A" {
 		t.Fatalf("ui drove %q, want sim:A", got)
+	}
+}
+
+// TestToolsWithoutATargetGetNoDefault: a tool whose input has no target field
+// must be in noDefaultTarget. Otherwise the middleware lists targets before
+// every call, fails it when no lone device is up, and adds a field the tool
+// does not take.
+func TestToolsWithoutATargetGetNoDefault(t *testing.T) {
+	cs, stop := connect(t, &fakeLoupe{})
+	defer stop()
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range res.Tools {
+		b, err := json.Marshal(tl.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if err := json.Unmarshal(b, &s); err != nil {
+			t.Fatalf("%s: input schema %s: %v", tl.Name, b, err)
+		}
+		if _, ok := s.Properties["target"]; !ok && !noDefaultTarget[tl.Name] {
+			t.Errorf("%s takes no target but is not in noDefaultTarget", tl.Name)
+		}
 	}
 }
 

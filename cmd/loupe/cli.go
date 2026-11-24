@@ -59,6 +59,8 @@ var cliCommands = []cliCommand{
 	{"flags", "flags", nil},
 	{"flag", "flag", []string{"id"}},
 	{"feedback", "submit_feedback", []string{"title"}},
+	{"ext list", "list_extensions", nil},
+	{"ext call", "call_extension", []string{"name", "path?"}},
 }
 
 func findCLICommand(name string) (cliCommand, bool) {
@@ -68,6 +70,23 @@ func findCLICommand(name string) (cliCommand, bool) {
 		}
 	}
 	return cliCommand{}, false
+}
+
+// resolveCLICommand finds the command args name and returns the arguments
+// left after it. A command is one word, or two when its first word is the
+// group of others (`ext list`, `ext call`): the two-word name is tried first.
+func resolveCLICommand(args []string) (cliCommand, []string, bool) {
+	if len(args) > 1 {
+		if c, ok := findCLICommand(args[0] + " " + args[1]); ok {
+			return c, args[2:], true
+		}
+	}
+	if len(args) > 0 {
+		if c, ok := findCLICommand(args[0]); ok {
+			return c, args[1:], true
+		}
+	}
+	return cliCommand{}, nil, false
 }
 
 // cliGlobals are the flags every command takes besides its tool's fields.
@@ -128,7 +147,30 @@ func runCLI(cmd cliCommand, argv []string) int {
 		fmt.Fprintf(os.Stderr, "loupe %s: %v\n", cmd.name, err)
 		return 1
 	}
-	return writeResult(res, g.out)
+	code := writeResult(res, g.out)
+	if code == 0 && cmd.tool == "call_extension" && extensionCallFailed(res) {
+		// The answer stays on stdout, as the tool returns it; the exit
+		// status is what a script checks.
+		return 1
+	}
+	return code
+}
+
+// extensionCallFailed reports whether call_extension's answer has a status
+// of 400 or more: the extension's own error, or loupe's 401 for a bad token,
+// 404 for a name not registered or 502 for an extension not answering. The
+// tool returns those as answers, so without this `ext call` exits 0 on them.
+// A redirect is an answer and exits 0.
+func extensionCallFailed(res *mcp.CallToolResult) bool {
+	if res.IsError || len(res.Content) == 0 {
+		return false
+	}
+	t, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return false
+	}
+	status, ok := mcpserver.ExtensionAnswerStatus(t.Text)
+	return ok && status >= 400
 }
 
 // cliSession connects an in-process MCP client to the tools. The globals

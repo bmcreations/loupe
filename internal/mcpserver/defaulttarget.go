@@ -19,6 +19,8 @@ var noDefaultTarget = map[string]bool{
 	"submit_feedback": true,
 	"boot":            true,
 	"boot_status":     true,
+	"list_extensions": true,
+	"call_extension":  true,
 }
 
 // SetDefaultTarget makes every device tool called without a target drive id,

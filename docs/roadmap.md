@@ -44,19 +44,13 @@ Nothing here waits on a decision or special hardware.
    - Depends on: none.
    - First step: add `downgrade=1` to `/api/install` (`-r -d`) and put the choice in the 422 body.
 
-6. **[#106](https://github.com/bmcreations/loupe/issues/106) Agents can't list or call extensions from MCP or the CLI**
-   - Why: every extension has to be wired into each agent by hand, and calling one directly bypasses loupe's token.
-   - Size: M. Two MCP tools and two CLI commands, modelled on `apply_preset`.
-   - Depends on: none. It reads the contract in `docs/extensions.md`.
-   - First step: add `list_extensions` to `internal/mcpserver/tools.go`.
-
-7. **[#109](https://github.com/bmcreations/loupe/issues/109) No route to read a debuggable app's private files**
+6. **[#109](https://github.com/bmcreations/loupe/issues/109) No route to read a debuggable app's private files**
    - Why: agents fall back to `adb exec-out run-as`, which bypasses claims and the audit trail.
    - Size: M. A new read route with `run-as`, plus path containment to the app's data directory, which is the part to get right.
    - Depends on: none.
    - First step: write the path-containment check and its tests before the route.
 
-8. **[#100](https://github.com/bmcreations/loupe/issues/100) No route to delete a flag**
+7. **[#100](https://github.com/bmcreations/loupe/issues/100) No route to delete a flag**
    - Why: the only way to clear flags is restarting loupe, which gets in the way when resetting a device for a demo.
    - Size: S. `DELETE /api/flags` with `?id=` or `?target=`.
    - Depends on: none.

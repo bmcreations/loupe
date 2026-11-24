@@ -50,6 +50,8 @@ claim before input, and requests. Routes, parameters and errors are in
 | `flags` | `flags` | |
 | `flag` | `flag` | id |
 | `feedback` | `submit_feedback` | title |
+| `ext list` | `list_extensions` | |
+| `ext call` | `call_extension` | name [path] |
 
 Any other field is a flag: `-ms 300` on `swipe`, `-until edge` on `scroll`, `--interactive` on `ui`,
 `-launch` and `-downgrade` on `install`, `-tag ReactNativeJS` and `-text "sent"` on `logcat`. Values are converted by the type in the tool's
@@ -74,6 +76,14 @@ echo '[{"action":"tap","match":{"text":"Email"}},{"action":"text","text":"a@b.co
 `boot` takes `--wait` as `/api/devices/boot` does: `loupe boot avd:Pixel_10
 --wait 10m` waits up to ten minutes, and `--wait 0` returns at once. `loupe
 boot-status avd:Pixel_10` reports on a boot still running.
+
+`ext list` and `ext call` are two-word commands. `loupe ext call slipway
+builds/run -method POST -body '{"ref":"main"}'` calls `/api/ext/slipway/builds/run`
+with the CLI's token and prints the extension's status, content type and body.
+The answer is on stdout whatever the status. `ext call` exits 1 when the
+status is 400 or more, which includes loupe's own 401 for a bad token, 404 for
+a name that isn't registered and 502 for an extension that isn't answering. A
+redirect exits 0.
 
 `screenshot` writes the PNG to `-o`, or to stdout when stdout is a pipe. On
 a terminal without `-o` it refuses rather than print binary.

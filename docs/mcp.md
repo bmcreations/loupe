@@ -27,7 +27,7 @@ Any other MCP client takes the same command, `~/.local/bin/loupe mcp`, with
 `targets`, `ui`, `screenshot` (returns an image, not JSON), `point`, `tap`,
 `swipe`, `scroll`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`,
 `logcat`, `crashes`, `crash`, `install`, `uninstall`, `camera`, `drop`, `boot`, `boot_status`,
-`release`, `flags`, `flag` and `submit_feedback`. `logcat` takes `tag` and
+`release`, `flags`, `flag`, `submit_feedback`, `list_extensions` and `call_extension`. `logcat` takes `tag` and
 `text` as `/api/logcat` does
 ([agent-api.md](agent-api.md#get-apilogcattargetid)): in Expo Go, where
 `package` narrows only to Expo Go, `tag: "ReactNativeJS"` narrows to the
@@ -35,6 +35,26 @@ app. `install` takes `downgrade` as
 `/api/install` does, and `uninstall` takes `package`; both are Android only. `boot` takes `wait` as `/api/devices/boot` does
 (`10m`, or `0` to return at once), and `boot_status` reports on a boot still
 running; it reads only and claims nothing.
+
+`list_extensions` returns `GET /api/extensions` as the server sends it: each
+registered extension's `name`, `label` and `path`, and `page` when it has
+one. There is no description field. `call_extension` takes `name`, `path`
+(relative to `/api/ext/{name}/`, with an optional `?query`), `method` (`GET`
+by default, or `POST`, `PUT`, `DELETE`; the proxy routes no `PATCH`) and
+`body` as text, sent as `application/json` when it parses as JSON. It goes
+through loupe with the session's token, which the proxy strips before the
+extension sees the request. The answer is the extension's status, content
+type and body as text, whatever the status, so a 404 from the extension
+arrives with its body and is not a tool error. A redirect is not followed: it
+comes back with its `Location`, which names a path on loupe, not on the
+extension, when it starts with `/`. Bodies over 64 KiB are cut and say
+so, and the rest is not read, so a download or a stream that never ends
+comes back at once; non-text bodies are not shown. The path is percent-decoded once
+before it is checked, so `a%2Fb` is sent as `a/b` and `%2e%2e` counts as
+`..`. A bad extension name, a path with `.` or `..` segments, a second layer
+of encoding such as `%252e`, a leading `//` or a URL, and any other method
+are refused without a request. Neither tool takes a `target`, so
+neither claims a device.
 
 ## Feedback
 
@@ -75,7 +95,7 @@ other people's agents run, prefer a webhook to a thread.
 | `-url` | `https://localhost:18456` | The loupe server. |
 | `-token` | `LOUPE_TOKEN`, then the server's token file | `loupe mcp` never writes one. |
 | `-agent` | `claude` | Name shown in the trace and on the banner. |
-| `-target` | `LOUPE_TARGET` | The target a device tool drives when its call leaves `target` out. Unset, a call without one drives the only device that is up; with several up it fails and lists them. `targets`, `flags`, `flag`, `boot`, `boot_status` and `submit_feedback` never get a default. |
+| `-target` | `LOUPE_TARGET` | The target a device tool drives when its call leaves `target` out. Unset, a call without one drives the only device that is up; with several up it fails and lists them. `targets`, `flags`, `flag`, `boot`, `boot_status`, `submit_feedback`, `list_extensions` and `call_extension` never get a default. |
 
 `ui`, and the screen that `sequence` and `scroll` end with, come as one line
 per node: class, text, `desc=`, `value=`, `id=`, the `@x,y` center and flags.
