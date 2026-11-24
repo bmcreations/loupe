@@ -20,7 +20,7 @@ func TestTouchesGoToTheRunnerBelowIOS27Only(t *testing.T) {
 		os   string
 		want bool
 	}{{"26.6", true}, {"18.0", true}, {"27.0", false}, {"27.2", false}, {"", false}} {
-		d := NewIOSDevice(IOSDeviceInfo{UDID: "u", OSVersion: tc.os, Transport: "wired"})
+		d := NewDevice(DeviceInfo{UDID: "u", OSVersion: tc.os, Transport: "wired"})
 		if got := d.touchesViaRunner(); got != tc.want {
 			t.Errorf("iOS %q: touchesViaRunner = %v; want %v", tc.os, got, tc.want)
 		}
@@ -40,7 +40,7 @@ func TestRunnerVerbsAreTouchesNotButtonsOrKeys(t *testing.T) {
 }
 
 func TestATouchOverWiFiBelow27NeedsACable(t *testing.T) {
-	d := NewIOSDevice(IOSDeviceInfo{UDID: "u", OSVersion: "26.6", Transport: "localNetwork"})
+	d := NewDevice(DeviceInfo{UDID: "u", OSVersion: "26.6", Transport: "localNetwork"})
 	d.SetXCRunner("/built")
 	if _, err := d.do(context.Background(), 0, "tap %d %d", 1, 2); !errors.Is(err, ErrTouchNeedsCable) {
 		t.Fatalf("err = %v; want ErrTouchNeedsCable", err)
@@ -48,7 +48,7 @@ func TestATouchOverWiFiBelow27NeedsACable(t *testing.T) {
 }
 
 func TestATouchBelow27WithNoRunnerBuiltSaysSo(t *testing.T) {
-	d := NewIOSDevice(IOSDeviceInfo{UDID: "u", OSVersion: "26.6", Transport: "wired"})
+	d := NewDevice(DeviceInfo{UDID: "u", OSVersion: "26.6", Transport: "wired"})
 	if _, err := d.do(context.Background(), 0, "tap %d %d", 1, 2); !errors.Is(err, ErrRunnerNotBuilt) {
 		t.Fatalf("err = %v; want ErrRunnerNotBuilt", err)
 	}
@@ -65,7 +65,7 @@ func builtRunnerDir(t *testing.T) string {
 
 func TestARunnerBuiltAfterStartupIsFoundOnTheNextTouch(t *testing.T) {
 	dir := t.TempDir()
-	d := NewIOSDevice(IOSDeviceInfo{UDID: "u", OSVersion: "26.6", Transport: "wired"})
+	d := NewDevice(DeviceInfo{UDID: "u", OSVersion: "26.6", Transport: "wired"})
 	d.SetXCRunner(dir)
 	if _, err := d.do(context.Background(), 0, "tap %d %d", 1, 2); !errors.Is(err, ErrRunnerNotBuilt) {
 		t.Fatalf("before the build: err = %v; want ErrRunnerNotBuilt", err)
@@ -135,7 +135,7 @@ func TestATouchBeforeTheRunnerAnswersIsAnErrorNotAFalseOK(t *testing.T) {
 	}
 	t.Cleanup(func() { dialRunner, startRunner = oldDial, oldStart })
 
-	d := NewIOSDevice(IOSDeviceInfo{UDID: "u", OSVersion: "26.6", Transport: "wired"})
+	d := NewDevice(DeviceInfo{UDID: "u", OSVersion: "26.6", Transport: "wired"})
 	d.SetXCRunner(builtRunnerDir(t))
 	if _, err := d.do(context.Background(), 0, "tap %d %d", 1, 2); !errors.Is(err, ErrRunnerStarting) {
 		t.Fatalf("first tap: err = %v; want ErrRunnerStarting", err)

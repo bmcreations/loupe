@@ -9,7 +9,7 @@ import (
 
 // OpenURL starts a VIEW intent for u with `am start -W`, so the reply
 // names the activity that took it.
-func (t *ADBTarget) OpenURL(ctx context.Context, u string) (*target.LaunchResult, error) {
+func (t *Device) OpenURL(ctx context.Context, u string) (*target.LaunchResult, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
@@ -19,7 +19,7 @@ func (t *ADBTarget) OpenURL(ctx context.Context, u string) (*target.LaunchResult
 }
 
 // CheckURL implements URLOpener.
-func (t *ADBTarget) CheckURL(u string) error { return target.CheckURL(u) }
+func (t *Device) CheckURL(u string) error { return target.CheckURL(u) }
 
 // openURLAndroid is OpenURL over a shellFunc, so it can be tested without
 // a device. u reaches the device's shell only after CheckURL and through

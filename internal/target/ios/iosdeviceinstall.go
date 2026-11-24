@@ -15,13 +15,13 @@ import (
 // over a cable or Wi-Fi. The app must be signed for this phone: a
 // development or ad hoc profile that lists it. A refusal, such as a bundle
 // with no profile, is an *InstallError naming CoreDevice's code.
-func (d *IOSDevice) InstallApp(ctx context.Context, archive string) (*target.AppInstallResult, error) {
+func (d *Device) InstallApp(ctx context.Context, archive string) (*target.AppInstallResult, error) {
 	dir, err := os.MkdirTemp("", "loupe-ipa-")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	app, err := UnpackIOSApp(archive, dir)
+	app, err := UnpackApp(archive, dir)
 	if err != nil {
 		return nil, err
 	}

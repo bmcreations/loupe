@@ -171,7 +171,7 @@ func clip(s string, n int) string {
 // is the bodies of every report the dropbox still holds, not a list of
 // files. A tag that fails fails the listing, since a partial list would
 // read as fewer crashes.
-func (t *ADBTarget) dropboxEntries(ctx context.Context, tags []string) ([]dropboxEntry, error) {
+func (t *Device) dropboxEntries(ctx context.Context, tags []string) ([]dropboxEntry, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}
@@ -208,7 +208,7 @@ func (t *ADBTarget) dropboxEntries(ctx context.Context, tags []string) ([]dropbo
 // The dropbox lives on /data, so an emulator that boots from loupe-warm
 // without emulatorKeepState starts each time with the reports it had when
 // the snapshot was saved.
-func (t *ADBTarget) Crashes(ctx context.Context, q target.CrashQuery) ([]target.CrashReport, error) {
+func (t *Device) Crashes(ctx context.Context, q target.CrashQuery) ([]target.CrashReport, error) {
 	entries, err := t.dropboxEntries(ctx, dropboxCrashTags)
 	if err != nil {
 		return nil, err
@@ -238,7 +238,7 @@ func dropboxReports(entries []dropboxEntry, q target.CrashQuery) []target.CrashR
 
 // Crash returns one dropbox entry as dumpsys prints it: the header, the
 // file's path and the body, decompressed.
-func (t *ADBTarget) Crash(ctx context.Context, id string) ([]byte, error) {
+func (t *Device) Crash(ctx context.Context, id string) ([]byte, error) {
 	if !target.DropboxIDRE.MatchString(id) {
 		return nil, target.ErrCrashNotFound
 	}

@@ -12,7 +12,7 @@ import (
 )
 
 func buildADB(d android.DeviceInfo) target.Target {
-	return android.NewADBTarget(android.ADB{}, d, "", "")
+	return android.NewDevice(android.ADB{}, d, "", "")
 }
 
 var (
@@ -77,7 +77,7 @@ func TestAcquiringAMissingDeviceFailsWithoutTouchingAdb(t *testing.T) {
 	}
 }
 
-// An ADBTarget keeps the state it was built with and refuses to open when
+// An android.Device keeps the state it was built with and refuses to open when
 // that was not "device", so a device that is authorized after startup has to
 // be rebuilt or it stays unopenable for the life of the process.
 func TestADeviceThatBecomesAuthorizedIsRebuilt(t *testing.T) {
@@ -91,7 +91,7 @@ func TestADeviceThatBecomesAuthorizedIsRebuilt(t *testing.T) {
 
 	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 	tgt, _ := m.Target(acmeReady.Serial)
-	if info := tgt.(*android.ADBTarget).Info(); info != acmeReady {
+	if info := tgt.(*android.Device).Info(); info != acmeReady {
 		t.Errorf("target still carries %+v, want %+v", info, acmeReady)
 	}
 	if got := infoFor(t, m, acmeReady.Serial); !got.Available || got.Label != acmeReady.Label() {

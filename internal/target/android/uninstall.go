@@ -9,7 +9,7 @@ import (
 )
 
 // Uninstall implements target.Uninstaller with `pm uninstall` on the device's shell.
-func (t *ADBTarget) Uninstall(ctx context.Context, pkg string) (*target.InstallResult, error) {
+func (t *Device) Uninstall(ctx context.Context, pkg string) (*target.InstallResult, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}

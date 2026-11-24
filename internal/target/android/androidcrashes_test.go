@@ -162,7 +162,7 @@ func TestADBTargetListsAndFetchesDropboxCrashes(t *testing.T) {
 		"data_app_crash":   "dropbox-data_app_crash-api37.txt",
 		"system_app_crash": "dropbox-system_app_crash-api29.txt",
 	})
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	list, err := tgt.Crashes(context.Background(), target.CrashQuery{})
 	if err != nil {
 		t.Fatal(err)

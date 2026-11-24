@@ -86,10 +86,10 @@ func main() {
 		fmt.Println("materialize:", err)
 		os.Exit(1)
 	}
-	var tgt *android.ADBTarget
+	var tgt *android.Device
 	for _, d := range devices {
 		if d.Serial == serial {
-			tgt = android.NewADBTarget(adb, d, jar, scrcpyserver.Version)
+			tgt = android.NewDevice(adb, d, jar, scrcpyserver.Version)
 		}
 	}
 	if tgt == nil {

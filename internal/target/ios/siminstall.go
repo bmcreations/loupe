@@ -19,7 +19,7 @@ func (s *Simulator) InstallApp(ctx context.Context, archive string) (*target.App
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	app, err := UnpackIOSApp(archive, dir)
+	app, err := UnpackApp(archive, dir)
 	if err != nil {
 		return nil, err
 	}

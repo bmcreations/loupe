@@ -21,7 +21,7 @@ const dumpPath = "/data/local/tmp/loupe-ui.xml"
 // This deliberately does not go through the live stream. uiautomator reads the
 // accessibility tree, which is available whether or not anything is streaming,
 // and asking the video path for it would couple a text query to an encoder.
-func (t *ADBTarget) Inspect(ctx context.Context) (*target.UI, error) {
+func (t *Device) Inspect(ctx context.Context) (*target.UI, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}
@@ -41,7 +41,7 @@ func (t *ADBTarget) Inspect(ctx context.Context) (*target.UI, error) {
 
 // inspectUIAutomator is the dump through `uiautomator dump`, the fallback
 // when loupe's own (a11ydump.go) cannot run.
-func (t *ADBTarget) inspectUIAutomator(ctx context.Context) (*target.UI, error) {
+func (t *Device) inspectUIAutomator(ctx context.Context) (*target.UI, error) {
 
 	// uiautomator writes the file itself and prints only a status line, so the
 	// dump and the read are two commands. Errors arrive on stdout as plain

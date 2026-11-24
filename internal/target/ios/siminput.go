@@ -708,7 +708,7 @@ func (s *Simulator) Screenshot(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) < len(target.PngMagic) || string(raw[:len(target.PngMagic)]) != string(target.PngMagic) {
+	if len(raw) < len(target.PNGMagic) || string(raw[:len(target.PNGMagic)]) != string(target.PNGMagic) {
 		return nil, fmt.Errorf("simctl screenshot did not write a PNG (%d bytes)", len(raw))
 	}
 	return raw, nil

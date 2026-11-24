@@ -179,7 +179,7 @@ func (s *Simulator) noteShimmed(bundle string, pid int) {
 // alive reports whether pid is running. A simulator's apps are processes on
 // this Mac, so signal 0 answers for them.
 func alive(pid int) bool {
-	return pid > 0 && target.SignalPid(pid, 0) == nil
+	return pid > 0 && target.SignalPID(pid, 0) == nil
 }
 
 // simctlLaunchPid reads the pid out of `simctl launch`'s "bundle: pid".

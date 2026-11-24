@@ -19,7 +19,7 @@ import (
 //
 // The paths reach only the host's exec, never the device's shell: adb
 // streams each file to the package manager itself.
-func (t *ADBTarget) Install(ctx context.Context, apks []string, opts target.InstallOptions) (*target.InstallResult, error) {
+func (t *Device) Install(ctx context.Context, apks []string, opts target.InstallOptions) (*target.InstallResult, error) {
 	if len(apks) == 0 {
 		return nil, errors.New("no APK to install")
 	}

@@ -11,7 +11,7 @@ import (
 // requirement directly: describing a registered AVD that has never been
 // booted (Open/ensureBooted never ran) must return an error without running
 // adb at all -- not adb devices, not adb shell. There is nothing attached
-// yet, so there is nothing worth asking; and unlike ADBTarget, which always
+// yet, so there is nothing worth asking; and unlike Device, which always
 // has a DeviceInfo.State to consult for free, an Emulator before its first
 // Open has no live state, so the only way to answer "is it ready" without an
 // adb call is to not ask until ensureBooted has actually recorded an
@@ -46,7 +46,7 @@ func TestEmulatorDescribeErrorsOnAnUnbootedAVDWithNoADBCall(t *testing.T) {
 // TestEmulatorDescribeAfterEnsureBootedDescribes covers the other half: once
 // ensureBooted has recorded the emulator as attached and ready -- the same
 // state Open reaches before it ever streams -- Describe goes through the same
-// getprop path ADBTarget uses, with its own cache. ensureBooted is called
+// getprop path Device uses, with its own cache. ensureBooted is called
 // directly (same package) rather than through Open, so this does not launch
 // scrcpy or touch anything beyond adb devices / adb shell.
 func TestEmulatorDescribeAfterEnsureBootedDescribes(t *testing.T) {

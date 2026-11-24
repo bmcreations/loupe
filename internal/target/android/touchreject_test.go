@@ -36,7 +36,7 @@ func TestTouchRejectionIgnoresAQuietLog(t *testing.T) {
 // only sign, and it has to come back as an error.
 func TestTapReportsATouchTheDeviceRejected(t *testing.T) {
 	script := writeFakeADB(t)
-	tgt := NewADBTarget(ADB{Path: script}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: script}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
 
 	t.Setenv("FAKE_ADB_DUMP", touchLogMarker+"\n"+rejectedDown)
 	err := tgt.Tap(context.Background(), 540, 10)
@@ -57,7 +57,7 @@ func TestTapReportsATouchTheDeviceRejected(t *testing.T) {
 // section, is not read as one.
 func TestTapReadsOnlyTheLogSection(t *testing.T) {
 	script := writeFakeADB(t)
-	tgt := NewADBTarget(ADB{Path: script}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: script}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
 	t.Setenv("FAKE_ADB_DUMP", rejectedDown+"\n"+touchLogMarker)
 	if err := tgt.Tap(context.Background(), 1, 1); err != nil {
 		t.Errorf("Tap = %v, want nil", err)

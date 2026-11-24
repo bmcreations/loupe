@@ -27,7 +27,7 @@ const derivedCornerFraction = 0.055
 // pixel-accurate and it is the only way to make a Pixel look like a Pixel, but
 // the Android SDK terms restrict redistribution, so it stays where it was
 // installed and THIRD_PARTY_NOTICES.md stays as it is.
-func (t *ADBTarget) DeviceFrame(ctx context.Context) (*target.DeviceFrame, error) {
+func (t *Device) DeviceFrame(ctx context.Context) (*target.DeviceFrame, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}
@@ -65,7 +65,7 @@ func (t *ADBTarget) DeviceFrame(ctx context.Context) (*target.DeviceFrame, error
 // FrameAsset serves one of the skin images. The name must be one the parsed
 // layout declared, which is the whole check: a caller cannot ask for a path
 // the layout does not mention, so there is nothing to escape.
-func (t *ADBTarget) FrameAsset(ctx context.Context, name string) ([]byte, string, error) {
+func (t *Device) FrameAsset(ctx context.Context, name string) ([]byte, string, error) {
 	dir, layout, err := t.skinLayout(ctx)
 	if err != nil {
 		return nil, "", err
@@ -87,7 +87,7 @@ func (t *ADBTarget) FrameAsset(ctx context.Context, name string) ([]byte, string
 	return nil, "", fmt.Errorf("frame asset %q is not an image", name)
 }
 
-func (t *ADBTarget) skinFrame(ctx context.Context, rotation int) (*target.DeviceFrame, error) {
+func (t *Device) skinFrame(ctx context.Context, rotation int) (*target.DeviceFrame, error) {
 	_, layout, err := t.skinLayout(ctx)
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (t *ADBTarget) skinFrame(ctx context.Context, rotation int) (*target.Device
 // The chain is emulator console -> AVD config -> skin path. config.ini records
 // skin.path absolutely, which is why nothing here has to find ANDROID_HOME --
 // it is routinely unset on a machine where the SDK still works fine.
-func (t *ADBTarget) skinLayout(ctx context.Context) (string, *skinNode, error) {
+func (t *Device) skinLayout(ctx context.Context) (string, *skinNode, error) {
 	avd, err := nameEmulator(ctx, t.adb, t.info.Serial)
 	if err != nil {
 		return "", nil, err
@@ -162,7 +162,7 @@ func skinPathFromConfig(path string) (string, error) {
 
 // derivedFrame builds a generic bezel around what the device says about
 // itself. The proportions are chosen; the screen size and the cutout are not.
-func (t *ADBTarget) derivedFrame(ctx context.Context) (*target.DeviceFrame, error) {
+func (t *Device) derivedFrame(ctx context.Context) (*target.DeviceFrame, error) {
 	w, h, err := t.adb.DisplaySize(ctx, t.info.Serial)
 	if err != nil {
 		return nil, err

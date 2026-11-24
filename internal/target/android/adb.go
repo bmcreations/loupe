@@ -474,7 +474,7 @@ func displayRotation(dump string) (int, bool) {
 }
 
 // ScreenGeometry reads display 0's natural (unrotated) size and its current
-// rotation from one dumpsys window displays call, so ADBTarget.ScreenSize
+// rotation from one dumpsys window displays call, so Device.ScreenSize
 // costs a single adb connection instead of two (one for `wm size`, one for
 // the rotation) and the two answers cannot disagree because they were read
 // at different moments -- across a `wm size` override landing between them,
@@ -484,7 +484,7 @@ func displayRotation(dump string) (int, bool) {
 // prints first and never rotates) cannot answer for either.
 //
 // rotErr and err are separate because a failed rotation read does not have
-// to fail the whole call -- ADBTarget.ScreenSize can still answer for a
+// to fail the whole call -- Device.ScreenSize can still answer for a
 // square screen without knowing which way it is held -- while a missing
 // natural size has nothing to fall back to.
 //

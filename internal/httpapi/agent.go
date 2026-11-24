@@ -279,7 +279,7 @@ func screenshotName(targetID string, now time.Time) string {
 }
 
 // defaultSwipeMs is the swipe duration used when a caller omits Ms or sends
-// zero. It lives here, not in target.ADBTarget.Swipe, so handleInput can
+// zero. It lives here, not in android.Device.Swipe, so handleInput can
 // resolve it before the call and publish the duration that actually ran
 // rather than a zero the target silently replaced (opus review item 6).
 const defaultSwipeMs = 300
@@ -564,7 +564,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	if t.Kind() == target.KindIOSDevice {
 		// A phone's call can run a timed-out command, a devicectl wake and a
 		// retry; agentTimeout would end it with a bare context error first.
-		timeout = max(timeout, ios.IOSInputDeadline())
+		timeout = max(timeout, ios.DeviceInputDeadline())
 	}
 	if lb, ok := t.(target.LaunchBudgeter); ok && req.Action == "launch" {
 		timeout = max(timeout, lb.LaunchBudget())
@@ -580,7 +580,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	// A zero Ms is resolved to the swipe default here, before the call, so
 	// what gets published is the duration that actually ran rather than a
 	// caller-omitted zero the event log would misreport (opus review item 6).
-	// ADBTarget.Swipe no longer substitutes one of its own.
+	// android.Device.Swipe no longer substitutes one of its own.
 	if (req.Action == "swipe" || req.Action == "pinch") && req.Ms <= 0 {
 		req.Ms = defaultSwipeMs
 	}
@@ -679,7 +679,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		to := req.To
 		// An explicit out-of-range "to" is rejected here, before the Rotator
 		// is ever called and before any event is published. Leaving this to
-		// the target (rotateCommands is ADBTarget's own backstop) means a
+		// the target (rotateCommands is android.Device's own backstop) means a
 		// non-ADB Rotator can accept -1 or 7 with a 200, and a real device
 		// rejecting it comes back as a 502 with a stray event on the log
 		// rather than the request simply being wrong.
@@ -972,7 +972,7 @@ var errInputFailed = errors.New("input failed")
 // kind is simply unknown, so this also redacts.
 //
 // A physical iPhone's two 503 errors are the exception. Their messages are
-// built in target.IOSDevice.do from CoreDevice's reply, devicectl's wake
+// built in ios.Device.do from CoreDevice's reply, devicectl's wake
 // result and fixed words, and leave out the command line (which for a typed
 // character names the key), so they cannot carry the text. Redacting them
 // would drop what a caller needs to tell a retry-safe failure from one that
@@ -1129,7 +1129,7 @@ func (s *Server) publishAgentEvent(ctx context.Context, t target.Target, req Inp
 	}
 
 	// The screen size is read only for tap and swipe. text and key carry no
-	// coordinate, so asking a target for one -- ADBTarget.ScreenSize costs an
+	// coordinate, so asking a target for one -- android.Device.ScreenSize costs an
 	// adb connection -- would be spent for nothing (opus review item 4). A
 	// swipe reads it once and reuses it for both ends, so its two ends agree
 	// and the target is asked at most once per action.

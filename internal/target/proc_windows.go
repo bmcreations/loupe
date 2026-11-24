@@ -13,8 +13,8 @@ func ProcGroupAttr() *syscall.SysProcAttr { return nil }
 
 func SessionAttr() *syscall.SysProcAttr { return nil }
 
-// SignalPid terminates pid for any real signal and probes for existence on 0.
-func SignalPid(pid int, sig syscall.Signal) error {
+// SignalPID terminates pid for any real signal and probes for existence on 0.
+func SignalPID(pid int, sig syscall.Signal) error {
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		return syscall.ESRCH
@@ -27,4 +27,4 @@ func SignalPid(pid int, sig syscall.Signal) error {
 }
 
 // SignalGroup has no process group to reach on Windows, so it signals pid alone.
-func SignalGroup(pid int, sig syscall.Signal) error { return SignalPid(pid, sig) }
+func SignalGroup(pid int, sig syscall.Signal) error { return SignalPID(pid, sig) }

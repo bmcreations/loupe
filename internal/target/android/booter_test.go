@@ -26,15 +26,15 @@ func TestUnattachedEmulatorBootsOnOpen(t *testing.T) {
 }
 
 // TestADBTargetIsNotABooter is the other half: a plain device or an already
-// running emulator adopted as an ADBTarget never boots anything on Open, so
+// running emulator adopted as a Device never boots anything on Open, so
 // it must not satisfy target.Booter at all -- not implement it and return
 // false, since a caller that only checks the interface assertion would then
 // have no way to distinguish "never boots" from "answered false this time".
 func TestADBTargetIsNotABooter(t *testing.T) {
-	tg := NewADBTarget(ADB{}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	tg := NewDevice(ADB{}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
 
 	if _, ok := any(tg).(target.Booter); ok {
-		t.Fatal("ADBTarget implements target.Booter, want it not to")
+		t.Fatal("Device implements target.Booter, want it not to")
 	}
 }
 

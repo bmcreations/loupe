@@ -15,7 +15,7 @@ import (
 // foldADB is an adb stand-in for an emulator: print-states answers states,
 // and the console answers reply to `sensor set` ("" is OK). Every argv is
 // recorded, so a test can see what reached the console.
-func foldADB(t *testing.T, states, reply string) (*ADBTarget, func() []string) {
+func foldADB(t *testing.T, states, reply string) (*Device, func() []string) {
 	t.Helper()
 	dir := t.TempDir()
 	write := func(name, body string) {
@@ -36,7 +36,7 @@ case "$*" in
   *"emu sensor get"*) printf 'hinge-angle0 = 90\nOK\n' ;;
 esac
 `)
-	tgt := NewADBTarget(ADB{Path: path}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	tgt := NewDevice(ADB{Path: path}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
 	return tgt, func() []string {
 		if _, err := os.Stat(argv); err != nil {
 			return nil
@@ -147,7 +147,7 @@ case "$*" in
   *"emu sensor set hinge-angle0 "*) for n in "$@"; do :; done; if [ "$n" -lt 30 ]; then echo 0 > "$d/state"; fi; echo OK ;;
 esac
 `)
-	tgt := NewADBTarget(ADB{Path: path}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	tgt := NewDevice(ADB{Path: path}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
 	ctx := context.Background()
 
 	posture := make(chan error, 1)

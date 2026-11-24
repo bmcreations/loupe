@@ -122,7 +122,7 @@ func (s *adbStream) writeClipboard(text string, paste bool) error {
 }
 
 // ReadClipboard implements Clipboarder.
-func (t *ADBTarget) ReadClipboard(ctx context.Context) (string, error) {
+func (t *Device) ReadClipboard(ctx context.Context) (string, error) {
 	s := t.liveStream()
 	if s == nil {
 		return "", ErrClipboardNoSession
@@ -131,7 +131,7 @@ func (t *ADBTarget) ReadClipboard(ctx context.Context) (string, error) {
 }
 
 // WriteClipboard implements Clipboarder.
-func (t *ADBTarget) WriteClipboard(ctx context.Context, text string, paste bool) error {
+func (t *Device) WriteClipboard(ctx context.Context, text string, paste bool) error {
 	s := t.liveStream()
 	if s == nil {
 		return ErrClipboardNoSession

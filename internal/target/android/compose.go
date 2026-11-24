@@ -205,7 +205,7 @@ func (d *composeDevice) runAs(ctx context.Context, pkg, script string) error {
 
 // ComposeDump attaches the compose agent to the foreground app, or reuses
 // the attachment from an earlier call while the app process lives.
-func (t *ADBTarget) ComposeDump(ctx context.Context) (*target.ComposeDump, error) {
+func (t *Device) ComposeDump(ctx context.Context) (*target.ComposeDump, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
@@ -213,7 +213,7 @@ func (t *ADBTarget) ComposeDump(ctx context.Context) (*target.ComposeDump, error
 	return t.compose.ComposeDump(ctx)
 }
 
-func newComposeDevice(t *ADBTarget) *composeDevice {
+func newComposeDevice(t *Device) *composeDevice {
 	serial := t.info.Serial
 	return &composeDevice{
 		sh: func(ctx context.Context, args ...string) (string, error) {

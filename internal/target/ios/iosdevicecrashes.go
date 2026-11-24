@@ -17,7 +17,7 @@ import (
 	"github.com/bmcreations/loupe/internal/target"
 )
 
-var _ target.Crasher = (*IOSDevice)(nil)
+var _ target.Crasher = (*Device)(nil)
 
 // phoneCrashMaxBytes skips a file too large to be a crash report before it
 // is copied. The phone's crash directory also holds spindumps of 2-12MB;
@@ -109,7 +109,7 @@ var crashMu sync.Map // cache dir -> *sync.Mutex
 // not already cached at the same size, and removes cached files the phone
 // no longer has. It returns the cache directory, which then holds exactly
 // the candidates.
-func (d *IOSDevice) refreshCrashes(ctx context.Context, since time.Time) (string, error) {
+func (d *Device) refreshCrashes(ctx context.Context, since time.Time) (string, error) {
 	info := d.Info()
 	dir, err := phoneCrashCache(cmp.Or(info.UDID, info.Identifier))
 	if err != nil {
@@ -180,7 +180,7 @@ func (d *IOSDevice) refreshCrashes(ctx context.Context, since time.Time) (string
 }
 
 // crashFiles lists the phone's crash directory, Retired included.
-func (d *IOSDevice) crashFiles(ctx context.Context) ([]phoneFile, error) {
+func (d *Device) crashFiles(ctx context.Context) ([]phoneFile, error) {
 	tmp, err := os.MkdirTemp("", "loupe-ioscrashes")
 	if err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func (d *IOSDevice) crashFiles(ctx context.Context) ([]phoneFile, error) {
 
 // copyCrash copies one file off the phone to dst, through a temporary name
 // so a failed copy never leaves a partial report in the cache.
-func (d *IOSDevice) copyCrash(ctx context.Context, rel, dst string) error {
+func (d *Device) copyCrash(ctx context.Context, rel, dst string) error {
 	tmp := dst + ".part"
 	defer os.Remove(tmp)
 	b, err := exec.CommandContext(ctx, "xcrun", "devicectl", "device", "copy", "from",
@@ -216,7 +216,7 @@ func (d *IOSDevice) copyCrash(ctx context.Context, rel, dst string) error {
 // Crashes lists the phone's crash reports. The phone holds only its own,
 // so no coalition is matched. Each report is copied off once and cached;
 // a listing still costs one devicectl run, 0.8-1.9s.
-func (d *IOSDevice) Crashes(ctx context.Context, q target.CrashQuery) ([]target.CrashReport, error) {
+func (d *Device) Crashes(ctx context.Context, q target.CrashQuery) ([]target.CrashReport, error) {
 	dir, err := d.refreshCrashes(ctx, q.Since)
 	if err != nil {
 		return nil, err
@@ -225,7 +225,7 @@ func (d *IOSDevice) Crashes(ctx context.Context, q target.CrashQuery) ([]target.
 }
 
 // Crash returns one of the phone's crash reports as iOS wrote it.
-func (d *IOSDevice) Crash(ctx context.Context, id string) ([]byte, error) {
+func (d *Device) Crash(ctx context.Context, id string) ([]byte, error) {
 	if !target.ValidCrashID(id) {
 		return nil, fmt.Errorf("%w: %q is not a crash id", target.ErrCrashNotFound, id)
 	}

@@ -10,12 +10,12 @@ import (
 )
 
 var (
-	_ target.StatusBarReader = (*ADBTarget)(nil)
+	_ target.StatusBarReader = (*Device)(nil)
 	_ target.StatusBarReader = (*Emulator)(nil)
 )
 
 // StatusBar asks the running emulator behind this AVD. A session opened by
-// AVD holds the Emulator, not the ADBTarget it boots, so without this an
+// AVD holds the Emulator, not the Device it boots, so without this an
 // emulator streamed as avd:<name> never reported its bar.
 func (e *Emulator) StatusBar(ctx context.Context) (int, int, error) {
 	in := e.current()
@@ -27,7 +27,7 @@ func (e *Emulator) StatusBar(ctx context.Context) (int, int, error) {
 
 // StatusBar reads display 0's status bar from one dumpsys window displays
 // call, the same call ScreenGeometry makes.
-func (t *ADBTarget) StatusBar(ctx context.Context) (int, int, error) {
+func (t *Device) StatusBar(ctx context.Context) (int, int, error) {
 	out, err := t.adb.Shell(ctx, t.info.Serial, "dumpsys", "window", "displays")
 	if err != nil {
 		return 0, 0, fmt.Errorf("read status bar: %w", err)

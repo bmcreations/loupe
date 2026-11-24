@@ -59,9 +59,9 @@ done
 	return bin, awake, logPath
 }
 
-func phoneUnderTest(t *testing.T, bin string) *IOSDevice {
+func phoneUnderTest(t *testing.T, bin string) *Device {
 	t.Helper()
-	d := NewIOSDevice(IOSDeviceInfo{Identifier: "CORE-ID", UDID: "UDID", Name: "phone"})
+	d := NewDevice(DeviceInfo{Identifier: "CORE-ID", UDID: "UDID", Name: "phone"})
 	d.SetSimcap(bin)
 	t.Cleanup(func() {
 		d.mu.Lock()
@@ -342,11 +342,11 @@ func requireExited(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if err := target.SignalPid(pid, 0); errors.Is(err, syscall.ESRCH) {
+		if err := target.SignalPID(pid, 0); errors.Is(err, syscall.ESRCH) {
 			return
 		}
 		if time.Now().After(deadline) {
-			_ = target.SignalPid(pid, syscall.SIGKILL)
+			_ = target.SignalPID(pid, syscall.SIGKILL)
 			t.Fatalf("process %d is still running", pid)
 		}
 		time.Sleep(20 * time.Millisecond)

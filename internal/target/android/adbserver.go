@@ -118,9 +118,9 @@ func (a ADB) RestartServer(ctx context.Context) (int, error) {
 			return 0, fmt.Errorf("port %d is held by %s (pid %d), not adb; left alone", serverPort(), comm, pid)
 		}
 		killed = pid
-		_ = target.SignalPid(pid, syscall.SIGTERM)
+		_ = target.SignalPID(pid, syscall.SIGTERM)
 		if !waitGone(ctx, pid, 2*time.Second) {
-			_ = target.SignalPid(pid, syscall.SIGKILL)
+			_ = target.SignalPID(pid, syscall.SIGKILL)
 			waitGone(ctx, pid, 2*time.Second)
 		}
 	}
@@ -174,7 +174,7 @@ func parseLsofListener(out string) (int, string) {
 func waitGone(ctx context.Context, pid int, budget time.Duration) bool {
 	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
-		if err := target.SignalPid(pid, 0); errors.Is(err, syscall.ESRCH) {
+		if err := target.SignalPID(pid, 0); errors.Is(err, syscall.ESRCH) {
 			return true
 		}
 		select {

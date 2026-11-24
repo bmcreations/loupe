@@ -103,7 +103,7 @@ func readArgv(t *testing.T, file string) []string {
 
 func TestInstallRunsInstallReplaceOnOneAPK(t *testing.T) {
 	adb, argv := fakeADB(t, `echo Success`)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device"}, "", "")
 
 	res, err := tgt.Install(context.Background(), []string{"/stage/0.apk"}, target.InstallOptions{})
 	if err != nil {
@@ -121,7 +121,7 @@ func TestInstallRunsInstallReplaceOnOneAPK(t *testing.T) {
 // the base alone is refused with INSTALL_FAILED_MISSING_SPLIT.
 func TestInstallRunsInstallMultipleOnSplits(t *testing.T) {
 	adb, argv := fakeADB(t, `echo Success`)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 
 	apks := []string{"/stage/0.apk", "/stage/1.apk", "/stage/2.apk"}
 	if _, err := tgt.Install(context.Background(), apks, target.InstallOptions{AllowTest: true}); err != nil {
@@ -133,14 +133,14 @@ func TestInstallRunsInstallMultipleOnSplits(t *testing.T) {
 }
 
 func TestInstallWithNoAPKRunsNothing(t *testing.T) {
-	tgt := NewADBTarget(ADB{Path: "/nonexistent/adb"}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: "/nonexistent/adb"}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	if _, err := tgt.Install(context.Background(), nil, target.InstallOptions{}); err == nil {
 		t.Fatal("Install(nil) succeeded")
 	}
 }
 
 func TestInstallOnADeviceNotReadyRunsNothing(t *testing.T) {
-	tgt := NewADBTarget(ADB{Path: "/nonexistent/adb"}, DeviceInfo{Serial: "s", State: "offline"}, "", "")
+	tgt := NewDevice(ADB{Path: "/nonexistent/adb"}, DeviceInfo{Serial: "s", State: "offline"}, "", "")
 	if _, err := tgt.Install(context.Background(), []string{"/stage/0.apk"}, target.InstallOptions{}); !errors.Is(err, target.ErrDeviceUnreachable) {
 		t.Fatalf("err = %v; want ErrDeviceUnreachable", err)
 	}
@@ -185,7 +185,7 @@ func TestValidPackageName(t *testing.T) {
 // device's sh unescaped, so it must arrive quoted.
 func TestLogcatPackageIsQuotedForPidof(t *testing.T) {
 	adb, argv := fakeADB(t, `case "$3" in shell) echo '4242 4243';; exec-out) echo 'line';; esac`)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 
 	lc, err := tgt.Logcat(context.Background(), target.LogcatQuery{Package: "com.example.app", Lines: 5})
 	if err != nil {
@@ -210,7 +210,7 @@ func TestLogcatPackageIsQuotedForPidof(t *testing.T) {
 
 func TestLogcatPackageNotRunning(t *testing.T) {
 	adb, _ := fakeADB(t, `exit 1`)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	if _, err := tgt.Logcat(context.Background(), target.LogcatQuery{Package: "com.example.app"}); !errors.Is(err, target.ErrAppNotRunning) {
 		t.Fatalf("err = %v; want ErrAppNotRunning", err)
 	}
@@ -241,8 +241,8 @@ func TestExecOutStreamClosedEarlyIsNotAnError(t *testing.T) {
 // 501. Install is Android's alone; a simulator has a log, synthetic none.
 func TestInstallAndLogcatCapabilities(t *testing.T) {
 	var (
-		_ target.Installer = (*ADBTarget)(nil)
-		_ target.Logcatter = (*ADBTarget)(nil)
+		_ target.Installer = (*Device)(nil)
+		_ target.Logcatter = (*Device)(nil)
 		_ target.Logcatter = (*ios.Simulator)(nil)
 	)
 	for name, tgt := range map[string]target.Target{
@@ -271,7 +271,7 @@ func TestShutDownAVDSaysToBootIt(t *testing.T) {
 
 func TestInstallAllowTestPassesT(t *testing.T) {
 	adb, argv := fakeADB(t, `echo Success`)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	if _, err := tgt.Install(context.Background(), []string{"/stage/0.apk"}, target.InstallOptions{AllowTest: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestInstallAllowTestPassesT(t *testing.T) {
 
 func TestInstallDowngradePassesD(t *testing.T) {
 	adb, argv := fakeADB(t, `echo Success`)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	if _, err := tgt.Install(context.Background(), []string{"/stage/0.apk"}, target.InstallOptions{Downgrade: true}); err != nil {
 		t.Fatal(err)
 	}

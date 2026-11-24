@@ -36,8 +36,8 @@ func fakeSyslog(t *testing.T, write func(c net.Conn)) {
 	}
 }
 
-func testPhone() *IOSDevice {
-	return NewIOSDevice(IOSDeviceInfo{UDID: "00008140-TEST", Name: "bmc-iphone", Transport: "localNetwork"})
+func testPhone() *Device {
+	return NewDevice(DeviceInfo{UDID: "00008140-TEST", Name: "bmc-iphone", Transport: "localNetwork"})
 }
 
 func readLog(t *testing.T, lc *target.Logcat) string {
@@ -165,7 +165,7 @@ func TestPhoneLogRefusesWhatItCannotAnswer(t *testing.T) {
 
 func TestPhoneLogNeedsAReachablePhone(t *testing.T) {
 	fakeSyslog(t, func(c net.Conn) { t.Error("opened the syslog of an offline phone") })
-	d := NewIOSDevice(IOSDeviceInfo{UDID: "00008140-TEST", Name: "bmc-iphone"})
+	d := NewDevice(DeviceInfo{UDID: "00008140-TEST", Name: "bmc-iphone"})
 	if _, err := d.Logcat(context.Background(), target.LogcatQuery{}); err == nil {
 		t.Error("an offline phone answered")
 	}

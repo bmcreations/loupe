@@ -72,4 +72,4 @@ func TestUninstallAndroidRejectsNamesBeforeTheShell(t *testing.T) {
 	}
 }
 
-var _ target.Uninstaller = (*ADBTarget)(nil)
+var _ target.Uninstaller = (*Device)(nil)

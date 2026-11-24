@@ -69,7 +69,7 @@ func (c EmulatorConfig) withDefaults() EmulatorConfig {
 
 // Emulator is one AVD, running or not. It is listed whether or not it is
 // running, boots on Open if it is not, and while it runs it is the adb device
-// it booted as: every capability goes through an inner ADBTarget built on
+// it booted as: every capability goes through an inner Device built on
 // that serial.
 //
 // Which serial is decided by the AVD's name, never by its port. The manager
@@ -96,7 +96,7 @@ type Emulator struct {
 	// attMu guards inner alone, and is only held for an assignment or a read,
 	// so Targets and the agent endpoints never wait on a boot.
 	attMu sync.Mutex
-	inner *ADBTarget
+	inner *Device
 	// attached mirrors inner != nil for BootsOnOpen, which is on the listing
 	// path and reads it without a lock.
 	attached atomic.Bool
@@ -158,15 +158,15 @@ func (e *Emulator) BootingAs() string {
 }
 
 // Attach records that this AVD is running as d. A serial or transport that
-// changed gets a fresh inner target, since an ADBTarget keeps the DeviceInfo
+// changed gets a fresh inner target, since a Device keeps the DeviceInfo
 // it was built with. It returns the inner target now in place.
-func (e *Emulator) Attach(d DeviceInfo) *ADBTarget {
+func (e *Emulator) Attach(d DeviceInfo) *Device {
 	e.attMu.Lock()
 	defer e.attMu.Unlock()
 	if e.inner != nil && e.inner.Info() == d {
 		return e.inner
 	}
-	e.inner = NewADBTarget(e.adb, d, e.jar, e.version)
+	e.inner = NewDevice(e.adb, d, e.jar, e.version)
 	e.attached.Store(true)
 	e.resetPause()
 	return e.inner
@@ -181,7 +181,7 @@ func (e *Emulator) Detach() {
 	e.attached.Store(false)
 }
 
-func (e *Emulator) current() *ADBTarget {
+func (e *Emulator) current() *Device {
 	e.attMu.Lock()
 	defer e.attMu.Unlock()
 	return e.inner
@@ -220,7 +220,7 @@ func (e *Emulator) Boot(ctx context.Context) error {
 	return err
 }
 
-func (e *Emulator) ensureBooted(ctx context.Context) (*ADBTarget, error) {
+func (e *Emulator) ensureBooted(ctx context.Context) (*Device, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -391,7 +391,7 @@ func (e *Emulator) keepWarm(ctx context.Context, serial, snapshot, logPath strin
 // serial on its port is this AVD before attaching. Something else can take
 // the port between choosing it and the emulator binding it, and streaming that
 // under this AVD's name is the bug choosing ports at boot exists to prevent.
-func (e *Emulator) awaitBoot(ctx context.Context) (*ADBTarget, error) {
+func (e *Emulator) awaitBoot(ctx context.Context) (*Device, error) {
 	serial := "emulator-" + strconv.Itoa(e.port)
 	if err := e.adb.WaitForBoot(ctx, serial, e.bootBudget(ctx)); err != nil {
 		if closed(e.exited) {

@@ -34,7 +34,7 @@ const (
 type CLIInstaller struct {
 	// Brew is the path to brew, or "" when Homebrew is not installed.
 	Brew string
-	// PrivatePath is where the download lands; target.AndroidCLI looks there.
+	// PrivatePath is where the download lands; android.FindCLI looks there.
 	PrivatePath string
 	// Arch is runtime.GOARCH; tests set it.
 	Arch string

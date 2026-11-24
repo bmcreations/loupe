@@ -19,7 +19,7 @@ const safariBundle = "com.apple.mobilesafari"
 // CheckURL implements URLOpener. On a phone that is CheckURL plus an http or
 // https scheme: Safari is the only app the URL can be sent to, and it shows
 // "the address is invalid" for anything else (tried with prefs: on iOS 27).
-func (d *IOSDevice) CheckURL(u string) error {
+func (d *Device) CheckURL(u string) error {
 	return checkPhoneURL(u)
 }
 
@@ -38,7 +38,7 @@ func checkPhoneURL(u string) error {
 // `devicectl device process launch --payload-url`. Like Launch, it needs
 // Developer Mode and fails on a locked phone. The result's Activity is
 // Safari's bundle ID.
-func (d *IOSDevice) OpenURL(ctx context.Context, u string) (*target.LaunchResult, error) {
+func (d *Device) OpenURL(ctx context.Context, u string) (*target.LaunchResult, error) {
 	if err := checkPhoneURL(u); err != nil {
 		return nil, err
 	}
@@ -56,4 +56,4 @@ var devicectlOpenURL = func(ctx context.Context, device, u string) ([]byte, erro
 		"--device", device, "--payload-url", u, safariBundle).CombinedOutput()
 }
 
-var _ target.URLOpener = (*IOSDevice)(nil)
+var _ target.URLOpener = (*Device)(nil)

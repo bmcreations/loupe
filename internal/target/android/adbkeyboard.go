@@ -55,7 +55,7 @@ func (e NoSessionError) Is(target error) bool { return target == ErrNoSession }
 // SetHardwareKeyboard implements HardwareKeyboarder. It applies the setting
 // to every open stream, and a stream opened while it holds applies it
 // itself.
-func (t *ADBTarget) SetHardwareKeyboard(ctx context.Context, on bool) error {
+func (t *Device) SetHardwareKeyboard(ctx context.Context, on bool) error {
 	t.kbMu.Lock()
 	if len(t.streams) == 0 {
 		t.kbMu.Unlock()
@@ -84,7 +84,7 @@ func (t *ADBTarget) SetHardwareKeyboard(ctx context.Context, on bool) error {
 // on it if one is wanted. Registering and reading the setting under the one
 // lock means a SetHardwareKeyboard racing the open reaches the stream
 // either here or through the set, never neither.
-func (t *ADBTarget) track(s *adbStream) error {
+func (t *Device) track(s *adbStream) error {
 	t.kbMu.Lock()
 	if t.streams == nil {
 		t.streams = make(map[*adbStream]struct{})
@@ -99,7 +99,7 @@ func (t *ADBTarget) track(s *adbStream) error {
 	return nil
 }
 
-func (t *ADBTarget) untrack(s *adbStream) {
+func (t *Device) untrack(s *adbStream) {
 	t.kbMu.Lock()
 	delete(t.streams, s)
 	if len(t.streams) == 0 {
@@ -111,7 +111,7 @@ func (t *ADBTarget) untrack(s *adbStream) {
 // liveStream returns an open stream on this target, or nil. Any one will
 // do: every stream is on the same device, and input sent through any of
 // them lands in the same focused window.
-func (t *ADBTarget) liveStream() *adbStream {
+func (t *Device) liveStream() *adbStream {
 	t.kbMu.Lock()
 	defer t.kbMu.Unlock()
 	for s := range t.streams {

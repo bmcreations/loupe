@@ -30,7 +30,7 @@ func ValidPackageName(s string) bool { return packageNameRE.MatchString(s) }
 // only after ValidPackageName and through shellQuote. adb 35 escapes each
 // exec-out argument itself and older clients do not, and digits read the
 // same either way.
-func (t *ADBTarget) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logcat, error) {
+func (t *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logcat, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
@@ -49,7 +49,7 @@ func (t *ADBTarget) Logcat(ctx context.Context, q target.LogcatQuery) (*target.L
 }
 
 // logcatPID resolves the process the query names to a pid.
-func (t *ADBTarget) logcatPID(ctx context.Context, q target.LogcatQuery) (int, string, error) {
+func (t *Device) logcatPID(ctx context.Context, q target.LogcatQuery) (int, string, error) {
 	switch {
 	case q.PID > 0:
 		return q.PID, "", nil
@@ -79,7 +79,7 @@ func (t *ADBTarget) logcatPID(ctx context.Context, q target.LogcatQuery) (int, s
 // named exactly the package, so its other processes (pkg:remote) do not
 // match; more than one line means the same name twice, and the first is
 // kept.
-func (t *ADBTarget) pidOf(ctx context.Context, pkg string) (int, error) {
+func (t *Device) pidOf(ctx context.Context, pkg string) (int, error) {
 	out, err := t.adb.Shell(ctx, t.info.Serial, "pidof", shellQuote(pkg))
 	fields := strings.Fields(out)
 	if len(fields) == 0 {

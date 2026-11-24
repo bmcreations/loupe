@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	defaultKillPid = func(pid int) error { return target.SignalPid(pid, syscall.SIGTERM) }
+	defaultKillPid = func(pid int) error { return target.SignalPID(pid, syscall.SIGTERM) }
 	findAVDPid     = runningAVDPid
 	killPid        = defaultKillPid
 	stopPoll       = 200 * time.Millisecond
