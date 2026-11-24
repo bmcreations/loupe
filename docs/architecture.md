@@ -33,6 +33,7 @@ connection.
 | `internal/httpapi/` | Routes, auth, the transport-agnostic `Conn`, the shared viewer loop, WebTransport; one file per `/api/*` area |
 | `internal/wsx/` | Dependency-free RFC 6455 WebSocket |
 | `internal/target/` | Targets and what you do to them: ADB device, AVD and emulator lifecycle, iOS simulator, physical iPhone, `Synthetic`; plus input, app launch, UI tree, device frames, clipboard, crashes, media |
+| `internal/target/revyl/` | Revyl cloud devices: the revyl CLI and REST clients, the target, and the WHEP receiver its video arrives on. `target.KindRevyl` stays in `target` |
 | `internal/composetree/`, `tools/composeagent/` | Compose inspector agent (embedded `.so` per ABI and dex) and its decoder; `make composeagent` rebuilds it |
 | `tools/xcrunner/`, `internal/usbmux/` | XCUITest runner for iPhones below iOS 27, reached over usbmuxd |
 | simcap | Swift helper, cloned and built by `make simcap`: simulator and iPhone capture to H.264, HID input, accessibility tree |

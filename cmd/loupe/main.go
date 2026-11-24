@@ -34,6 +34,7 @@ import (
 	"github.com/bmcreations/loupe/internal/record"
 	scrcpyserver "github.com/bmcreations/loupe/internal/scrcpy/server"
 	"github.com/bmcreations/loupe/internal/target"
+	"github.com/bmcreations/loupe/internal/target/revyl"
 	"github.com/bmcreations/loupe/internal/trace"
 	"github.com/bmcreations/loupe/web"
 	"github.com/quic-go/quic-go"
@@ -747,10 +748,10 @@ func main() {
 	// Revyl cloud devices, through the user's own revyl CLI and account. The
 	// CLI is looked up per call too. Sessions on the account are listed as
 	// targets; the ones loupe starts are stopped at exit.
-	revylDevs := httpapi.NewRevylDevices(func() string { return target.FindRevylCLI(*revylCLI) }, target.RevylWorkDir(),
+	revylDevs := httpapi.NewRevylDevices(func() string { return revyl.FindRevylCLI(*revylCLI) }, revyl.RevylWorkDir(),
 		mgr.Register, mgr.UnregisterAs, tracer.Record)
-	revylDevs.SetInstaller(httpapi.NewRevylInstaller(target.PrivateRevylCLI()))
-	revylDevs.SetREST(target.NewRevylREST(loupeVersion()))
+	revylDevs.SetInstaller(httpapi.NewRevylInstaller(revyl.PrivateRevylCLI()))
+	revylDevs.SetREST(revyl.NewRevylREST(loupeVersion()))
 	api.SetRevylDevices(revylDevs)
 	go revylDevs.Watch(ctx)
 	// New device… from installed images. It does not depend on device
