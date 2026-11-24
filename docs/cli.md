@@ -15,7 +15,9 @@ loupe release avd:Pixel_10
 `loupe help` lists every command, and `loupe <command> -h` describes one
 and its fields. The answer is the server's JSON on stdout. An error goes to
 stderr with the server's code (`humanHeld`, `claimedBy`, `handsOff`) and
-exit status 1; bad arguments exit 2.
+exit status 1; bad arguments exit 2. A note about the answer, such as
+`logcat` saying it cut a dump, also goes to stderr, so piped output holds
+only the answer.
 
 ## Commands are the MCP tools
 

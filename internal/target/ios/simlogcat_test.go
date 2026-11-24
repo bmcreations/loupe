@@ -89,17 +89,6 @@ func TestPidForApp(t *testing.T) {
 	}
 }
 
-func TestLastFilteredKeepsTheLastN(t *testing.T) {
-	got, err := lastFiltered(io.NopCloser(strings.NewReader("a\nb\nc\nd\ne\n")), 2)
-	if err != nil || !reflect.DeepEqual(got, []string{"d", "e"}) {
-		t.Errorf("got %q, %v", got, err)
-	}
-	got, _ = lastFiltered(io.NopCloser(strings.NewReader("a\n")), 3)
-	if !reflect.DeepEqual(got, []string{"a"}) {
-		t.Errorf("short: got %q", got)
-	}
-}
-
 // fakeSimLog stands in for simctl, answering each --last window with the
 // lines given for it.
 func fakeSimLog(t *testing.T, byWindow map[string]string) *[]string {
@@ -122,7 +111,7 @@ func fakeSimLog(t *testing.T, byWindow map[string]string) *[]string {
 
 func TestSimLogTailWidensUntilItHasEnough(t *testing.T) {
 	asked := fakeSimLog(t, map[string]string{"60s": "a\n", "600s": "a\nb\nc\n", "3600s": "x\n"})
-	got, err := simLogTail(context.Background(), "u", target.LogcatQuery{Lines: 2}, 0)
+	got, _, err := simLogTail(context.Background(), "u", target.LogcatQuery{Lines: 2}, 0)
 	if err != nil || string(got) != "b\nc\n" {
 		t.Errorf("got %q, %v", got, err)
 	}
@@ -133,9 +122,9 @@ func TestSimLogTailWidensUntilItHasEnough(t *testing.T) {
 
 func TestSimLogTailReturnsTheWidestWhenNoneHasEnough(t *testing.T) {
 	fakeSimLog(t, map[string]string{"60s": "a\n", "600s": "a\nb\n", "3600s": "a\nb\nc\n"})
-	got, err := simLogTail(context.Background(), "u", target.LogcatQuery{Lines: 10}, 0)
-	if err != nil || string(got) != "a\nb\nc\n" {
-		t.Errorf("got %q, %v", got, err)
+	got, cut, err := simLogTail(context.Background(), "u", target.LogcatQuery{Lines: 10}, 0)
+	if err != nil || string(got) != "a\nb\nc\n" || cut != "" {
+		t.Errorf("got %q, cut %q, %v", got, cut, err)
 	}
 }
 
@@ -144,9 +133,125 @@ func TestSimLogTailStopsWideningPastTheDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
 	time.Sleep(2 * time.Millisecond)
-	got, err := simLogTail(ctx, "u", target.LogcatQuery{Lines: 10}, 0)
-	if err != nil || string(got) != "a\n" {
-		t.Errorf("got %q, %v", got, err)
+	got, cut, err := simLogTail(ctx, "u", target.LogcatQuery{Lines: 10}, 0)
+	if err != nil || string(got) != "a\n" || cut != target.LogCutTime {
+		t.Errorf("got %q, cut %q, %v", got, cut, err)
+	}
+	if len(*asked) != 1 {
+		t.Errorf("windows = %q; want it to stop after the first", *asked)
+	}
+}
+
+// slowOpen is a log that waits d before its first byte, as log show does
+// while it opens the store, and then sends the rest at once.
+type slowOpen struct {
+	d      time.Duration
+	opened bool
+	io.Reader
+}
+
+func (s *slowOpen) Read(p []byte) (int, error) {
+	if !s.opened {
+		s.opened = true
+		time.Sleep(s.d)
+	}
+	return s.Reader.Read(p)
+}
+
+// Every window pays log show's open cost once, so it is not scaled with the
+// window. On a simulator a minute filtered to one app took 0.98s, 0.97s of
+// it before the first byte, and ten times that stopped a since=60m dump at
+// the minute while the ten minutes took 0.92s.
+func TestSimLogTailDoesNotScaleTheOpenCost(t *testing.T) {
+	asked := fakeSimLog(t, map[string]string{"60s": "a\n", "600s": "a\nb\n"})
+	fast := simLogStart // fakeSimLog's cleanup puts the real one back
+	simLogStart = func(ctx context.Context, udid string, args []string) (io.ReadCloser, error) {
+		r, err := fast(ctx, udid, args)
+		return io.NopCloser(&slowOpen{d: 150 * time.Millisecond, Reader: r}), err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	got, cut, err := simLogTail(ctx, "u", target.LogcatQuery{Lines: 2}, 0)
+	if err != nil || string(got) != "a\nb\n" || cut != "" {
+		t.Errorf("got %q, cut %q, %v; want both lines from the ten minutes", got, cut, err)
+	}
+	if !reflect.DeepEqual(*asked, []string{"60s", "600s"}) {
+		t.Errorf("windows = %q; want the minute, then ten", *asked)
+	}
+}
+
+func TestSimLogGuess(t *testing.T) {
+	ms := time.Millisecond
+	// Unfiltered on the same simulator: the minute's first byte at 0.94s,
+	// its end at 1.28s; the ten minutes took 4.12s.
+	if g := simLogGuess(940*ms, 1280*ms, time.Minute, 10*time.Minute); g < 3*time.Second || g > 6*time.Second {
+		t.Errorf("unfiltered guess = %v; want near the 4.12s it took", g)
+	}
+	// No byte at all: the whole time was the open.
+	if g := simLogGuess(0, 900*ms, time.Minute, 10*time.Minute); g != 900*ms {
+		t.Errorf("empty guess = %v; want the open cost alone", g)
+	}
+}
+
+// fakeSimLogSince stands in for simctl on a since dump, answering a --last
+// window by its length and the --start one as "start".
+func fakeSimLogSince(t *testing.T, byWindow map[string]string) *[]string {
+	t.Helper()
+	var asked []string
+	old := simLogStart
+	simLogStart = func(ctx context.Context, udid string, args []string) (io.ReadCloser, error) {
+		w := ""
+		for i, a := range args {
+			if a == "--last" && i+1 < len(args) {
+				w = args[i+1]
+			} else if a == "--start" {
+				w = "start"
+			}
+		}
+		asked = append(asked, w)
+		return io.NopCloser(strings.NewReader("Timestamp header\n" + byWindow[w])), nil
+	}
+	t.Cleanup(func() { simLogStart = old })
+	return &asked
+}
+
+// A since far back is read newest first, so a busy log answers from its
+// last minute rather than streaming the whole window from its start.
+func TestSimLogSinceReadsTheNewestFirst(t *testing.T) {
+	asked := fakeSimLogSince(t, map[string]string{"60s": "a\nb\nc\n", "start": "old\n"})
+	q := target.LogcatQuery{Lines: 2, Since: time.Now().Add(-time.Hour)}
+	got, cut, err := simLogTail(context.Background(), "u", q, 0)
+	if err != nil || string(got) != "b\nc\n" || cut != "" {
+		t.Errorf("got %q, cut %q, %v", got, cut, err)
+	}
+	if !reflect.DeepEqual(*asked, []string{"60s"}) {
+		t.Errorf("windows = %q; want only the last minute", *asked)
+	}
+}
+
+// The windows stop at since: none longer than it is tried, and since
+// itself is the last.
+func TestSimLogSinceEndsAtSince(t *testing.T) {
+	asked := fakeSimLogSince(t, map[string]string{"60s": "b\n", "start": "a\nb\n", "600s": "x\ny\nz\n"})
+	q := target.LogcatQuery{Lines: 10, Since: time.Now().Add(-5 * time.Minute)}
+	got, cut, err := simLogTail(context.Background(), "u", q, 0)
+	if err != nil || string(got) != "a\nb\n" || cut != "" {
+		t.Errorf("got %q, cut %q, %v", got, cut, err)
+	}
+	if !reflect.DeepEqual(*asked, []string{"60s", "start"}) {
+		t.Errorf("windows = %q; want the minute, then since", *asked)
+	}
+}
+
+func TestSimLogSinceSaysWhenTheDeadlineCutIt(t *testing.T) {
+	asked := fakeSimLogSince(t, map[string]string{"60s": "a\n"})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	time.Sleep(2 * time.Millisecond)
+	q := target.LogcatQuery{Lines: 10, Since: time.Now().Add(-time.Hour)}
+	got, cut, err := simLogTail(ctx, "u", q, 0)
+	if err != nil || string(got) != "a\n" || cut != target.LogCutTime {
+		t.Errorf("got %q, cut %q, %v; want the minute, cut by time", got, cut, err)
 	}
 	if len(*asked) != 1 {
 		t.Errorf("windows = %q; want it to stop after the first", *asked)
@@ -378,10 +483,14 @@ func TestSimLogTailWithNoMatchBeforeTheDeadlineIsEmpty(t *testing.T) {
 		{Lines: 10, Text: "nothing matches", Format: LogFormatNDJSON},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-		got, err := simLogTail(ctx, "u", q, 0)
+		got, cut, err := simLogTail(ctx, "u", q, 0)
 		cancel()
 		if err != nil || len(got) != 0 {
 			t.Errorf("%+v: got %q, %v; want nothing and no error", q, got, err)
+		}
+		// The deadline stopped it short of the lines asked for.
+		if cut != target.LogCutTime {
+			t.Errorf("%+v: cut = %q; want %q", q, cut, target.LogCutTime)
 		}
 	}
 }
@@ -395,7 +504,7 @@ func TestSimLogTailCutInItsFirstWindowFails(t *testing.T) {
 		{Lines: 10, Tag: "nothing.matches", Format: LogFormatNDJSON},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		_, err := simLogTail(ctx, "u", q, 0)
+		_, _, err := simLogTail(ctx, "u", q, 0)
 		cancel()
 		if err == nil {
 			t.Errorf("%+v: no error", q)
@@ -410,9 +519,9 @@ func TestSimLogTailCountsOnlyMatchingLines(t *testing.T) {
 		"60s":  compactRN + compactOther + compactOther,
 		"600s": compactRN + compactRN,
 	})
-	got, err := simLogTail(context.Background(), "u", target.LogcatQuery{Lines: 1, Tag: "com.facebook.react.log"}, 0)
-	if err != nil || string(got) != compactRN {
-		t.Errorf("got %q, %v", got, err)
+	got, cut, err := simLogTail(context.Background(), "u", target.LogcatQuery{Lines: 1, Tag: "com.facebook.react.log"}, 0)
+	if err != nil || string(got) != compactRN || cut != "" {
+		t.Errorf("got %q, cut %q, %v", got, cut, err)
 	}
 	if !reflect.DeepEqual(*asked, []string{"60s"}) {
 		t.Errorf("windows = %q; want the first, which holds a match", *asked)
