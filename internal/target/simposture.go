@@ -223,7 +223,7 @@ func (s *Simulator) Settings(ctx context.Context) ([]Setting, error) {
 		Supported: true, Applies: "immediately",
 	}}
 	if known {
-		out = append(out, hingeSetting(d))
+		out = append(out, HingeSetting(d))
 	}
 	// Once the panel has said the hinge moved elsewhere, the stored angle
 	// is forgotten. Kept, it would come back as soon as the hinge moved

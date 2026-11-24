@@ -290,9 +290,9 @@ done
 		time.Sleep(5 * time.Millisecond)
 	}
 	opened := put(map[string]any{"posture": "opened"})
-	waitQueued(t, &s.hinge, simHingeDegrees["opened"])
+	waitHingeQueued(t, &s.hinge, simHingeDegrees["opened"])
 	angle := put(map[string]any{HingeAngleID: 99.0})
-	waitQueued(t, &s.hinge, 99)
+	waitHingeQueued(t, &s.hinge, 99)
 
 	if r := <-closed; r.err != nil {
 		t.Fatalf("closed: %v", r.err)
@@ -386,4 +386,16 @@ func TestSimSettlingPanel(t *testing.T) {
 			t.Errorf("simSettlingPanel(%q, %d, sent %v, +%v) = %q, want %q", c.lit, c.deg, c.sent, c.after, got, c.want)
 		}
 	}
+}
+
+func waitHingeQueued(t *testing.T, c *HingeCoalescer, deg int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if q, ok := c.Queued(); ok && q == deg {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("%d never queued", deg)
 }

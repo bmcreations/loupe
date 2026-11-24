@@ -84,8 +84,8 @@ type execStream struct {
 	out    io.ReadCloser
 	stderr bytes.Buffer
 	label  string
-	// noise drops stderr lines that say nothing about a failure.
-	noise  func(line string) bool
+	// Noise drops stderr lines that say nothing about a failure.
+	Noise  func(line string) bool
 	eof    bool
 	closed bool
 }
@@ -125,12 +125,12 @@ func (s *execStream) Close() error {
 
 func (s *execStream) stderrText() string {
 	msg := strings.TrimSpace(s.stderr.String())
-	if s.noise == nil {
+	if s.Noise == nil {
 		return msg
 	}
 	var kept []string
 	for _, line := range strings.Split(msg, "\n") {
-		if !s.noise(line) {
+		if !s.Noise(line) {
 			kept = append(kept, line)
 		}
 	}

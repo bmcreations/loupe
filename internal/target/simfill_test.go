@@ -22,11 +22,11 @@ var newGroupHits = []axNode{
 func fakeHit(ui *UI, hits []axNode, calls *int) func(x, y int) (*Node, error) {
 	return func(x, y int) (*Node, error) {
 		*calls++
-		px, py := float64(x)/ui.scale, float64(y)/ui.scale
+		px, py := float64(x)/ui.Scale, float64(y)/ui.Scale
 		for i := range hits {
 			f := hits[i].Frame
 			if px >= f[0] && px < f[0]+f[2] && py >= f[1] && py < f[1]+f[3] {
-				return axToNode(&hits[i], ui.scale), nil
+				return axToNode(&hits[i], ui.Scale), nil
 			}
 		}
 		var deepest *Node

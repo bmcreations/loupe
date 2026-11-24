@@ -91,6 +91,16 @@ type HingeCoalescer struct {
 	queued  *hingeWrite
 }
 
+// Queued reports the angle waiting behind the write in flight, if any.
+func (c *HingeCoalescer) Queued() (deg int, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.queued == nil {
+		return 0, false
+	}
+	return c.queued.deg, true
+}
+
 type hingeWrite struct {
 	deg   int
 	apply func(ctx context.Context, deg int) error

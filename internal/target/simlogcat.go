@@ -53,7 +53,7 @@ var simLogStart = func(ctx context.Context, udid string, args []string) (io.Read
 	}
 	// log prints this for every run under simctl spawn, success or not, and
 	// it would lead every error.
-	s.noise = func(line string) bool { return strings.HasPrefix(line, "getpwuid_r did not find a match") }
+	s.Noise = func(line string) bool { return strings.HasPrefix(line, "getpwuid_r did not find a match") }
 	return s, nil
 }
 

@@ -126,12 +126,12 @@ func unpackEntry(f *zip.File, root, dst string) error {
 		if err != nil {
 			return err
 		}
-		target, err := io.ReadAll(io.LimitReader(rc, 4096))
+		linkTo, err := io.ReadAll(io.LimitReader(rc, 4096))
 		rc.Close()
 		if err != nil {
 			return err
 		}
-		link := string(target)
+		link := string(linkTo)
 		if filepath.IsAbs(link) || !within(root, filepath.Join(filepath.Dir(dst), link)) {
 			return fmt.Errorf("%w: link %s points out of the bundle", ErrNotIOSApp, f.Name)
 		}

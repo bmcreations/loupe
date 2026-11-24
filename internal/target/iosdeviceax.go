@@ -394,5 +394,5 @@ func phoneAXToUI(root *axNode, width, height int) (*UI, error) {
 	if scale < 1 {
 		scale = 1
 	}
-	return &UI{Width: width, Height: height, Root: axToNode(root, scale), scale: scale}, nil
+	return &UI{Width: width, Height: height, Root: axToNode(root, scale), Scale: scale}, nil
 }

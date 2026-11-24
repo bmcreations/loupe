@@ -73,7 +73,7 @@ func (s *Simulator) inspect(ctx context.Context, w, h int) (*UI, error) {
 	// Bars that list no children (simfill.go). A failed hit test keeps the
 	// tree as dumped, plus whatever was found before it.
 	if s.canHit(ctx) {
-		_ = fillByHit(ui, func(x, y int) (*Node, error) { return s.hitAt(ctx, x, y, ui.scale) })
+		_ = fillByHit(ui, func(x, y int) (*Node, error) { return s.hitAt(ctx, x, y, ui.Scale) })
 	}
 	return ui, nil
 }
@@ -96,7 +96,7 @@ func parseAXTree(raw []byte, width, height int) (*UI, error) {
 	if scale < 1 {
 		scale = 1
 	}
-	return &UI{Width: width, Height: height, Root: axToNode(&root, scale), scale: scale}, nil
+	return &UI{Width: width, Height: height, Root: axToNode(&root, scale), Scale: scale}, nil
 }
 
 func axToNode(a *axNode, scale float64) *Node {

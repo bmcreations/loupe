@@ -65,8 +65,8 @@ var wakeIOSDevice = func(ctx context.Context, device string) error {
 	cmd := exec.CommandContext(ctx, "xcrun", "devicectl", "device", "info", "details", "--device", device)
 	// devicectl's children can hold the output pipe open after devicectl is
 	// killed, so the whole process group goes; WaitDelay is the backstop.
-	cmd.SysProcAttr = procGroupAttr()
-	cmd.Cancel = func() error { return signalGroup(cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.SysProcAttr = ProcGroupAttr()
+	cmd.Cancel = func() error { return SignalGroup(cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {

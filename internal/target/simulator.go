@@ -420,7 +420,7 @@ func openSimcapTracks(ctx context.Context, bin, udid, name string, opts Options,
 	// Its own process group, so Close's kill reaches the child -phone
 	// re-spawns for TCC (disclaimResponsibility) as well: a SIGKILL to the
 	// parent alone left that child holding the phone's capture device.
-	cmd.SysProcAttr = procGroupAttr()
+	cmd.SysProcAttr = ProcGroupAttr()
 	stderr := simcapStderr(udid)
 	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
@@ -779,7 +779,7 @@ func (s *simStream) Close() error {
 		select {
 		case <-s.exited:
 		case <-time.After(time.Second):
-			_ = signalGroup(s.cmd.Process.Pid, syscall.SIGKILL)
+			_ = SignalGroup(s.cmd.Process.Pid, syscall.SIGKILL)
 			<-s.exited
 		}
 	})

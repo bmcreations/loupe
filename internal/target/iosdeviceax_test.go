@@ -159,8 +159,8 @@ func TestPhoneAXToUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ui.Width != 1206 || ui.Height != 2622 || ui.scale != 3 {
-		t.Fatalf("ui = %dx%d scale %v", ui.Width, ui.Height, ui.scale)
+	if ui.Width != 1206 || ui.Height != 2622 || ui.Scale != 3 {
+		t.Fatalf("ui = %dx%d scale %v", ui.Width, ui.Height, ui.Scale)
 	}
 	var clock *Node
 	var walk func(*Node)

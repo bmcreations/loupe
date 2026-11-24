@@ -62,11 +62,11 @@ func (s *Simulator) hitAt(ctx context.Context, x, y int, scale float64) (*Node, 
 // findPasteByHit hit-tests pasteProbes for the edit menu's Paste. It is nil
 // when none answers, or when ui carries no scale to turn pixels into points.
 func (s *Simulator) findPasteByHit(ctx context.Context, ui *UI, x, y int) *Node {
-	if ui == nil || ui.scale <= 0 {
+	if ui == nil || ui.Scale <= 0 {
 		return nil
 	}
 	for _, p := range pasteProbes(ui, x, y) {
-		n, err := s.hitAt(ctx, p[0], p[1], ui.scale)
+		n, err := s.hitAt(ctx, p[0], p[1], ui.Scale)
 		if err != nil {
 			return nil
 		}

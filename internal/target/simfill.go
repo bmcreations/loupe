@@ -38,7 +38,7 @@ var fillRoles = map[string]bool{"Group": true, "Toolbar": true, "TabGroup": true
 // container, and is not already in the tree. An error stops the probing and
 // leaves what was added so far.
 func fillByHit(ui *UI, hit func(x, y int) (*Node, error)) error {
-	if ui == nil || ui.Root == nil || ui.scale <= 0 {
+	if ui == nil || ui.Root == nil || ui.Scale <= 0 {
 		return nil
 	}
 	seen := map[nodeKey]bool{}
@@ -55,7 +55,7 @@ func fillByHit(ui *UI, hit func(x, y int) (*Node, error)) error {
 	}
 	walk(ui.Root)
 
-	step := max(1, int(fillStepPt*ui.scale))
+	step := max(1, int(fillStepPt*ui.Scale))
 	budget := fillMaxProbes
 	add := func(c, n *Node) {
 		if k := keyOf(n); !seen[k] {
@@ -82,7 +82,7 @@ func fillByHit(ui *UI, hit func(x, y int) (*Node, error)) error {
 		if boundsWithin(n.Bounds, c.Bounds) {
 			add(c, n)
 		}
-		for _, y := range fillRows(c.Bounds, ui.scale) {
+		for _, y := range fillRows(c.Bounds, ui.Scale) {
 			for x := c.Bounds[0] + step/2; x < c.Bounds[2] && budget > 0; {
 				budget--
 				n, err := hit(x, y)
@@ -103,7 +103,7 @@ func fillByHit(ui *UI, hit func(x, y int) (*Node, error)) error {
 		}
 		// Reading order, left to right within each row, so an index in a
 		// match counts the way the bar is drawn, not the order of probes.
-		row := max(1, int(fillRowPt*ui.scale))
+		row := max(1, int(fillRowPt*ui.Scale))
 		slices.SortStableFunc(c.Children, func(a, b *Node) int {
 			if d := (a.Center[1]-c.Bounds[1])/row - (b.Center[1]-c.Bounds[1])/row; d != 0 {
 				return d

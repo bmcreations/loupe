@@ -9,7 +9,7 @@ import (
 
 // loupe does not run on Windows yet; these keep the package compiling.
 // There are no process groups or sessions here, so the attrs are nil.
-func procGroupAttr() *syscall.SysProcAttr { return nil }
+func ProcGroupAttr() *syscall.SysProcAttr { return nil }
 
 func SessionAttr() *syscall.SysProcAttr { return nil }
 
@@ -26,5 +26,5 @@ func SignalPid(pid int, sig syscall.Signal) error {
 	return p.Kill()
 }
 
-// signalGroup has no process group to reach on Windows, so it signals pid alone.
-func signalGroup(pid int, sig syscall.Signal) error { return SignalPid(pid, sig) }
+// SignalGroup has no process group to reach on Windows, so it signals pid alone.
+func SignalGroup(pid int, sig syscall.Signal) error { return SignalPid(pid, sig) }

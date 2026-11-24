@@ -5,7 +5,7 @@ import "testing"
 // The Flipcash drop that found no Paste in the tree: the composer focused at
 // 186..840, the drop at 259,1557, and Paste at 60..271 x 1332..1464.
 func TestPasteProbesReachFlipcashPaste(t *testing.T) {
-	ui := &UI{Width: 1206, Height: 2622, scale: 3, Root: &Node{
+	ui := &UI{Width: 1206, Height: 2622, Scale: 3, Root: &Node{
 		Bounds: [4]int{0, 0, 1206, 2622},
 		Children: []*Node{{
 			Class: "TextField", Focused: true, Bounds: [4]int{186, 1509, 840, 1569},
@@ -34,7 +34,7 @@ func TestPasteProbesReachFlipcashPaste(t *testing.T) {
 }
 
 func TestPasteProbesWithoutFocusUseTheDropColumn(t *testing.T) {
-	ui := &UI{Width: 1206, Height: 2622, scale: 3, Root: &Node{Bounds: [4]int{0, 0, 1206, 2622}}}
+	ui := &UI{Width: 1206, Height: 2622, Scale: 3, Root: &Node{Bounds: [4]int{0, 0, 1206, 2622}}}
 	for _, p := range pasteProbes(ui, 600, 30) {
 		if p[0] != 600 {
 			t.Fatalf("probe %v is off the drop column", p)
