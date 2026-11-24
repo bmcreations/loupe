@@ -334,39 +334,43 @@ func simLogReader(r io.ReadCloser, q target.LogcatQuery) io.ReadCloser {
 //
 //	2026-11-24 07:45:56.764 Df locationd[33406:2f24689] [com.apple.locationd:QA] msg
 //	2026-11-24 07:45:59.978 F  backboardd[33403:29d7a27] (IOSurface) msg
+//	2026-11-24 07:47:45.253 Df launchd_sim[37327:2f34f37] msg
 //
-// After the process comes either the entry's [subsystem:category], or, when
-// it has no subsystem, its sender's image in parentheses. A category may
-// hold spaces, and launchd's subsystems hold brackets and spaces of their
-// own, but no subsystem seen holds a colon, so the first colon ends it.
-// A line with no timestamp continues the entry above.
+// After the process comes the entry's [subsystem:category]. With no
+// subsystem, its sender's image comes in parentheses, or nothing does when
+// the sender is the process's own binary, and then the process is the tag,
+// as ndjson's senderImagePath gives it. A category may hold spaces, and
+// launchd's subsystems hold brackets and spaces of their own, but no
+// subsystem seen holds a colon, so the first colon ends it. A bracket or
+// parenthesis that does not close as one of those starts the process's own
+// message. A line with no timestamp continues the entry above.
 func parseCompact(line []byte) target.LogLine {
 	if !compactStamp(line) {
-		return target.LogLine{Continues: true}
+		return target.LogLine{Continues: true, Message: line}
 	}
-	rest, ok := afterCompactProcess(line[len("2026-11-24 07:45:56.764"):])
+	proc, rest, ok := afterCompactProcess(line[len("2026-11-24 07:45:56.764"):])
 	if !ok {
 		return target.LogLine{}
 	}
 	switch {
 	case bytes.HasPrefix(rest, []byte("[")):
 		sub, after, ok := bytes.Cut(rest[1:], []byte(":"))
-		if !ok {
-			return target.LogLine{}
+		if !ok || bytes.Contains(sub, []byte("] ")) {
+			break
 		}
 		cat, msg, ok := cutToken(after, ']')
 		if !ok {
-			return target.LogLine{}
+			break
 		}
 		return target.LogLine{Tags: subsystemTags(string(sub), string(cat)), Message: msg}
 	case bytes.HasPrefix(rest, []byte("(")):
 		sender, msg, ok := cutToken(rest[1:], ')')
 		if !ok {
-			return target.LogLine{}
+			break
 		}
 		return target.LogLine{Tags: []string{string(sender)}, Message: msg}
 	}
-	return target.LogLine{Message: rest}
+	return target.LogLine{Tags: []string{string(proc)}, Message: rest}
 }
 
 // compactStamp reports whether line starts "YYYY-MM-DD hh:mm:ss.mmm ".
@@ -387,29 +391,32 @@ func compactStamp(line []byte) bool {
 	return true
 }
 
-// afterCompactProcess skips the type and "Process[pid:tid] " that follow a
-// compact timestamp. A process name may hold spaces, so it ends at the
-// first bracket that holds pid:tid.
-func afterCompactProcess(b []byte) ([]byte, bool) {
+// afterCompactProcess reads the type and "Process[pid:tid] " that follow a
+// compact timestamp, into the process's name and what comes after. A
+// process name may hold spaces, so it ends at the first bracket that holds
+// pid:tid.
+func afterCompactProcess(b []byte) (proc, rest []byte, ok bool) {
 	b = bytes.TrimLeft(b, " ")
 	sp := bytes.IndexByte(b, ' ')
 	if sp < 0 {
-		return nil, false
+		return nil, nil, false
 	}
-	b = b[sp:]
-	for {
-		open := bytes.IndexByte(b, '[')
+	b = bytes.TrimLeft(b[sp:], " ")
+	for i := 0; ; {
+		open := bytes.IndexByte(b[i:], '[')
 		if open < 0 {
-			return nil, false
+			return nil, nil, false
 		}
-		b = b[open+1:]
-		end := bytes.IndexByte(b, ']')
+		open += i
+		end := bytes.IndexByte(b[open+1:], ']')
 		if end < 0 {
-			return nil, false
+			return nil, nil, false
 		}
-		if pidTID(b[:end]) {
-			return bytes.TrimPrefix(b[end+1:], []byte(" ")), true
+		end += open + 1
+		if pidTID(b[open+1 : end]) {
+			return b[:open], bytes.TrimPrefix(b[end+1:], []byte(" ")), true
 		}
+		i = open + 1
 	}
 }
 

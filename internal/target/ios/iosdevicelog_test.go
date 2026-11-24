@@ -112,7 +112,7 @@ func TestParseSyslog(t *testing.T) {
 		{"Oct 22 20:20:38 bmc-iphone wifid(WiFiPolicy)[56] <Notice>: scan done", []string{"WiFiPolicy"}, "scan done", false},
 		{"Oct 22 20:20:38 bmc-iphone Settings[812] <Error>: tapped", []string{"Settings"}, "tapped", false},
 		{"Oct  2 08:00:00 bmc-iphone Expo Go(React)[4211] <Notice>: sent", []string{"React"}, "sent", false},
-		{"    \"FLAGS\" = 5;", nil, "", true},
+		{"    \"FLAGS\" = 5;", nil, "    \"FLAGS\" = 5;", true},
 	} {
 		got := parseSyslog([]byte(c.line))
 		if !reflect.DeepEqual(got.Tags, c.tags) || string(got.Message) != c.msg || got.Continues != c.cont {
@@ -131,6 +131,8 @@ func TestPhoneLogByTagAndText(t *testing.T) {
 		// lines counts what the filter kept.
 		{target.LogcatQuery{Tag: "Settings", Lines: 1}, "Oct 22 20:20:40 bmc-iphone Settings[812] <Notice>: path C:\\x\n"},
 		{target.LogcatQuery{Text: "TAPPED …", Lines: 500}, "Oct 22 20:20:38 bmc-iphone Settings[812] <Error>: tapped …\n"},
+		// Text is in a line after the entry's first, which keeps the whole entry.
+		{target.LogcatQuery{Text: "FLAGS", Lines: 500}, "Oct 22 20:20:39 bmc-iphone wifid[56] <Notice>: event {\n    \"FLAGS\" = 5;\n}\n"},
 	} {
 		fakeSyslog(t, func(c net.Conn) { c.Write([]byte(syslogSample)); c.Close() })
 		lc, err := testPhone().Logcat(context.Background(), c.q)

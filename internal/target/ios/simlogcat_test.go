@@ -178,8 +178,20 @@ func TestParseCompact(t *testing.T) {
 		{"2026-11-24 08:00:00.000 I  Expo Go[4211:1a2b] [com.facebook.react.log:javascript] [porchlight] sent",
 			rn, "[porchlight] sent", false},
 		{"2026-11-24 08:00:00.000 I  Expo Go[4211:1a2b] [com.facebook.react.log:javascript]", rn, "", false},
-		{"}, with animation: true", nil, "", true},
-		{"    \"FLAGS\" = 5;", nil, "", true},
+		// With nothing between the process and the message, the sender is
+		// the process's own binary, and its name is the tag.
+		{"2026-11-24 07:47:45.253 Df launchd_sim[37327:2f34f37] No spawn timestamp found; service=com.apple.managedappdistributiond, pid=35531",
+			[]string{"launchd_sim"}, "No spawn timestamp found; service=com.apple.managedappdistributiond, pid=35531", false},
+		{"2026-11-24 08:00:00.000 Df Expo Go[4211:1a2b] PORCHLIGHT-JS said", []string{"Expo Go"}, "PORCHLIGHT-JS said", false},
+		{"2026-11-24 08:00:00.000 Df launchd_sim[1:2]", []string{"launchd_sim"}, "", false},
+		// The process's own message may start with a bracket or a
+		// parenthesis that is not a subsystem or a sender.
+		{"2026-11-24 08:00:00.000 Df Porchlight[500:2b] [porchlight] tapped", []string{"Porchlight"}, "[porchlight] tapped", false},
+		{"2026-11-24 08:00:00.000 Df Porchlight[500:2b] [porchlight] door: front] ok", []string{"Porchlight"}, "[porchlight] door: front] ok", false},
+		{"2026-11-24 08:00:00.000 Df Porchlight[500:2b] (unclosed", []string{"Porchlight"}, "(unclosed", false},
+		// A continuation's message is the whole line.
+		{"}, with animation: true", nil, "}, with animation: true", true},
+		{"    \"FLAGS\" = 5;", nil, "    \"FLAGS\" = 5;", true},
 	} {
 		got := parseCompact([]byte(c.line))
 		if !reflect.DeepEqual(got.Tags, c.tags) || string(got.Message) != c.msg || got.Continues != c.cont {
@@ -213,7 +225,7 @@ const (
 	compactRN    = "2026-11-24 08:00:00.000 I  Expo Go[4211:1a2b] [com.facebook.react.log:javascript] porchlight-js sent {\n"
 	compactCont  = "  \"n\" = 1;\n"
 	compactOther = "2026-11-24 08:00:01.000 Df locationd[1:2] [com.apple.locationd:QA] tick {\n"
-	compactSaid  = "2026-11-24 08:00:02.000 Df Expo Go[4211:1a2b] (Expo Go) PORCHLIGHT-JS said\n"
+	compactSaid  = "2026-11-24 08:00:02.000 Df Expo Go[4211:1a2b] PORCHLIGHT-JS said\n"
 )
 
 func TestSimLogReaderFiltersByTagAndText(t *testing.T) {
@@ -226,6 +238,9 @@ func TestSimLogReaderFiltersByTagAndText(t *testing.T) {
 		{target.LogcatQuery{Tag: "COM.FACEBOOK.REACT.LOG:javascript"}, compactRN + compactCont},
 		{target.LogcatQuery{Tag: "expo go"}, compactSaid},
 		{target.LogcatQuery{Text: "porchlight-js"}, compactRN + compactCont + compactSaid},
+		// A match in a continuation keeps its whole entry.
+		{target.LogcatQuery{Text: `"n" = 1`}, compactRN + compactCont + compactOther + compactCont},
+		{target.LogcatQuery{Tag: "com.apple.locationd", Text: `"N" = 1`}, compactOther + compactCont},
 		{target.LogcatQuery{}, in[len("Timestamp               Ty Process[PID:TID]\n"):]},
 	} {
 		if got := readAll(t, simLogReader(io.NopCloser(strings.NewReader(in)), c.q)); got != c.want {
@@ -243,6 +258,75 @@ func TestSimLogReaderNDJSONTextIsTheMessageOnly(t *testing.T) {
 	got := readAll(t, simLogReader(io.NopCloser(strings.NewReader(in)), target.LogcatQuery{Format: LogFormatNDJSON, Text: "porchlight"}))
 	if got != `{"subsystem":"x","eventMessage":"Porchlight sent"}`+"\n" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// The same entries in both styles, as log show prints them: launchd_sim's
+// own message with no subsystem, CoreSpotlight's in Preferences, an app's
+// own message that starts with a bracket, and an app's subsystem with a
+// message over three lines.
+const (
+	bothCompact = "Timestamp               Ty Process[PID:TID]\n" +
+		"2026-11-24 07:47:45.253 Df launchd_sim[37327:2f34f37] No spawn timestamp found; service=com.apple.managedappdistributiond, pid=35531\n" +
+		"2026-11-24 07:47:45.300 Df Preferences[400:1a] (CoreSpotlight) indexing {\n" +
+		"    kind = _NSSwiftCalendar: gregorian;\n" +
+		"}\n" +
+		"2026-11-24 07:47:45.400 Df Porchlight[500:2b] [porchlight] tapped\n" +
+		"2026-11-24 07:47:45.500 I  Porchlight[500:2b] [dev.porchlight:ui] sent {\n" +
+		"    door = front;\n" +
+		"}\n"
+	bothNDJSON = `{"subsystem":"","category":"","processImagePath":"/usr/libexec/launchd_sim","senderImagePath":"/usr/libexec/launchd_sim","eventMessage":"No spawn timestamp found; service=com.apple.managedappdistributiond, pid=35531"}` + "\n" +
+		`{"subsystem":"","category":"","processImagePath":"/x/Preferences","senderImagePath":"/x/CoreSpotlight","eventMessage":"indexing {\n    kind = _NSSwiftCalendar: gregorian;\n}"}` + "\n" +
+		`{"subsystem":"","category":"","processImagePath":"/x/Porchlight.app/Porchlight","senderImagePath":"/x/Porchlight.app/Porchlight","eventMessage":"[porchlight] tapped"}` + "\n" +
+		`{"subsystem":"dev.porchlight","category":"ui","processImagePath":"/x/Porchlight.app/Porchlight","senderImagePath":"/x/Porchlight.app/Porchlight","eventMessage":"sent {\n    door = front;\n}"}` + "\n" +
+		`{"count":4,"finished":1}` + "\n"
+)
+
+// entries counts the entries in a filtered read: its timestamped lines in
+// compact, its lines in ndjson.
+func entries(out, format string) int {
+	n := 0
+	for _, l := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+		if l != "" && (format == LogFormatNDJSON || compactStamp([]byte(l))) {
+			n++
+		}
+	}
+	return n
+}
+
+// A query keeps the same entries whichever style it reads.
+func TestSimLogReaderKeepsTheSameEntriesInBothStyles(t *testing.T) {
+	for _, c := range []struct {
+		q    target.LogcatQuery
+		want int
+	}{
+		{target.LogcatQuery{Tag: "launchd_sim"}, 1},
+		{target.LogcatQuery{Tag: "porchlight"}, 1},
+		{target.LogcatQuery{Tag: "CoreSpotlight"}, 1},
+		{target.LogcatQuery{Tag: "dev.porchlight:ui"}, 1},
+		{target.LogcatQuery{Text: "_NSSwiftCalendar:"}, 1},
+		{target.LogcatQuery{Text: "door = front"}, 1},
+		{target.LogcatQuery{Tag: "dev.porchlight", Text: "front"}, 1},
+		{target.LogcatQuery{Text: "tapped"}, 1},
+		{target.LogcatQuery{Text: "spawn"}, 1},
+		{target.LogcatQuery{Text: "porchlight"}, 1},
+		{target.LogcatQuery{Tag: "launchd_sim", Text: "front"}, 0},
+	} {
+		compact := readAll(t, simLogReader(io.NopCloser(strings.NewReader(bothCompact)), c.q))
+		nq := c.q
+		nq.Format = LogFormatNDJSON
+		ndjson := readAll(t, simLogReader(io.NopCloser(strings.NewReader(bothNDJSON)), nq))
+		if got := entries(compact, ""); got != c.want {
+			t.Errorf("compact %+v kept %d entries; want %d:\n%s", c.q, got, c.want, compact)
+		}
+		if got := entries(ndjson, LogFormatNDJSON); got != c.want {
+			t.Errorf("ndjson %+v kept %d entries; want %d:\n%s", c.q, got, c.want, ndjson)
+		}
+	}
+	// A kept compact entry keeps every line it printed.
+	got := readAll(t, simLogReader(io.NopCloser(strings.NewReader(bothCompact)), target.LogcatQuery{Text: "_NSSwiftCalendar:"}))
+	if want := "2026-11-24 07:47:45.300 Df Preferences[400:1a] (CoreSpotlight) indexing {\n    kind = _NSSwiftCalendar: gregorian;\n}\n"; got != want {
+		t.Errorf("got %q; want %q", got, want)
 	}
 }
 

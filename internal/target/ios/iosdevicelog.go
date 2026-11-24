@@ -73,10 +73,9 @@ func (d *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logc
 func syslogDump(c net.Conn, f *syslogFilter, n int) ([]string, error) {
 	var kept []string
 	keep := func(line []byte) {
-		if line = f.line(line); line == nil {
-			return
+		for _, l := range f.line(line) {
+			kept = append(kept, string(l))
 		}
-		kept = append(kept, string(line))
 		if n > 0 && len(kept) > 2*n {
 			kept = append(kept[:0], kept[len(kept)-n:]...)
 		}
@@ -132,8 +131,8 @@ func (r *syslogReader) Read(p []byte) (int, error) {
 			if i < 0 {
 				break
 			}
-			if line := r.f.line(r.in[:i]); line != nil {
-				r.out = append(append(r.out, line...), '\n')
+			for _, l := range r.f.line(r.in[:i]) {
+				r.out = append(append(r.out, l...), '\n')
 			}
 			r.in = r.in[i+1:]
 		}
@@ -158,10 +157,11 @@ func (r *syslogReader) Close() error {
 // "Oct 22 20:20:38 bmc-iphone wifid(WiFiPolicy)[56] <Notice>: msg".
 var syslogHeader = regexp.MustCompile(`\[(\d+)\] <[A-Za-z]+>:`)
 
-// syslogFilter turns one raw line into what is served, or nil to drop it.
-// A line with no header continues the message above it, a multi-line
-// dictionary for one, so it goes wherever that message went. The tag and
-// text are matched after unvis, against the line as it is served.
+// syslogFilter turns one raw line into the lines to serve now, none when
+// it is dropped or held. A line with no header continues the message above
+// it, a multi-line dictionary for one, so it goes wherever that message
+// went. The tag and text are matched after unvis, against the lines as they
+// are served, and a text found in any line of a message keeps all of it.
 type syslogFilter struct {
 	pid      int
 	lastKept bool
@@ -172,7 +172,7 @@ func newSyslogFilter(q target.LogcatQuery) *syslogFilter {
 	return &syslogFilter{pid: q.PID, tags: target.NewLogFilter(q, parseSyslog)}
 }
 
-func (f *syslogFilter) line(raw []byte) []byte {
+func (f *syslogFilter) line(raw []byte) [][]byte {
 	raw = bytes.Trim(raw, "\x00\r")
 	if len(raw) == 0 {
 		return nil
@@ -186,11 +186,7 @@ func (f *syslogFilter) line(raw []byte) []byte {
 			return nil
 		}
 	}
-	line := unvis(raw)
-	if !f.tags.Keep(line) {
-		return nil
-	}
-	return line
+	return f.tags.Keep(unvis(raw))
 }
 
 // unvis undoes the vis(3) encoding syslog_relay applies to every byte that
@@ -247,7 +243,7 @@ var syslogLine = regexp.MustCompile(`^[A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \S+ (
 // and the process otherwise. A line with no header continues the one above.
 func parseSyslog(line []byte) target.LogLine {
 	if !syslogHeader.Match(line) {
-		return target.LogLine{Continues: true}
+		return target.LogLine{Continues: true, Message: line}
 	}
 	m := syslogLine.FindSubmatchIndex(line)
 	if m == nil {
