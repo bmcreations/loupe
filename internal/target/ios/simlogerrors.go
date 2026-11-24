@@ -27,9 +27,9 @@ const simLogErrorPredicate = `(subsystem == "com.facebook.react.log" AND categor
 const simLogErrorWindow = time.Hour
 
 // simLogErrorTimeout bounds a scan, so a busy simulator's log cannot hold
-// the crash listing open. The predicate is applied inside log: a day on a
-// simulator running a Flutter app and a React Native one read in 1.0 s, an
-// hour in 0.8 s. A var so tests can shorten it.
+// the crash listing open. The predicate is applied inside log: an hour on a
+// simulator running a Flutter app and a React Native one read in 0.86 to
+// 0.94 s. A var so tests can shorten it.
 var simLogErrorTimeout = 10 * time.Second
 
 // simLogTimeLayout is ndjson's timestamp, "2026-11-24 07:50:29.597175-0500".
