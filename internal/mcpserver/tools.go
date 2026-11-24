@@ -132,7 +132,8 @@ type stepIn struct {
 
 type sequenceIn struct {
 	Targeted
-	Steps []stepIn `json:"steps" jsonschema:"up to 50 steps, run in order; the first that fails stops the rest"`
+	Steps    []stepIn `json:"steps" jsonschema:"up to 50 steps, run in order; the first that fails stops the rest"`
+	NoScreen bool     `json:"noScreen,omitempty" jsonschema:"leave out the interactive tree of the screen the sequence ends on"`
 }
 
 type swipeIn struct {
@@ -445,13 +446,17 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "sequence",
-		Description: "Run several inputs in one call, so a known flow (fill a form, tap through a dialog) costs one round trip instead of one per step. Each step is an input tool's body with its action named: tap (x,y or match), swipe, text, key, button, launch, openURL, move, and wait (ms, or match to wait for a node). Steps run in order and the cursor moves to each touch first; the first step that fails stops the rest, and the answer names it and holds every step's result. Read the screen again before a step whose node depends on what an earlier step opened, or use a wait with a match." + driving,
+		Description: "Run several inputs in one call, so a known flow (fill a form, tap through a dialog) costs one round trip instead of one per step. Each step is an input tool's body with its action named: tap (x,y or match), swipe, text, key, button, launch, openURL, move, and wait (ms, or match to wait for a node). Steps run in order and the cursor moves to each touch first; the first step that fails stops the rest, and the answer names it and holds every step's result. The answer ends with the interactive tree of the screen the sequence stopped on, as ui reports it, so plan the next call from it instead of reading the screen again; noScreen leaves it out. Use a wait with a match before a step whose node depends on what an earlier step opened." + driving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sequenceIn) (*mcp.CallToolResult, any, error) {
-		return jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
+		res, _, err := jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
 			return c.postJSON(ctx, "/api/sequence", url.Values{"target": {in.Target}}, struct {
 				Steps []stepIn `json:"steps"`
 			}{in.Steps})
 		}))
+		if !in.NoScreen {
+			c.appendScreen(ctx, in.Target, res)
+		}
+		return res, nil, err
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -591,6 +596,17 @@ func multipartAPKs(paths []string) ([]byte, string, error) {
 // jsonResult hands the server's JSON back as the tool's text. An HTTP error
 // is a tool error, not a protocol one, so the model reads the server's code
 // (humanHeld, claimedBy, handsOff) and its retry time and can act on them.
+// appendScreen adds the target's interactive tree to res, so a sequence's
+// answer shows where it landed and the agent saves a ui call. A failed read
+// leaves res as it was: the sequence's own answer still stands.
+func (c *Client) appendScreen(ctx context.Context, target string, res *mcp.CallToolResult) {
+	b, err := c.getJSON(ctx, "/api/ui", url.Values{"target": {target}, "interactive": {"1"}})
+	if err != nil {
+		return
+	}
+	res.Content = append(res.Content, &mcp.TextContent{Text: "screen now: " + string(b)})
+}
+
 func jsonResult(b json.RawMessage, err error) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return errResult(err), nil, nil
