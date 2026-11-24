@@ -2358,7 +2358,7 @@ func TestAgentTextKeepsFixedNoSessionAndNeedsTapWords(t *testing.T) {
 	}{
 		{"no session", noSession, string(noSession)},
 		{"wrapped no session", fmt.Errorf("typing %s: %w", secret, noSession), string(noSession)},
-		{"needs a tap", fmt.Errorf("typing %s: %w", secret, revyl.ErrRevylNeedsTap), revyl.ErrRevylNeedsTap.Error()},
+		{"needs a tap", fmt.Errorf("typing %s: %w", secret, revyl.ErrNeedsTap), revyl.ErrNeedsTap.Error()},
 	} {
 		for _, withSession := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/session=%v", tc.name, withSession), func(t *testing.T) {

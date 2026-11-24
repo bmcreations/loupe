@@ -788,7 +788,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 		// A Revyl device types at the last tap, so typing before one is
 		// asked out of turn, like input with no session.
-		if errors.Is(err, target.ErrNoSession) || errors.Is(err, revyl.ErrRevylNeedsTap) {
+		if errors.Is(err, target.ErrNoSession) || errors.Is(err, revyl.ErrNeedsTap) {
 			writeJSON(w, http.StatusConflict, ErrorResponse{Error: safeErr.Error()})
 			return
 		}
@@ -974,7 +974,7 @@ var errInputFailed = errors.New("input failed")
 // would drop what a caller needs to tell a retry-safe failure from one that
 // may have landed.
 //
-// A target.NoSessionError and revyl.ErrRevylNeedsTap say what to do
+// A target.NoSessionError and revyl.ErrNeedsTap say what to do
 // first, in fixed words. Only those words are returned, without whatever
 // wrapped them, so they cannot carry the text either.
 func sanitizeActionErr(req InputRequest, err error, redaction *textRedaction) error {
@@ -987,8 +987,8 @@ func sanitizeActionErr(req InputRequest, err error, redaction *textRedaction) er
 	if ns, ok := errors.AsType[target.NoSessionError](err); ok {
 		return ns
 	}
-	if errors.Is(err, revyl.ErrRevylNeedsTap) {
-		return revyl.ErrRevylNeedsTap
+	if errors.Is(err, revyl.ErrNeedsTap) {
+		return revyl.ErrNeedsTap
 	}
 	if redaction != nil && !redaction.redacted {
 		return err

@@ -21,7 +21,7 @@ import (
 type fakeRevyl struct {
 	t   *testing.T
 	dir string
-	cli RevylCLI
+	cli CLI
 }
 
 const fakeRevylScript = `#!/bin/sh
@@ -50,7 +50,7 @@ func newFakeRevyl(t *testing.T) *fakeRevyl {
 	if err := os.Mkdir(work, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return &fakeRevyl{t: t, dir: dir, cli: RevylCLI{Path: bin, Dir: work}}
+	return &fakeRevyl{t: t, dir: dir, cli: CLI{Path: bin, Dir: work}}
 }
 
 // respond makes `revyl <cmd> <sub>` print testdata/revyl/<fixture>.json,
@@ -113,7 +113,7 @@ func TestRevylCLIReadsTheSourcesJSONShapes(t *testing.T) {
 	ctx := context.Background()
 
 	f.respond("device-start", "device-start", "https://whep.revyl.invalid/s/abc")
-	s, err := f.cli.Start(ctx, RevylStart{Platform: "android", Model: "Pixel 7", OSVersion: "Android 14", IdleTimeout: 10 * time.Minute})
+	s, err := f.cli.Start(ctx, Start{Platform: "android", Model: "Pixel 7", OSVersion: "Android 14", IdleTimeout: 10 * time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestRevylCLIReadsTheSourcesJSONShapes(t *testing.T) {
 
 	f.respond("device-targets", "device-targets", "")
 	tg, err := f.cli.Targets(ctx)
-	if err != nil || len(tg["android"]) != 2 || tg["android"][0] != (RevylDeviceTarget{Model: "Pixel 7", Runtime: "Android 14"}) ||
+	if err != nil || len(tg["android"]) != 2 || tg["android"][0] != (DeviceTarget{Model: "Pixel 7", Runtime: "Android 14"}) ||
 		tg["ios"][0].Model != "iPhone 16" {
 		t.Fatalf("Targets = %+v err %v", tg, err)
 	}
@@ -190,7 +190,7 @@ func (c *fixedClock) now() time.Time { return c.t }
 
 func gestures(t *testing.T, f *fakeRevyl, platform string, screenW, screenH int) (*revylInput, *fixedClock) {
 	t.Helper()
-	in := newRevylInput(f.cli, nil, RevylSession{SessionID: testSession, Platform: platform, ScreenWidth: screenW, ScreenHeight: screenH}, nil)
+	in := newRevylInput(f.cli, nil, Session{SessionID: testSession, Platform: platform, ScreenWidth: screenW, ScreenHeight: screenH}, nil)
 	t.Cleanup(in.close)
 	clk := &fixedClock{t: time.Unix(1_700_000_000, 0)}
 	in.now = clk.now
@@ -347,9 +347,9 @@ func TestRevylTargetOpensWHEPAndMapsTouches(t *testing.T) {
 	f.respondAs("device-info.json.first", "device-info-starting", "")
 	f.respond("device-info", "device-info", whep)
 
-	tgt := &RevylTarget{
+	tgt := &Target{
 		CLI: f.cli, Model: "Pixel 7", OSVersion: "Android 14",
-		Session:  RevylSession{SessionID: testSession, Platform: "android"},
+		Session:  Session{SessionID: testSession, Platform: "android"},
 		settings: loopbackSettings(), poll: 20 * time.Millisecond,
 	}
 	if tgt.ID() != "revyl:"+testSession || tgt.Kind() != target.KindRevyl || tgt.Label() != "Revyl Pixel 7" {

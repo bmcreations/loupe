@@ -20,7 +20,7 @@ import (
 )
 
 // Revyl cloud devices: a session started through the user's own revyl CLI
-// and account becomes a revyl.RevylTarget. The CLI's shapes are read from
+// and account becomes a revyl.Target. The CLI's shapes are read from
 // revyl-cli v0.2.27; internal/target/revyl.go says which were checked
 // against a live account.
 
@@ -199,7 +199,7 @@ type RevylDevices struct {
 	trace      func(map[string]any)
 	// newTarget builds the target for a session; tests swap it to stream
 	// from a local WHEP server.
-	newTarget func(cli revyl.RevylCLI, s revyl.RevylSession, model, os string) target.Target
+	newTarget func(cli revyl.CLI, s revyl.Session, model, os string) target.Target
 
 	// listGrace is revylListGrace; tests shorten it.
 	listGrace time.Duration
@@ -232,7 +232,7 @@ type RevylDevices struct {
 
 	// rest sends targets' input over Revyl's device proxy; nil leaves it
 	// to the CLI. Set before Watch, read by newTarget.
-	rest *revyl.RevylREST
+	rest *revyl.REST
 
 	// billing is the last billing status read, at billingAt, which answers
 	// for billingTTL (revylBillingTTL; tests shorten it). billingGen counts
@@ -251,13 +251,13 @@ type revylLogin struct {
 
 // NewRevylDevices looks the CLI up with find on every call, so one
 // installed later needs no restart. dir is where the CLI runs
-// (revyl.RevylWorkDir).
+// (revyl.WorkDir).
 func NewRevylDevices(find func() string, dir string, register func(target.Target), unregister func(id, reason string), trace func(map[string]any)) *RevylDevices {
 	r := &RevylDevices{find: find, dir: dir, register: register, unregister: unregister, trace: trace,
 		listGrace: revylListGrace, startGrace: revylStartGrace, billingTTL: revylBillingTTL,
 		stopped: map[string]time.Time{}}
-	r.newTarget = func(cli revyl.RevylCLI, s revyl.RevylSession, model, os string) target.Target {
-		return &revyl.RevylTarget{CLI: cli, Session: s, Model: model, OSVersion: os, REST: r.rest, Trace: r.record}
+	r.newTarget = func(cli revyl.CLI, s revyl.Session, model, os string) target.Target {
+		return &revyl.Target{CLI: cli, Session: s, Model: model, OSVersion: os, REST: r.rest, Trace: r.record}
 	}
 	return r
 }
@@ -271,9 +271,9 @@ func (r *RevylDevices) SetInstaller(in *RevylInstaller) { r.installer = in }
 // SetREST sends targets' gestures over Revyl's device proxy, with the CLI
 // as the fallback. Without it every gesture is a CLI process. Call it
 // before Watch.
-func (r *RevylDevices) SetREST(rest *revyl.RevylREST) { r.rest = rest }
+func (r *RevylDevices) SetREST(rest *revyl.REST) { r.rest = rest }
 
-func (r *RevylDevices) cli() (revyl.RevylCLI, bool) {
+func (r *RevylDevices) cli() (revyl.CLI, bool) {
 	path := ""
 	if r.find != nil {
 		path = r.find()
@@ -283,7 +283,7 @@ func (r *RevylDevices) cli() (revyl.RevylCLI, bool) {
 		// missing.
 		_ = os.MkdirAll(r.dir, 0o755)
 	}
-	return revyl.RevylCLI{Path: path, Dir: r.dir}, path != ""
+	return revyl.CLI{Path: path, Dir: r.dir}, path != ""
 }
 
 func (r *RevylDevices) record(rec map[string]any) {
@@ -334,11 +334,11 @@ func (r *RevylDevices) Start(req StartRevylRequest) (string, error) {
 	return it.Key, nil
 }
 
-func (r *RevylDevices) start(ctx context.Context, cancel context.CancelFunc, done chan struct{}, cli revyl.RevylCLI, key string, req StartRevylRequest) {
+func (r *RevylDevices) start(ctx context.Context, cancel context.CancelFunc, done chan struct{}, cli revyl.CLI, key string, req StartRevylRequest) {
 	defer close(done)
 	defer cancel()
 	began := time.Now()
-	sess, err := cli.Start(ctx, revyl.RevylStart{Platform: req.Platform, Model: req.Model, OSVersion: req.OSVersion, Grace: r.startGrace})
+	sess, err := cli.Start(ctx, revyl.Start{Platform: req.Platform, Model: req.Model, OSVersion: req.OSVersion, Grace: r.startGrace})
 	rec := map[string]any{"action": "start", "platform": req.Platform, "model": req.Model, "tookMs": time.Since(began).Milliseconds()}
 	r.mu.Lock()
 	r.starting = false
@@ -529,7 +529,7 @@ func (r *RevylDevices) sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	live := map[string]revyl.RevylSession{}
+	live := map[string]revyl.Session{}
 	for _, s := range sessions {
 		if s.SessionID != "" && validRevylPlatform[s.Platform] {
 			live[s.SessionID] = s
@@ -1024,7 +1024,7 @@ func (r *RevylDevices) billingStatus(ctx context.Context, fresh bool) (RevylBill
 
 // revylBilling is the part of the CLI's billing status the route answers
 // with: the free minutes and the rates of the device types loupe starts.
-func revylBilling(st revyl.RevylBilling) RevylBillingResponse {
+func revylBilling(st revyl.Billing) RevylBillingResponse {
 	b := RevylBillingResponse{Plan: st.Plan, PlanName: st.PlanName, PeriodEnd: st.PeriodEnd, BillingURL: st.BillingURL}
 	if f := st.FreeMinutes; f != nil {
 		m := RevylFreeMinutes{Android: revylMinutes(f.AndroidLeft, f.AndroidTotal), IOS: revylMinutes(f.IOSLeft, f.IOSTotal)}
@@ -1068,9 +1068,9 @@ func (s *Server) handleRevylBilling(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, errRevylNoCLI):
 		writeJSON(w, http.StatusConflict, ErrorResponse{Error: err.Error()})
-	case errors.Is(err, revyl.ErrRevylSignedOut):
+	case errors.Is(err, revyl.ErrSignedOut):
 		writeJSON(w, http.StatusConflict, ErrorResponse{Error: errRevylSignedOut.Error()})
-	case errors.Is(err, revyl.ErrRevylUnsupported):
+	case errors.Is(err, revyl.ErrUnsupported):
 		writeJSON(w, http.StatusNotImplemented, ErrorResponse{Error: "unsupported"})
 	case err != nil:
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
