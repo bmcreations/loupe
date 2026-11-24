@@ -595,12 +595,10 @@ func (s *Server) handleFlags(w http.ResponseWriter, r *http.Request) {
 
 	gate := ""
 	if s.claims != nil {
-		s.claims.mu.Lock()
-		if c := s.claims.live(t.ID()); c != nil {
-			f.ClaimedBy = c.agent
-			gate = c.key()
+		if agent, session, ok := s.claims.holderOf(t.ID()); ok {
+			f.ClaimedBy = agent
+			gate = callerKey(agent, session)
 		}
-		s.claims.mu.Unlock()
 	}
 	if f.To != nil && !f.To.IsExternal() {
 		// Sent to one session: that one is stopped, whoever holds the claim.
@@ -719,17 +717,16 @@ func (s *Server) handleFlagListeners(w http.ResponseWriter, r *http.Request) {
 	resp := FlagListenersResponse{Listeners: s.flags.listening()}
 	resp.Active = s.flags.activeOnly(resp.Listeners)
 	if id := r.URL.Query().Get("target"); id != "" && s.claims != nil {
-		s.claims.mu.Lock()
-		if c := s.claims.live(id); c != nil {
-			resp.ClaimedBy = c.agent
-			resp.Holder = &FlagRecipient{Agent: c.agent, Session: c.session}
+		if agent, session, ok := s.claims.holderOf(id); ok {
+			resp.ClaimedBy = agent
+			resp.Holder = &FlagRecipient{Agent: agent, Session: session}
+			key := callerKey(agent, session)
 			for _, ls := range [][]FlagListener{resp.Listeners, resp.Active} {
 				for i := range ls {
-					ls[i].Holds = callerKey(ls[i].Agent, ls[i].Session) == c.key()
+					ls[i].Holds = callerKey(ls[i].Agent, ls[i].Session) == key
 				}
 			}
 		}
-		s.claims.mu.Unlock()
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

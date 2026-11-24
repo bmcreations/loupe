@@ -683,9 +683,13 @@ func main() {
 	if err := api.SetHandsOffPath(filepath.Join(filepath.Dir(cfgPath), "handsoff.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: hands-off list unreadable, starting empty: %v\n", err)
 	}
-	// Claims beside it, in their own file: hands-off is only what the person
-	// marked. Saved so a restart does not hand an agent's device to another.
-	if err := api.SetClaimsPath(filepath.Join(filepath.Dir(cfgPath), "claims.json")); err != nil {
+	// Claims in their own files, since hands-off is only what the person
+	// marked, and saved so a restart does not hand an agent's device to
+	// another. A device's claim goes in the cache directory beside the token,
+	// which every loupe server on the machine reads whatever its -config, so
+	// two servers cannot give one device to two agents. The file beside the
+	// config keeps the synthetic target's, which is each server's own.
+	if err := api.SetClaimsPaths(filepath.Join(filepath.Dir(cfgPath), "claims.json"), filepath.Join(scrcpyserver.DefaultDir(), "claims.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: claims unreadable, starting with none: %v\n", err)
 	}
 	// Paired devices' sessions and pending codes, hashed. Beside hands-off

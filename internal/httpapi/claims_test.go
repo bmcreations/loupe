@@ -347,7 +347,7 @@ func TestClaimsSurviveARestart(t *testing.T) {
 	if err := b.load(filepath.Join(dir, "handsoff.json")); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.loadClaims(path); err != nil {
+	if err := b.loadClaims("", path); err != nil {
 		t.Fatal(err)
 	}
 	b.take("dev1", "claude", "s1", "https://example.com/s1")
@@ -362,7 +362,7 @@ func TestClaimsSurviveARestart(t *testing.T) {
 
 	again := newClaimBook(nil)
 	again.now = clock
-	if err := again.loadClaims(path); err != nil {
+	if err := again.loadClaims("", path); err != nil {
 		t.Fatal(err)
 	}
 	got := again.list()
@@ -378,6 +378,191 @@ func TestClaimsSurviveARestart(t *testing.T) {
 	// The hands-off file says only what the person marked.
 	if _, err := os.Stat(filepath.Join(dir, "handsoff.json")); !os.IsNotExist(err) {
 		t.Fatalf("claims touched the hands-off file: %v", err)
+	}
+}
+
+// Two servers on one machine share the claims file, so a claim taken through
+// one refuses another session through the other.
+func TestAClaimRefusesOnEveryServerSharingTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "claims.json")
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	a, b := newClaimBook(nil), newClaimBook(nil)
+	for _, book := range []*claimBook{a, b} {
+		book.now = clock
+		if err := book.loadClaims("", path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, holder := a.take("avd:Pixel_9", "claude", "review-A", ""); holder != nil {
+		t.Fatalf("first claim refused: %+v", holder)
+	}
+	if _, holder := b.take("avd:Pixel_9", "claude", "review-B", ""); holder == nil || holder.Session != "review-A" {
+		t.Fatalf("second server's claim: holder %+v, want review-A", holder)
+	}
+	if e := b.refusal("avd:Pixel_9", "claude", "review-B"); e == nil || e.Code != ErrCodeClaimed {
+		t.Fatalf("second server's refusal = %+v, want claimedBy", e)
+	}
+}
+
+// twoServers is two claim books sharing one claims file, as two loupe
+// servers on one machine do, each with its own file beside its config.
+func twoServers(t *testing.T) (a, b *claimBook, now *time.Time, dir string) {
+	t.Helper()
+	dir = t.TempDir()
+	at := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	now = &at
+	var books [2]*claimBook
+	for i := range books {
+		books[i] = newClaimBook(nil)
+		books[i].now = func() time.Time { return *now }
+		local := filepath.Join(dir, "config"+strconv.Itoa(i), "claims.json")
+		if err := books[i].loadClaims(local, filepath.Join(dir, "cache", "claims.json")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return books[0], books[1], now, dir
+}
+
+// The holder can release through another server, and a person's force
+// release there ends another session's claim too.
+func TestAClaimReleasesThroughAnotherServer(t *testing.T) {
+	a, b, _, _ := twoServers(t)
+	a.take("avd:x", "claude", "s1", "")
+	if _, _, released := b.release("avd:x", "claude", "s1", false); !released || a.held("avd:x") {
+		t.Fatalf("holder's release through b: released %v, a still holds %v", released, a.held("avd:x"))
+	}
+	a.take("avd:x", "claude", "s1", "")
+	if holder, _, released := b.release("avd:x", "claude", "s2", false); holder == nil || released {
+		t.Fatalf("another session's release through b: holder %+v released %v", holder, released)
+	}
+	if _, gone, released := b.release("avd:x", "", "", true); !released || gone != "claude" || a.held("avd:x") {
+		t.Fatalf("forced release through b: released %v gone %q, a still holds %v", released, gone, a.held("avd:x"))
+	}
+}
+
+// A boot holding the claim on one server keeps it from other agents on every
+// server past the lease, and the holder's claim lapses as usual after it.
+func TestAHoldKeepsTheClaimOnEveryServer(t *testing.T) {
+	a, b, now, _ := twoServers(t)
+	a.take("avd:x", "claude", "s1", "")
+	unhold := a.hold("avd:x", "claude", "s1")
+	*now = now.Add(claimLease + time.Minute)
+	if _, holder := b.take("avd:x", "claude", "s2", ""); holder == nil || holder.IdleMs != 0 {
+		t.Fatalf("another session's claim during the hold: holder %+v, want s1 and idle 0", holder)
+	}
+	unhold()
+	*now = now.Add(claimLease - time.Second)
+	if _, holder := b.take("avd:x", "claude", "s2", ""); holder == nil {
+		t.Fatal("the hold's end did not renew the claim on b")
+	}
+	*now = now.Add(time.Second)
+	if _, holder := b.take("avd:x", "claude", "s2", ""); holder != nil {
+		t.Fatalf("claim outlived its lease after the hold: %+v", holder)
+	}
+}
+
+// A server that dies mid-boot holds the device on the others no longer than
+// a boot could have run.
+func TestAHoldFromADeadServerEnds(t *testing.T) {
+	a, b, now, _ := twoServers(t)
+	a.take("avd:x", "claude", "s1", "")
+	a.hold("avd:x", "claude", "s1") // never let go
+	*now = now.Add(claimHoldMax - time.Second)
+	if _, holder := b.take("avd:x", "claude", "s2", ""); holder == nil {
+		t.Fatal("hold ended early on b")
+	}
+	*now = now.Add(time.Second)
+	if _, holder := b.take("avd:x", "claude", "s2", ""); holder != nil {
+		t.Fatalf("hold from a dead server outlived claimHoldMax: %+v", holder)
+	}
+}
+
+// Calls through one server keep a claim taken through another, and a lapse
+// one server notices is told to the holder on every server.
+func TestALeaseIsSharedAcrossServers(t *testing.T) {
+	a, b, now, _ := twoServers(t)
+	a.take("avd:x", "claude", "s1", "")
+	*now = now.Add(claimLease - time.Minute)
+	b.seen("avd:x", "claude", "s1")
+	*now = now.Add(2 * time.Minute)
+	if !a.held("avd:x") {
+		t.Fatal("a renewal through b did not reach a")
+	}
+	*now = now.Add(claimLease)
+	if got := b.list(); len(got) != 0 {
+		t.Fatalf("b lists %+v after the lease", got)
+	}
+	for name, book := range map[string]*claimBook{"a": a, "b": b} {
+		if e := book.refusal("avd:x", "claude", "s1"); e == nil || e.Code != ErrCodeClaimLapsed {
+			t.Fatalf("%s's refusal of the lapsed holder = %+v, want claimLapsed", name, e)
+		}
+		if e := book.refusal("avd:x", "claude", "s2"); e != nil {
+			t.Fatalf("%s refused another session after the lapse: %+v", name, e)
+		}
+	}
+}
+
+// The synthetic target is each server's own, so its claims stay in each
+// server's own file.
+func TestSyntheticClaimsStayOnTheirServer(t *testing.T) {
+	a, b, _, dir := twoServers(t)
+	a.take("synthetic", "claude", "s1", "")
+	if _, holder := b.take("synthetic", "claude", "s2", ""); holder != nil {
+		t.Fatalf("b's synthetic refused by a's claim: %+v", holder)
+	}
+	var shared claimData
+	if err := readJSONFile(filepath.Join(dir, "cache", "claims.json"), &shared); err != nil {
+		t.Fatal(err)
+	}
+	if len(shared.Claims) != 0 {
+		t.Fatalf("shared file has %+v", shared.Claims)
+	}
+}
+
+// A server from before the shared file kept every claim beside its config.
+// Loading moves a live one to the shared file once, and the file beside the
+// config keeps only its own targets', so a released claim does not come back.
+func TestClaimsBesideTheConfigMoveToTheSharedFile(t *testing.T) {
+	dir := t.TempDir()
+	local, shared := filepath.Join(dir, "config", "claims.json"), filepath.Join(dir, "cache", "claims.json")
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	old := claimData{Claims: []savedClaim{
+		{Target: "avd:x", Session: "s1", Since: now, Seen: now},
+		{Target: "avd:stale", Session: "s2", Since: now.Add(-time.Hour), Seen: now.Add(-claimLease)},
+		{Target: "synthetic", Session: "s3", Since: now, Seen: now},
+	}}
+	if err := writeJSONFile(local, old); err != nil {
+		t.Fatal(err)
+	}
+	load := func() *claimBook {
+		b := newClaimBook(nil)
+		b.now = func() time.Time { return now }
+		if err := b.loadClaims(local, shared); err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	b := load()
+	var ids []string
+	for _, c := range b.list() {
+		ids = append(ids, c.Target)
+	}
+	if strings.Join(ids, ",") != "avd:x,synthetic" {
+		t.Fatalf("loaded %v, want avd:x and synthetic", ids)
+	}
+	for path, want := range map[string]string{shared: "avd:x", local: "synthetic"} {
+		var d claimData
+		if err := readJSONFile(path, &d); err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Claims) != 1 || d.Claims[0].Target != want {
+			t.Fatalf("%s holds %+v, want only %s", path, d.Claims, want)
+		}
+	}
+	b.release("avd:x", "", "s1", false)
+	if load().held("avd:x") {
+		t.Fatal("a released claim came back from the file beside the config")
 	}
 }
 
