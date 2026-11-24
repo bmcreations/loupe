@@ -204,16 +204,22 @@ func (t *Device) dropboxEntries(ctx context.Context, tags []string) ([]dropboxEn
 	return entries, nil
 }
 
-// Crashes lists the device's crash reports from the dropbox, newest first.
-// The dropbox lives on /data, so an emulator that boots from loupe-warm
-// without emulatorKeepState starts each time with the reports it had when
-// the snapshot was saved.
+// Crashes lists the device's crash reports from the dropbox, newest first,
+// with the JS and Dart errors still in its log. The dropbox lives on
+// /data, so an emulator that boots from loupe-warm without
+// emulatorKeepState starts each time with the reports it had when the
+// snapshot was saved.
 func (t *Device) Crashes(ctx context.Context, q target.CrashQuery) ([]target.CrashReport, error) {
 	entries, err := t.dropboxEntries(ctx, dropboxCrashTags)
 	if err != nil {
 		return nil, err
 	}
-	return dropboxReports(entries, q), nil
+	logged, err := t.logErrorReports(ctx, q.Since)
+	list := target.MergeCrashReports(dropboxReports(entries, q), logged, q)
+	if err != nil {
+		return list, &target.LogSkippedError{Err: err}
+	}
+	return list, nil
 }
 
 func dropboxReports(entries []dropboxEntry, q target.CrashQuery) []target.CrashReport {
@@ -237,8 +243,15 @@ func dropboxReports(entries []dropboxEntry, q target.CrashQuery) []target.CrashR
 }
 
 // Crash returns one dropbox entry as dumpsys prints it: the header, the
-// file's path and the body, decompressed.
+// file's path and the body, decompressed. A log error is its lines as
+// logcat printed them.
 func (t *Device) Crash(ctx context.Context, id string) ([]byte, error) {
+	if at, ok := target.LogErrorTime(id); ok {
+		if !t.info.Ready() {
+			return nil, fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
+		}
+		return t.logErrorText(ctx, id, at)
+	}
 	if !target.DropboxIDRE.MatchString(id) {
 		return nil, target.ErrCrashNotFound
 	}

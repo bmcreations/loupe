@@ -891,6 +891,9 @@
         },
         "target": {
           "type": "string"
+        },
+        "warning": {
+          "type": "string"
         }
       },
       "required": [

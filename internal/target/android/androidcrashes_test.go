@@ -148,7 +148,9 @@ func writeFakeDropboxADB(t *testing.T, files map[string]string) string {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "fake-adb")
+	// logcat finds no JS or Dart errors: a real one prints nothing.
 	script := "#!/bin/sh\n" +
+		"case \"$*\" in *logcat*) exit 0;; esac\n" +
 		"for a; do tag=$a; done\n" +
 		"if [ -f \"" + dir + "/$tag.txt\" ]; then cat \"" + dir + "/$tag.txt\"; else cat \"" + dir + "/empty\"; fi\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {

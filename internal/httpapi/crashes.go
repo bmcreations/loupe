@@ -16,10 +16,13 @@ const (
 	maxCrashLimit     = 200
 )
 
-// CrashList is GET /api/crashes's answer.
+// CrashList is GET /api/crashes's answer. Warning is set when the device
+// log could not be read: the crash reports are listed and the JS and Dart
+// errors are not.
 type CrashList struct {
 	Target  string               `json:"target"`
 	Crashes []target.CrashReport `json:"crashes"`
+	Warning string               `json:"warning,omitempty"`
 }
 
 // crashQuery reads GET /api/crashes's parameters. since is parsed as
@@ -78,9 +81,13 @@ func (s *Server) handleCrashes(w http.ResponseWriter, r *http.Request) {
 	}
 	start := time.Now()
 	list, err := c.Crashes(r.Context(), q)
-	s.traceInputWith(r, t.ID(), "crashes", inputCaller{}, err, map[string]any{
-		"count": len(list), "tookMs": time.Since(start).Milliseconds(),
-	})
+	fields := map[string]any{"count": len(list), "tookMs": time.Since(start).Milliseconds()}
+	var warning string
+	if skipped := (*target.LogSkippedError)(nil); errors.As(err, &skipped) {
+		warning, err = skipped.Error(), nil
+		fields["warning"] = warning
+	}
+	s.traceInputWith(r, t.ID(), "crashes", inputCaller{}, err, fields)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 		return
@@ -88,7 +95,7 @@ func (s *Server) handleCrashes(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []target.CrashReport{}
 	}
-	writeJSON(w, http.StatusOK, CrashList{Target: t.ID(), Crashes: list})
+	writeJSON(w, http.StatusOK, CrashList{Target: t.ID(), Crashes: list, Warning: warning})
 }
 
 // handleCrash serves /api/crashes/{id}: the report as it was written. An

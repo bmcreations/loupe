@@ -786,21 +786,35 @@ Android.
 
 | Param | Effect |
 |---|---|
-| `limit` | Last N reports. Default 20. |
+| `limit` | The newest N crash reports, and the newest N JS and Dart errors. Default 20. |
 | `since` | Reports since then. Takes what logcat's `since` does. |
+
+`limit` applies to the crash reports and to the JS and Dart errors each, so
+a listing holds up to twice `limit` rows. An app that logs an error in a loop
+cannot push a crash report out of the listing.
 
 Each row has `id`, `kind`, `time`, `process`, `bundleID` (empty for a daemon),
 `version`, `build`, `pid` and `summary` (`EXC_CRASH (SIGABRT), Abort trap: 6`).
 
+The answer is `{"target", "crashes"}`. When the device log cannot be read
+for JS and Dart errors, it is still 200 with the crash reports, and a
+`warning` says the log's rows are missing and why:
+`"warning": "JS and Dart errors not listed: logcat: ..."`. That covers a
+logcat that fails, one that refuses an option and prints no log line, and a
+simulator log read that takes over 10 s. A listing without `warning` is
+whole. Any other failure is 502 `{"error"}`.
+
 `GET /api/crashes/<id>?target=<id>` returns one report as `text/plain`. An id
-that belongs to another target, or does not exist, is 404. On iOS the id is a
-UUID.
+that belongs to another target, or does not exist, is 404. An iOS report's id
+is a UUID, an Android one's is its dropbox tag and millis
+(`data_app_crash-1795524584382`), and a JS or Dart error's is its kind and
+epoch micros (`jsError-1795524584382140`).
 
 | Platform | Reports | `kind` |
 |---|---|---|
-| iOS simulator | Host crash reports for that simulator. Works on a shut-down simulator. | `crash` |
+| iOS simulator | Host crash reports for that simulator. Works on a shut-down simulator. JS and Dart errors from its log while it is booted. | `crash`, `jsError`, `dartError` |
 | Physical iPhone | Copied off the device and cached under `~/Library/Caches/loupe/ios-crashes/<udid>`. Analytics, Jetsam and spindump files are skipped. | `crash` |
-| Android | The device's dropbox: app and system crashes, native crashes and ANRs. | `crash`, `nativeCrash`, `anr` |
+| Android | The device's dropbox: app and system crashes, native crashes and ANRs. JS and Dart errors from its log. | `crash`, `nativeCrash`, `anr`, `jsError`, `dartError` |
 
 A report appears well after the crash, tens of seconds on a simulator.
 SIGKILL leaves none. On Android, `time` is the entry's epoch time, `bundleID`
@@ -808,6 +822,55 @@ is the package, and `build` and `version` are its versionCode and versionName.
 A call resumes a paused emulator. Dropbox lives under `/data`, so without
 `emulatorKeepState` a boot from `loupe-warm` discards every report since it
 was saved. Synthetic answers 501.
+
+#### JS and Dart errors
+
+A `jsError` or `dartError` row is an error the app reported in the device
+log: a React Native redbox or uncaught JS error, or a Dart exception in
+Flutter. In a dev build neither ends the process, so neither writes a crash
+report. In a release build a fatal JS error ends the process and can log the
+same line first. Its crash report is listed, and the `jsError` row is dropped
+when a report with the same `pid` comes at most 5 s after it. A simulator's
+report takes tens of seconds to appear, and until it does the `jsError` row
+is listed on its own. loupe finds these rows in the device log when the call
+is made, by what each runtime prints for one:
+
+| `kind` | What matches |
+|---|---|
+| `jsError` | An error-level message that is one Error as React Native's console prints it: `[Error: message]` or `[TypeError: message]`, or, for an Error with properties of its own, `{ [Error: message] code: 'E_X' }`. Every error thrown while rendering has a `componentStack`, so it comes in that second form, and so does one with a custom `name`, whatever the name is. ReactNativeJS at `E` on Android, `com.facebook.react.log` `javascript` at Error or Fault on iOS. React Native's ExceptionsManager logs this line when it reports an uncaught Error and shows the redbox. |
+| `dartError` | Flutter's `[ERROR:flutter/...] Unhandled Exception: ...`, the framework's `══╡ EXCEPTION CAUGHT BY ... ╞═` block up to its closing line, or `Another exception was thrown: ...`, which the framework prints in its place for each error after the first. |
+
+`console.warn`, React's `Warning: ...` messages, and any other text logged at
+error level are not listed. An app's own `console.error(err)` with an Error
+object prints the same line as an uncaught error, and is listed the same way.
+
+Most Dart errors in a Flutter debug build are not listed. An error the
+framework catches, such as a throw in `onPressed` or in `build`, goes to the
+Dart VM service as a `Flutter.Error` event, which `flutter run` and DevTools
+show, and nothing reaches the device log. loupe does not read the VM service.
+Only an uncaught async error, `[ERROR:flutter/...] Unhandled Exception: ...`,
+is listed from a debug build. Building with
+`--dart-define=flutter.inspector.structuredErrors=false` sends caught errors
+to the log as the `EXCEPTION CAUGHT BY` block, which is listed. In a profile
+or release build the first caught error prints as its message and stack with
+no banner, which is not listed, and each later one prints
+`Another exception was thrown: ...`, which is.
+
+`summary` is at most 300 bytes: the error's first line, such as
+`Error: message` or `Unhandled Exception: Bad state: message`, or for
+Flutter's block its header and the error's first line,
+`EXCEPTION CAUGHT BY GESTURE: Bad state: message`. `version` and `build` are empty.
+`bundleID` stays after the app quits: on Android it is the package that owns
+the line's uid, and on a simulator it is read from the app's `Info.plist`. On
+Android, `process` is empty once that process has exited. The report is the
+error's lines as the log printed them, with the Dart stack where Flutter
+logged one. React Native logs no stack on this line.
+
+The rows last only as long as the log does. Android reads the main buffer,
+256 KiB on an emulator, so how far back it reaches depends on how much the
+device logs, and `logcat -c` empties it. A simulator reads the last hour, or
+from `since`. A read that takes over 10 s lists the crash reports with a
+`warning`; pass a later `since`.
 
 ## Device settings and presets
 
