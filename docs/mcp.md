@@ -111,7 +111,9 @@ host instead.
   process.
 - The first driving call on a target claims it, `uninstall` included. `install` claims only with `launch`. Reads claim nothing. If
   another agent holds the claim, the call fails with `claimedBy`, and the next
-  call tries again.
+  call tries again. If another loupe server on the Mac keeps the claims lock
+  for 5 seconds, it fails with 503 `claimLockBusy` and drives nothing; the
+  next call tries again too.
 - On exit each claim is released: when the client hangs up, and on SIGINT,
   SIGTERM or SIGHUP (a closed terminal, or a tmux pane killed or respawned).
   A tool call still in flight, such as a `flags` wait, does not hold that
@@ -135,7 +137,8 @@ message. The model sees a tag like:
 ```
 
 and is told to act when `to_you` or `held_by_you` is set, or nobody holds the
-target. `claimed_by` alone can't say that, because every Claude Code
+target through that server ([agent-api.md](agent-api.md#claims)). `claimed_by`
+alone can't say that, because every Claude Code
 session's agent name is `claude`.
 
 - A flag with `to` is pushed only to that session, marked `to_you`. Every
