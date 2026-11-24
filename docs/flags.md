@@ -55,6 +55,10 @@ Reading:
   long-polls for the next change; `?id=` reads one in full. The server keeps 32.
 - `GET /api/flags/shot?id=&which=start|end` is the PNG.
 
+Clearing: `DELETE /api/flags?id=` removes one flag and `DELETE /api/flags?target=`
+every flag on a target ([agent-api.md](agent-api.md)). Deleting an unread
+interrupt lifts it.
+
 `GET /api/flags/listeners?target=` is who would hear a flag raised now:
 
 - Each session long-polling `/api/flags` (`waitMs`), now or in the last 5s,

@@ -60,6 +60,7 @@ Common refusals on routes that change a device:
 | `GET /api/lan` | Addresses on the local network, and the key to check there |
 | `GET /api/version` | The running server's version |
 | `GET`, `POST /api/feedback` | An agent's report on loupe itself |
+| `DELETE /api/flags` | Delete one flag by `?id=`, or every flag on a `?target=` |
 | `GET`, `POST`, `DELETE /api/overlays` | Images and boxes over the video |
 | `GET`, `POST /api/extensions` | Extension registry and proxy |
 | `GET`, `POST`, `DELETE /api/claims` | Claims |
@@ -922,6 +923,28 @@ from `sending` to `sent` or `failed`:
 
 `GET /api/feedback` lists the kept reports, oldest first; `?id=` reads one.
 The server itself acts on nothing a report says.
+
+### `DELETE /api/flags?id=<n>`, `DELETE /api/flags?target=<id>`
+
+Removes flags from the server's list, which otherwise only a restart clears
+([flags.md](flags.md)). Give exactly one of:
+
+- `?id=` deletes that flag. An id the server does not hold, including one
+  already deleted, is 404 `no flag <n>; the server keeps the last 32`, as
+  `GET /api/flags?id=` answers.
+- `?target=` deletes every flag on that target. A target with no flags, or one
+  loupe does not know, deletes none and still answers 200, so clearing can be
+  repeated.
+
+Both, neither, or an `id` that is not a number is 400; nothing is deleted.
+
+The body is `{"deleted": <count>}`. Deleting an interrupt flag the agent has
+not read lifts the interrupt: the agent's next input no longer answers
+`interrupted`. A watch still open is dropped without capturing its end screen.
+A long-poll on `GET /api/flags?waitMs=` is not woken by a delete and never
+returns a deleted flag. Files already written to disk for a flag sent to a
+program or T3 Code are not removed; they age out with the newest 32. The same
+token as every other `/api/*` route is required.
 
 ### `/api/overlays?target=<id>`
 

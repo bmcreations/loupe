@@ -135,6 +135,7 @@ var endpoints = []endpoint{
 	{"GET /api/flags one", dirResponse, httpapi.Flag{}},
 	{"POST /api/flags request", dirRequest, httpapi.FlagRequest{}},
 	{"POST /api/flags 200", dirResponse, httpapi.Flag{}},
+	{"DELETE /api/flags", dirResponse, httpapi.DeleteFlagsResponse{}},
 	{"POST /api/flags/end request", dirRequest, httpapi.FlagEndRequest{}},
 	{"POST /api/flags/end 200", dirResponse, httpapi.Flag{}},
 	{"GET /api/flags/listeners", dirResponse, httpapi.FlagListenersResponse{}},

@@ -411,6 +411,32 @@ func (st *flagStore) get(id uint64) *storedFlag {
 	return nil
 }
 
+// removeLocked drops every flag keep reports false for, stopping the timers of
+// those still watching and lifting any interrupt gate that named them. It
+// returns what it dropped. It does not wake waiters: a delete revises no
+// flag, so nothing is newer than what a waiter has already seen. Called with
+// mu held.
+func (st *flagStore) removeLocked(drop func(*storedFlag) bool) []*storedFlag {
+	var gone []*storedFlag
+	kept := st.flags[:0]
+	for _, f := range st.flags {
+		if !drop(f) {
+			kept = append(kept, f)
+			continue
+		}
+		if f.timer != nil {
+			f.timer.Stop()
+		}
+		if g, ok := st.interrupts[f.Target]; ok && g.id == f.ID {
+			delete(st.interrupts, f.Target)
+		}
+		gone = append(gone, f)
+	}
+	clear(st.flags[len(kept):])
+	st.flags = kept
+	return gone
+}
+
 // list returns the flags revised after after, oldest first, without their
 // UI trees, and the store's revision. target filters when not empty.
 func (st *flagStore) list(after uint64, targetID string) FlagsResponse {
@@ -458,10 +484,60 @@ func flagShotPath(f *storedFlag, which int) string {
 	return fmt.Sprintf("/api/flags/shot?id=%d&which=%s", f.ID, name)
 }
 
-// handleFlags lists flags (GET) and takes a new one (POST).
+// DeleteFlagsResponse is DELETE /api/flags: how many flags it removed.
+type DeleteFlagsResponse struct {
+	Deleted int `json:"deleted"`
+}
+
+// deleteFlags removes one flag (?id=) or every flag on a target (?target=).
+// Exactly one is required. An unknown id is a 404, as reading it is; a target
+// with no flags deletes none and succeeds, so clearing is repeatable.
+func (s *Server) deleteFlags(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	idv, targetID := q.Get("id"), q.Get("target")
+	if (idv == "") == (targetID == "") {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "give exactly one of ?id= (a flag) or ?target= (every flag on a target)"})
+		return
+	}
+	var drop func(*storedFlag) bool
+	var id uint64
+	if idv != "" {
+		var err error
+		if id, err = strconv.ParseUint(idv, 10, 64); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "id must be a flag id"})
+			return
+		}
+		drop = func(f *storedFlag) bool { return f.ID == id }
+	} else {
+		drop = func(f *storedFlag) bool { return f.Target == targetID }
+	}
+	s.flags.mu.Lock()
+	gone := s.flags.removeLocked(drop)
+	s.flags.mu.Unlock()
+	if idv != "" && len(gone) == 0 {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("no flag %d; the server keeps the last %d", id, maxFlags)})
+		return
+	}
+	for _, f := range gone {
+		// A watching interrupt pinned the hold; its end would have released it.
+		if f.Watching && f.viewer != 0 {
+			if sess, ok := s.mgr.Session(f.Target); ok {
+				sess.UnpinHold()
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, DeleteFlagsResponse{Deleted: len(gone)})
+}
+
+// handleFlags lists flags (GET), takes a new one (POST) and deletes them
+// (DELETE).
 func (s *Server) handleFlags(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
 		s.listFlags(w, r)
+		return
+	case http.MethodDelete:
+		s.deleteFlags(w, r)
 		return
 	}
 	t, ok := s.agentTarget(w, r)
