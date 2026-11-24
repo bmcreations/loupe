@@ -177,6 +177,12 @@ func pidForApp(list, bundle string) int {
 // --start takes "YYYY-MM-DD HH:MM:SS" with an optional zone and no
 // fractional seconds, so since is rounded down to the second; a dump with
 // since is trimmed to its lines by the handler either way.
+//
+// --info brings in the Info lines show and stream both leave out by
+// default; React Native logs console.log at Info. Debug stays out: the store
+// does not keep it, so a dump never has it, and on a React Native dev build
+// it took a follow from 1,788 entries to 4,591, every added one from Apple's
+// frameworks.
 func simLogArgs(q target.LogcatQuery, pid int, window time.Duration) []string {
 	style := "compact"
 	if q.Format == LogFormatNDJSON {
@@ -191,6 +197,7 @@ func simLogArgs(q target.LogcatQuery, pid int, window time.Duration) []string {
 	default:
 		args = []string{"show", "--style", style, "--last", fmt.Sprintf("%ds", int(window/time.Second))}
 	}
+	args = append(args, "--info")
 	if pid > 0 {
 		args = append(args, "--predicate", fmt.Sprintf("processID == %d", pid))
 	}
