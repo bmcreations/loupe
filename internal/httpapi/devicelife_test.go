@@ -746,7 +746,7 @@ func bootClaimServer(t *testing.T) (*Server, *lifeTarget, *time.Time) {
 	s.claims = newClaimBook(nil)
 	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	s.claims.now = func() time.Time { return now }
-	if _, holder := s.claims.take("avd:a", "a", "s1", ""); holder != nil {
+	if _, holder, _ := s.claims.take("avd:a", "a", "s1", ""); holder != nil {
 		t.Fatalf("claim refused: %+v", holder)
 	}
 	return s, lt, &now
@@ -824,7 +824,11 @@ func TestABootHoldsOnlyTheHoldersClaim(t *testing.T) {
 	if w := doRecord(s, http.MethodPost, "/api/devices/boot?target=avd:a", b); w.Code != http.StatusConflict {
 		t.Fatalf("other agent's boot = %d %s; want 409", w.Code, w.Body.String())
 	}
-	s.claims.hold("avd:a", "b", "s2")()
+	if unhold, err := s.claims.hold("avd:a", "b", "s2"); err != nil {
+		t.Fatal(err)
+	} else {
+		unhold()
+	}
 	s.claims.mu.Lock()
 	holds := s.claims.claims["avd:a"].holds
 	s.claims.mu.Unlock()
@@ -946,7 +950,7 @@ func TestListingCarriesStartSavedAt(t *testing.T) {
 func TestBootAfterAPersonsShutdownIsThePersonsDespiteAClaim(t *testing.T) {
 	s, lt := newLifeServer(t, "avd:a", nil)
 	s.claims = newClaimBook(nil)
-	if _, holder := s.claims.take("avd:a", "a", "s1", ""); holder != nil {
+	if _, holder, _ := s.claims.take("avd:a", "a", "s1", ""); holder != nil {
 		t.Fatalf("claim refused: %+v", holder)
 	}
 	sess, err := s.mgr.Acquire(t.Context(), "avd:a")

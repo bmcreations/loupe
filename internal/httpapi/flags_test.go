@@ -294,7 +294,7 @@ func TestDeletingAnUnreadInterruptIsRefused(t *testing.T) {
 		for _, q := range []string{"?id=2", "?target=dev1"} {
 			s, _ := newFlagServer(t)
 			s.claims = newClaimBook(nil)
-			if _, refused := s.claims.take("dev1", "claude", "s1", ""); refused != nil {
+			if _, refused, _ := s.claims.take("dev1", "claude", "s1", ""); refused != nil {
 				t.Fatalf("claim refused: %+v", refused)
 			}
 			holder := inputCaller{agent: "claude", session: "s1"}
@@ -483,7 +483,7 @@ func TestFlagListenersAreTheSessionsWaiting(t *testing.T) {
 func TestAnInterruptStopsTheHolderUntilItReadsTheEnd(t *testing.T) {
 	s, _ := newFlagServer(t)
 	s.claims = newClaimBook(nil)
-	if _, refused := s.claims.take("dev1", "claude", "s1", ""); refused != nil {
+	if _, refused, _ := s.claims.take("dev1", "claude", "s1", ""); refused != nil {
 		t.Fatalf("claim refused: %+v", refused)
 	}
 	holder := inputCaller{agent: "claude", session: "s1"}

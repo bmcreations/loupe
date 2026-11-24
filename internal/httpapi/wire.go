@@ -117,6 +117,13 @@ const ErrCodeClaimed = "claimedBy"
 // other agent's claim answers ErrCodeClaimed instead.
 const ErrCodeClaimLapsed = "claimLapsed"
 
+// ErrCodeClaimLockBusy is the 503 for a claim, a release or a boot by the
+// holder when another loupe server on the machine has held the claims file's
+// lock for claimLockWait, as a server stopped mid-change does. Nothing was
+// claimed, released or booted. Retry-After says when to try again; the lock is
+// free once that server goes on or exits.
+const ErrCodeClaimLockBusy = "claimLockBusy"
+
 // ErrCodeHandsOff is the 409 every agent gets for input on a target the
 // person has marked hands off. It lasts until they clear it.
 const ErrCodeHandsOff = "handsOff"

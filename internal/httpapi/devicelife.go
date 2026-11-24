@@ -380,6 +380,18 @@ func (s *Server) handleDeviceBoot(w http.ResponseWriter, r *http.Request) {
 	if !s.arbitrate(w, r, id, "boot", c) {
 		return
 	}
+	// A wait can outlast the claim's lease, and the caller makes no other
+	// call while it waits, so the boot holds the caller's claim until it ends.
+	// The hold comes first, so a boot refused because another server keeps
+	// the claims lock has started nothing.
+	unhold, herr := s.claims.hold(id, c.agent, c.session)
+	if herr != nil {
+		s.traceInputWith(r, id, "boot", c, herr, map[string]any{"outcome": "refused", "code": ErrCodeClaimLockBusy})
+		if !lockBusy(w, herr) {
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: herr.Error()})
+		}
+		return
+	}
 	s.startTarget(true, id)
 
 	platform := "android"
@@ -388,9 +400,6 @@ func (s *Server) handleDeviceBoot(w http.ResponseWriter, r *http.Request) {
 	}
 	wasRunning := !ti.BootsOnOpen
 	began := time.Now()
-	// A wait can outlast the claim's lease, and the caller makes no other
-	// call while it waits, so the boot holds the caller's claim until it ends.
-	unhold := s.claims.hold(id, c.agent, c.session)
 	if wait == 0 && !wasRunning {
 		s.bootInBackground(w, r, id, st, c, began, unhold)
 		return
