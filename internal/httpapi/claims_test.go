@@ -478,6 +478,48 @@ func TestAHoldFromADeadServerEnds(t *testing.T) {
 	}
 }
 
+// Once another server gives the claim to someone else, the holder's own
+// server goes by the file: a renewal it has not saved yet, or a hold still
+// running on it, does not keep the claim there.
+func TestTheFileDecidesWhoHoldsAClaim(t *testing.T) {
+	takenOver := func(t *testing.T, a, b *claimBook) {
+		t.Helper()
+		if _, holder := b.take("avd:x", "claude", "s2", ""); holder != nil {
+			t.Fatalf("b refused s2 after the lapse: holder %+v", holder)
+		}
+		if e := a.refusal("avd:x", "claude", "s1"); e == nil || e.Code != ErrCodeClaimed {
+			t.Fatalf("a's refusal of the old holder = %+v, want claimedBy", e)
+		}
+		if _, holder := a.take("avd:x", "claude", "s1", ""); holder == nil || holder.Session != "s2" {
+			t.Fatalf("a let the old holder take it back: holder %+v", holder)
+		}
+		if got := a.list(); len(got) != 1 || got[0].Session != "s2" {
+			t.Fatalf("a lists %+v, want s2's claim", got)
+		}
+	}
+
+	t.Run("unsaved renewal", func(t *testing.T) {
+		a, b, now, _ := twoServers(t)
+		a.take("avd:x", "claude", "s1", "")
+		*now = now.Add(claimSaveEvery / 2)
+		a.seen("avd:x", "claude", "s1") // newer than the file, not written
+		*now = now.Add(claimLease - claimSaveEvery/4)
+		takenOver(t, a, b)
+	})
+
+	t.Run("hold past its bound", func(t *testing.T) {
+		a, b, now, _ := twoServers(t)
+		a.take("avd:x", "claude", "s1", "")
+		unhold := a.hold("avd:x", "claude", "s1")
+		*now = now.Add(claimHoldMax)
+		takenOver(t, a, b)
+		unhold()
+		if got := b.list(); len(got) != 1 || got[0].Session != "s2" {
+			t.Fatalf("the old hold's end changed b's claim: %+v", got)
+		}
+	})
+}
+
 // Calls through one server keep a claim taken through another, and a lapse
 // one server notices is told to the holder on every server.
 func TestALeaseIsSharedAcrossServers(t *testing.T) {
