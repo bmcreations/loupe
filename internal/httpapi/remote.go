@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bmcreations/loupe/internal/target/firebase"
 )
 
 // Remote devices are Firebase Device Streaming reservations, made through
@@ -47,11 +47,6 @@ const (
 	// remoteMaxExtend is the most one extend call may add. A larger number
 	// is far more likely a client bug than a wish.
 	remoteMaxExtend = 30
-)
-
-var (
-	validProject  = regexp.MustCompile(`^[a-z][a-z0-9-]{4,29}$`)
-	validCodename = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$`)
 )
 
 // RemoteInfo marks a target row as a remote reservation.
@@ -98,14 +93,6 @@ type RemoteReservation struct {
 	// began. A reserve has no id of its own until the CLI returns, so a
 	// start after a quit in that window releases whatever is not in here.
 	Before []string `json:"before,omitempty"`
-}
-
-// RemoteModel is one reservable device and the API levels it comes with.
-type RemoteModel struct {
-	Manufacturer string `json:"manufacturer"`
-	Model        string `json:"model"`
-	Codename     string `json:"codename"`
-	APIs         []int  `json:"apis"`
 }
 
 // RemoteDevices makes and ends reservations through the android CLI.
@@ -256,10 +243,10 @@ func newRemoteKey() string {
 // Reserve starts a reservation and returns its key. One runs at a time: the
 // CLI's connect step picks the adb port, and two at once have not been tried.
 func (r *RemoteDevices) Reserve(project, codename string, api int, model string) (string, error) {
-	if !validProject.MatchString(project) {
+	if !firebase.ValidProject(project) {
 		return "", errors.New("project is not a Google Cloud project id")
 	}
-	if !validCodename.MatchString(codename) || api <= 0 {
+	if !firebase.ValidCodename(codename) || api <= 0 {
 		return "", errors.New("device must be a codename and an API level")
 	}
 	if !r.Installed() {
@@ -320,28 +307,28 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 	}
 	r.mu.Unlock()
 	out, stderr, runErr := r.exec(ctx, "device", "remote", "create", "--connect", "--project="+project, codename+"/"+strconv.Itoa(api))
-	res := parseRemoteCreate(string(out) + "\n" + string(stderr))
+	res := firebase.ParseCreate(string(out) + "\n" + string(stderr))
 
 	r.mu.Lock()
 	it := r.findLocked(key)
 	now := r.now()
-	it.Reservation = res.id
+	it.Reservation = res.ID
 	failure := ""
 	switch {
-	case res.id != "" && res.port > 0:
+	case res.ID != "" && res.Port > 0:
 		it.State, it.ActiveAt = remoteActive, now
-		it.Target = "localhost:" + strconv.Itoa(res.port)
-		it.ExpiresAt = resolveClock(res.expires, now)
+		it.Target = "localhost:" + strconv.Itoa(res.Port)
+		it.ExpiresAt = firebase.ResolveClock(res.Expires, now)
 	default:
-		failure = remoteFailure(string(out), string(stderr), runErr)
+		failure = firebase.Failure(string(out), string(stderr), runErr)
 		it.State, it.Reason, it.Error, it.EndedAt = remoteEnded, "failed", failure, now
-		it.APIDisabled = isAPIDisabled(string(out) + string(stderr))
+		it.APIDisabled = firebase.APIDisabled(string(out) + string(stderr))
 		if it.Reservation != "" {
 			// Reserved but never connected: it bills until it expires
 			// unless the release goes through.
 			it.State = remoteReleasing
-			if res.expires != "" {
-				it.ExpiresAt = resolveClock(res.expires, now)
+			if res.Expires != "" {
+				it.ExpiresAt = firebase.ResolveClock(res.Expires, now)
 			}
 		}
 	}
@@ -365,8 +352,8 @@ func (r *RemoteDevices) create(key, project, codename string, api int) {
 func (r *RemoteDevices) held(ctx context.Context, project string) ([]string, error) {
 	out, err := r.listProject(ctx, project)
 	ids := []string{}
-	for _, row := range parseRemoteList(out) {
-		ids = append(ids, row.id)
+	for _, row := range firebase.ParseList(out) {
+		ids = append(ids, row.ID)
 	}
 	return ids, err
 }
@@ -377,24 +364,12 @@ func (r *RemoteDevices) held(ctx context.Context, project string) ([]string, err
 func (r *RemoteDevices) listProject(ctx context.Context, project string) (string, error) {
 	out, stderr, err := r.exec(ctx, "device", "remote", "list", "--project="+project)
 	if err != nil {
-		return "", errors.New(remoteFailure(string(out), string(stderr), err))
+		return "", errors.New(firebase.Failure(string(out), string(stderr), err))
 	}
-	if !strings.Contains(string(out), "No reservations found") && !reListHeader.Match(out) {
+	if !firebase.IsList(string(out)) {
 		return "", errors.New("the CLI printed no reservation list")
 	}
 	return string(out), nil
-}
-
-// listsID reports whether any line of a list starts with id. It reads the raw
-// line, not parseRemoteList's row, so a row with a column missing still
-// counts as held.
-func listsID(out, id string) bool {
-	for _, line := range strings.Split(out, "\n") {
-		if f := strings.Fields(line); len(f) > 0 && f[0] == id {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *RemoteDevices) findLocked(key string) *RemoteReservation {
@@ -417,14 +392,14 @@ func (r *RemoteDevices) releaseAtGoogle(ctx context.Context, it *RemoteReservati
 	if err == nil {
 		return nil
 	}
-	failure := remoteFailure(string(out), string(stderr), err)
+	failure := firebase.Failure(string(out), string(stderr), err)
 	// "Could not find reservation" is the CLI's message for gRPC NOT_FOUND.
 	// "It has already ended" is its message for an ended reservation, seen
 	// in the connect path; what remove says for one is not on record.
 	if text := string(out) + string(stderr); strings.Contains(text, "Could not find reservation") || strings.Contains(text, "It has already ended") {
 		return nil
 	}
-	if list, lerr := r.listProject(ctx, it.Project); lerr == nil && !listsID(list, it.Reservation) {
+	if list, lerr := r.listProject(ctx, it.Project); lerr == nil && !firebase.ListsID(list, it.Reservation) {
 		return nil
 	}
 	// It cannot outlive its expiry. This also ends the retries for one
@@ -584,15 +559,15 @@ func (r *RemoteDevices) Extend(key string, minutes int) error {
 	defer cancel()
 	out, stderr, err := r.exec(ctx, "device", "remote", "extend", "--project="+cp.Project, "--duration="+strconv.Itoa(minutes), cp.Reservation)
 	if err != nil {
-		return errors.New(remoteFailure(string(out), string(stderr), err))
+		return errors.New(firebase.Failure(string(out), string(stderr), err))
 	}
 	// The new expiry is read back, not computed, so the timer shows what
 	// Google holds. If the read fails the old expiry plus the minutes stands.
 	expires := cp.ExpiresAt.Add(time.Duration(minutes) * time.Minute)
 	if out, _, err := r.exec(ctx, "device", "remote", "list", "--project="+cp.Project, cp.Reservation); err == nil {
-		for _, row := range parseRemoteList(string(out)) {
-			if row.id == cp.Reservation {
-				if t := resolveClock(row.expires, r.now()); !t.IsZero() {
+		for _, row := range firebase.ParseList(string(out)) {
+			if row.ID == cp.Reservation {
+				if t := firebase.ResolveClock(row.Expires, r.now()); !t.IsZero() {
 					expires = t
 				}
 			}
@@ -753,162 +728,6 @@ func (r *RemoteDevices) decorate(rows []TargetInfo) []TargetInfo {
 	return rows
 }
 
-// ---- reading the CLI ----
-
-type remoteCreated struct {
-	id      string
-	port    int
-	expires string
-}
-
-var (
-	reCreatedID = regexp.MustCompile(`New reservation created with id (\S+?)\.`)
-	reEndsAt    = regexp.MustCompile(`Reservation ends at (\d{1,2}:\d{2}[\s\x{a0}\x{202f}]*[AP]M)`)
-	rePort      = regexp.MustCompile(`Device connected on port (\d+)`)
-	reClock     = regexp.MustCompile(`^(\d{1,2}):(\d{2})[\s\x{a0}\x{202f}]*([AP]M)$`)
-	// Two or more plain spaces: the CLI writes "10:56\u202fAM" with a narrow
-	// no-break space, which must stay inside its column.
-	reColumns = regexp.MustCompile(` {2,}`)
-	// reListHeader is the first line of `device remote list` when the
-	// project holds anything.
-	reListHeader = regexp.MustCompile(`(?m)^\s*Reservation {2,}State {2,}`)
-	reAccount    = regexp.MustCompile(`(?m)^Logged in as (.+)$`)
-)
-
-func parseRemoteCreate(out string) remoteCreated {
-	var c remoteCreated
-	if m := reCreatedID.FindStringSubmatch(out); m != nil {
-		c.id = m[1]
-	}
-	if m := reEndsAt.FindStringSubmatch(out); m != nil {
-		c.expires = m[1]
-	}
-	if m := rePort.FindStringSubmatch(out); m != nil {
-		c.port, _ = strconv.Atoi(m[1])
-	}
-	return c
-}
-
-// resolveClock turns the CLI's "10:56 AM" into a time: that clock time today,
-// or tomorrow when today's is more than a minute past. Zero when unreadable.
-func resolveClock(clock string, now time.Time) time.Time {
-	m := reClock.FindStringSubmatch(strings.TrimSpace(clock))
-	if m == nil {
-		return time.Time{}
-	}
-	h, _ := strconv.Atoi(m[1])
-	min, _ := strconv.Atoi(m[2])
-	h %= 12
-	if m[3] == "PM" {
-		h += 12
-	}
-	t := time.Date(now.Year(), now.Month(), now.Day(), h, min, 0, 0, now.Location())
-	if t.Before(now.Add(-time.Minute)) {
-		t = t.AddDate(0, 0, 1)
-	}
-	return t
-}
-
-type remoteListRow struct {
-	id, state, expires, manufacturer, model, codename string
-	api                                               int
-}
-
-func parseRemoteList(out string) []remoteListRow {
-	var rows []remoteListRow
-	for _, line := range strings.Split(out, "\n") {
-		f := reColumns.Split(strings.TrimSpace(line), -1)
-		if len(f) < 7 || f[0] == "Reservation" {
-			continue
-		}
-		api, _ := strconv.Atoi(f[6])
-		rows = append(rows, remoteListRow{f[0], f[1], f[2], f[3], f[4], f[5], api})
-	}
-	return rows
-}
-
-func parseRemoteModels(out string) []RemoteModel {
-	var models []RemoteModel
-	maker := ""
-	for _, line := range strings.Split(out, "\n") {
-		body := strings.TrimLeft(line, "│├└─ \t")
-		if body == "" {
-			continue
-		}
-		indented := strings.HasPrefix(line, "│") || strings.HasPrefix(line, " ")
-		f := reColumns.Split(strings.TrimSpace(body), -1)
-		if !indented {
-			// "Google [37]"
-			if i := strings.LastIndex(body, " ["); i > 0 {
-				maker = body[:i]
-			}
-			continue
-		}
-		if len(f) < 2 || maker == "" {
-			continue
-		}
-		m := RemoteModel{Manufacturer: maker, Model: f[0]}
-		for _, pair := range f[1:] {
-			i := strings.LastIndex(pair, "/")
-			if i <= 0 {
-				continue
-			}
-			api, err := strconv.Atoi(pair[i+1:])
-			if err != nil {
-				continue
-			}
-			m.Codename = pair[:i]
-			m.APIs = append(m.APIs, api)
-		}
-		if m.Codename != "" {
-			sort.Sort(sort.Reverse(sort.IntSlice(m.APIs)))
-			models = append(models, m)
-		}
-	}
-	return models
-}
-
-func parseRemoteProjects(out string) []string {
-	projects := []string{}
-	listing := false
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "Projects available") {
-			listing = true
-			continue
-		}
-		if !listing {
-			continue
-		}
-		if f := strings.Fields(line); len(f) > 0 && validProject.MatchString(f[0]) {
-			projects = append(projects, f[0])
-		}
-	}
-	return projects
-}
-
-func isAPIDisabled(out string) bool {
-	return strings.Contains(out, "SERVICE_DISABLED") || strings.Contains(out, "has not been used in project") || strings.Contains(out, "it is disabled")
-}
-
-// remoteFailure picks the line worth showing from a failed CLI call.
-func remoteFailure(out, stderr string, runErr error) string {
-	for _, text := range []string{stderr, out} {
-		lines := strings.Split(strings.TrimSpace(text), "\n")
-		for _, l := range lines {
-			if l = strings.TrimSpace(l); strings.HasPrefix(l, "Error:") {
-				return strings.TrimSpace(strings.TrimPrefix(l, "Error:"))
-			}
-		}
-		if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
-			return last
-		}
-	}
-	if runErr != nil {
-		return runErr.Error()
-	}
-	return "the CLI finished without connecting a device"
-}
-
 // ---- HTTP ----
 
 // RemoteListResponse answers GET /api/remote and POST /api/remote/extend.
@@ -942,7 +761,7 @@ type ExtendRemoteRequest struct {
 
 // RemoteModelsResponse answers GET /api/remote/models.
 type RemoteModelsResponse struct {
-	Models []RemoteModel `json:"models"`
+	Models []firebase.Model `json:"models"`
 }
 
 // RemoteModelsError is the 502 body of GET /api/remote/models.
@@ -978,13 +797,13 @@ func (r *RemoteDevices) account(ctx context.Context) RemoteAccountResponse {
 		return acct
 	}
 	out, _, _ := r.exec(ctx, "auth", "status")
-	m := reAccount.FindStringSubmatch(string(out))
-	if m == nil {
+	account := firebase.ParseAccount(string(out))
+	if account == "" {
 		return acct
 	}
-	acct.SignedIn, acct.Account = true, strings.TrimSpace(m[1])
+	acct.SignedIn, acct.Account = true, account
 	if out, _, err := r.exec(ctx, "device", "remote", "projects"); err == nil {
-		acct.Projects = parseRemoteProjects(string(out))
+		acct.Projects = firebase.ParseProjects(string(out))
 	}
 	return acct
 }
@@ -1007,7 +826,7 @@ func (r *RemoteDevices) signIn() error {
 		r.mu.Unlock()
 		rec := map[string]any{"action": "signin"}
 		if err != nil {
-			rec["error"] = remoteFailure("", string(stderr), err)
+			rec["error"] = firebase.Failure("", string(stderr), err)
 		}
 		r.record(rec)
 	}()
@@ -1115,7 +934,7 @@ func (s *Server) handleRemoteAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, stderr, err := rd.exec(ctx, "auth", "logout"); err != nil {
-			http.Error(w, remoteFailure("", string(stderr), err), http.StatusBadGateway)
+			http.Error(w, firebase.Failure("", string(stderr), err), http.StatusBadGateway)
 			return
 		}
 		writeJSON(w, http.StatusOK, RemoteAccountResponse{Projects: []string{}})
@@ -1129,7 +948,7 @@ func (s *Server) handleRemoteModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	project := r.URL.Query().Get("project")
-	if !validProject.MatchString(project) {
+	if !firebase.ValidProject(project) {
 		http.Error(w, "project is not a Google Cloud project id", http.StatusBadRequest)
 		return
 	}
@@ -1140,11 +959,11 @@ func (s *Server) handleRemoteModels(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), remoteCallTimeout)
 	defer cancel()
 	out, stderr, err := rd.exec(ctx, "device", "remote", "models", "--project="+project)
-	models := parseRemoteModels(string(out))
+	models := firebase.ParseModels(string(out))
 	if err != nil || len(models) == 0 {
 		writeJSON(w, http.StatusBadGateway, RemoteModelsError{
-			Error:       remoteFailure(string(out), string(stderr), err),
-			APIDisabled: isAPIDisabled(string(out) + string(stderr)),
+			Error:       firebase.Failure(string(out), string(stderr), err),
+			APIDisabled: firebase.APIDisabled(string(out) + string(stderr)),
 		})
 		return
 	}
