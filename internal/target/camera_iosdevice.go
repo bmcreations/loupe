@@ -245,7 +245,7 @@ func (d *IOSDevice) readFromApp(ctx context.Context, bundle, rel string) ([]byte
 // emptyFile is a zero-byte file to copy over one on the phone: devicectl
 // has no way to delete a file. The shim reads an empty image as none.
 func emptyFile() (string, error) {
-	dir, err := cameraDir()
+	dir, err := CameraDir()
 	if err != nil {
 		return "", err
 	}
@@ -360,7 +360,7 @@ func (d *IOSDevice) cameraName() string { return "ios-" + d.Info().UDID }
 
 // stagedCamera is the phone's staged image on this Mac, or "".
 func (d *IOSDevice) stagedCamera() string {
-	path, err := cameraFile(d.cameraName())
+	path, err := CameraFile(d.cameraName())
 	if err != nil {
 		return ""
 	}
@@ -380,11 +380,11 @@ func (d *IOSDevice) SetCamera(ctx context.Context, png []byte) (CameraApplies, e
 	if _, err := loupecamPhoneShims(ctx); err != nil {
 		return "", err
 	}
-	path, err := cameraFile(d.cameraName())
+	path, err := CameraFile(d.cameraName())
 	if err != nil {
 		return "", err
 	}
-	if err := writeCameraFile(path, png); err != nil {
+	if err := WriteCameraFile(path, png); err != nil {
 		return "", err
 	}
 	return d.pushCamera(ctx, path)
@@ -393,7 +393,7 @@ func (d *IOSDevice) SetCamera(ctx context.Context, png []byte) (CameraApplies, e
 // ClearCamera implements CameraFeeder. Running apps with the shim see black;
 // the next launch of each is a plain one.
 func (d *IOSDevice) ClearCamera(ctx context.Context) (CameraApplies, error) {
-	path, err := cameraFile(d.cameraName())
+	path, err := CameraFile(d.cameraName())
 	if err != nil {
 		return "", err
 	}

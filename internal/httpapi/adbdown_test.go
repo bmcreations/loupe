@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -17,7 +19,7 @@ import (
 func TestAdbDownMakesAdbTargetsUnavailableAndSaysWhy(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.Register(newAVD("Pixel_10"))
-	m.SyncDevices([]target.DeviceInfo{acmeReady}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 
 	const fault = "adb track-devices: exit status 1: protocol fault (couldn't read status): Connection reset by peer"
 	m.SetADBDown(fault)

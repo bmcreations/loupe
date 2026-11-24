@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -95,7 +97,7 @@ func TestPresetsPersistAcrossLoad(t *testing.T) {
 }
 
 func TestPresetApplySkipsWhatTheDeviceLacks(t *testing.T) {
-	settings := append(sampleSettings(), target.Setting{ID: "talkBack", Type: target.SettingBool, Value: false, Supported: false})
+	settings := append(sampleSettings(), target.Setting{ID: "talkBack", Type: android.SettingBool, Value: false, Supported: false})
 	tgt := &settingsTarget{settings: settings}
 	s := presetsServer(t, tgt)
 	putPreset(t, s, `{"name":"Fold dark","settings":{"darkMode":true,"posture":"half-open","talkBack":true}}`)

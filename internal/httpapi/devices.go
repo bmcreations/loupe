@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -118,7 +120,7 @@ type DeviceCreatorConfig struct {
 	// when that scan began, so the new one becomes a target. It must skip
 	// names already registered, and names Unregister forgot after the scan
 	// began (Manager.RegisterScanned).
-	RegisterAVDs func(scannedAt time.Time, installed []target.AVD)
+	RegisterAVDs func(scannedAt time.Time, installed []android.AVD)
 	// Simcap is the built simcap helper. iOS is offered when it is set, which
 	// the caller does only once simctl lists simulators and simcap runs: a new
 	// simulator would not reach the picker otherwise.
@@ -134,8 +136,8 @@ type DeviceCreator struct {
 
 	// Seams; tests replace them.
 	run      func(ctx context.Context, env []string, name string, args ...string) (stdout, stderr []byte, err error)
-	images   func() []target.SystemImage
-	devices  func() ([]target.AVDDevice, error)
+	images   func() []android.SystemImage
+	devices  func() ([]android.AVDDevice, error)
 	runtimes func(ctx context.Context) ([]target.SimRuntime, error)
 	sizes    func(ctx context.Context, types []target.SimDeviceType) map[string]target.SimTypeInfo
 	listSims func(ctx context.Context) ([]target.SimInfo, error)
@@ -163,10 +165,10 @@ func NewDeviceCreator(cfg DeviceCreatorConfig) *DeviceCreator {
 		cfg:  cfg,
 		slot: &createSlot{},
 		run:  runTool,
-		images: func() []target.SystemImage {
-			return target.InstalledSystemImages(cfg.SDK)
+		images: func() []android.SystemImage {
+			return android.InstalledSystemImages(cfg.SDK)
 		},
-		devices:  func() ([]target.AVDDevice, error) { return target.AVDDevices(cfg.SDK) },
+		devices:  func() ([]android.AVDDevice, error) { return android.AVDDevices(cfg.SDK) },
 		runtimes: target.ListSimRuntimes,
 		sizes:    target.ReadSimTypeInfos,
 		listSims: target.ListSimulators,
@@ -245,7 +247,7 @@ func (c *DeviceCreator) androidPlatform() DevicePlatform {
 	// The files list oldest first; the picker wants the newest first.
 	devs = slices.Clone(devs)
 	slices.Reverse(devs)
-	slices.SortStableFunc(devs, func(a, b target.AVDDevice) int { return groupOrder[a.Group] - groupOrder[b.Group] })
+	slices.SortStableFunc(devs, func(a, b android.AVDDevice) int { return groupOrder[a.Group] - groupOrder[b.Group] })
 	used := map[string]bool{}
 	for _, img := range c.images() {
 		p.OS = append(p.OS, DeviceOS{ID: img.ID, Label: img.Label(), Detail: img.Detail()})
@@ -318,7 +320,7 @@ func (c *DeviceCreator) iosPlatform(ctx context.Context) DevicePlatform {
 
 func (c *DeviceCreator) existingAndroid() []string {
 	names := map[string]bool{}
-	if avds, err := target.ScanAVDs(c.cfg.AVDHome); err == nil {
+	if avds, err := android.ScanAVDs(c.cfg.AVDHome); err == nil {
 		for _, a := range avds {
 			names[a.Name] = true
 		}
@@ -559,7 +561,7 @@ func avdManagerSDK(avdmanager, fallback string) string {
 // appearing. It returns the new target's id, or why not.
 func (c *DeviceCreator) createAVD(ctx context.Context, req CreateDeviceRequest, extra map[string]any) (string, string) {
 	args := []string{"create", "avd", "-n", req.Name, "-k", req.OS, "-d", req.Device}
-	if target.SkinExists(avdManagerSDK(c.cfg.AVDManager, c.cfg.SDK), req.Device) {
+	if android.SkinExists(avdManagerSDK(c.cfg.AVDManager, c.cfg.SDK), req.Device) {
 		args = append(args, "--skin", req.Device)
 	}
 	// avdmanager reads ANDROID_AVD_HOME, unlike the android CLI, so the AVD
@@ -584,11 +586,11 @@ func (c *DeviceCreator) createAVD(ctx context.Context, req CreateDeviceRequest, 
 			set = append(set, [2]string{"PlayStore.enabled", "true"})
 		}
 	}
-	if err := target.PatchAVDConfig(dir, set); err != nil {
+	if err := android.PatchAVDConfig(dir, set); err != nil {
 		extra["patchError"] = err.Error()
 	}
 	scannedAt := time.Now()
-	installed, err := target.ScanAVDs(c.cfg.AVDHome)
+	installed, err := android.ScanAVDs(c.cfg.AVDHome)
 	if err != nil {
 		return "", "listing AVDs: " + err.Error()
 	}

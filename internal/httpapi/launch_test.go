@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
 )
@@ -35,7 +37,7 @@ func (f *launchTarget) Launch(ctx context.Context, pkg, activity string) (*targe
 }
 
 func (f *launchTarget) CheckLaunch(pkg, activity string) error {
-	if !target.ValidPackageName(pkg) {
+	if !android.ValidPackageName(pkg) {
 		return fmt.Errorf("%w: %q", target.ErrBadLaunchName, pkg)
 	}
 	return nil
@@ -100,8 +102,8 @@ func TestLaunchActionErrorCodes(t *testing.T) {
 		code   string
 	}{
 		{target.ErrAppNotInstalled, http.StatusNotFound, ErrCodeNotInstalled},
-		{target.ErrNoLaunchActivity, http.StatusUnprocessableEntity, ErrCodeNoLaunchActivity},
-		{target.ErrNoSuchActivity, http.StatusNotFound, ErrCodeNoSuchActivity},
+		{android.ErrNoLaunchActivity, http.StatusUnprocessableEntity, ErrCodeNoLaunchActivity},
+		{android.ErrNoSuchActivity, http.StatusNotFound, ErrCodeNoSuchActivity},
 		{target.ErrBadLaunchName, http.StatusBadRequest, ""},
 		{target.ErrDeviceUnreachable, http.StatusBadGateway, ""},
 	} {
@@ -237,7 +239,7 @@ func TestInstallPackageMismatchDoesNotLaunch(t *testing.T) {
 // The install is done whatever the launch says, so a launch that fails or
 // is held off is reported inside a 200.
 func TestInstallLaunchFailureKeepsTheInstall(t *testing.T) {
-	f := &launchTarget{androidTarget: androidTarget{id: "dev1"}, launchErr: target.ErrNoLaunchActivity}
+	f := &launchTarget{androidTarget: androidTarget{id: "dev1"}, launchErr: android.ErrNoLaunchActivity}
 	s := newLaunchServer(t, f)
 	s.aapt2 = fakeAAPT2(t, "com.example.pr")
 	resp := installLaunch(t, s, "&launch=1", nil)

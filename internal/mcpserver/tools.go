@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/bmcreations/loupe/internal/httpapi"
@@ -305,7 +307,7 @@ func addTools(s *mcp.Server, c *Client) {
 		func(in keyIn) (string, httpapi.InputRequest) {
 			return in.Target, httpapi.InputRequest{Action: "key", Keycode: in.Keycode}
 		})
-	addInput(s, c, "button", "Press a device button by name: "+strings.Join(target.ButtonNames(), ", ")+"."+driving,
+	addInput(s, c, "button", "Press a device button by name: "+strings.Join(android.ButtonNames(), ", ")+"."+driving,
 		func(in buttonIn) (string, httpapi.InputRequest) {
 			return in.Target, httpapi.InputRequest{Action: "button", Button: in.Button}
 		})

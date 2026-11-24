@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -1157,13 +1159,13 @@ func TestRevylAgentInputEndsWithTheStream(t *testing.T) {
 	g.in.close()
 	select {
 	case err := <-done:
-		if !errors.Is(err, target.ErrNoSession) {
+		if !errors.Is(err, android.ErrNoSession) {
 			t.Fatalf("PressKey across a close = %v, want ErrNoSession", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("PressKey still waiting after the stream closed")
 	}
-	if err := g.in.agentKey(context.Background(), target.KeycodeHome); !errors.Is(err, target.ErrNoSession) {
+	if err := g.in.agentKey(context.Background(), target.KeycodeHome); !errors.Is(err, android.ErrNoSession) {
 		t.Fatalf("PressKey on a closed stream = %v, want ErrNoSession", err)
 	}
 }
@@ -1193,11 +1195,11 @@ func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
 			"TypeText": act.TypeText(ctx, "x"),
 			"PressKey": act.PressKey(ctx, target.KeycodeHome),
 		} {
-			if !errors.Is(err, target.ErrNoSession) || !strings.Contains(err.Error(), "viewer") {
+			if !errors.Is(err, android.ErrNoSession) || !strings.Contains(err.Error(), "viewer") {
 				t.Fatalf("%s %s = %v, want ErrNoSession saying to open a viewer", name, when, err)
 			}
 		}
-		if _, _, err := sizer.ScreenSize(ctx); !errors.Is(err, target.ErrNoSession) {
+		if _, _, err := sizer.ScreenSize(ctx); !errors.Is(err, android.ErrNoSession) {
 			t.Fatalf("ScreenSize %s = %v, want ErrNoSession", when, err)
 		}
 	}

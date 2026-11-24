@@ -25,11 +25,11 @@ const (
 	simcapRemoteMaxSize byte = 0x85
 )
 
-// remoteTrackWanted decides whether to start simcap with -remote. The
+// RemoteTrackWanted decides whether to start simcap with -remote. The
 // LOUPE_REMOTE_TRACK environment variable overrides what simcap's -caps said:
 // "off" (or 0, false, no) never, "on" (1, true, yes) even for a build that
 // does not list "remote" there.
-func remoteTrackWanted(capAdvertised bool) bool {
+func RemoteTrackWanted(capAdvertised bool) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOUPE_REMOTE_TRACK"))) {
 	case "off", "0", "false", "no":
 		return false

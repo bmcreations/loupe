@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	scrcpyserver "github.com/bmcreations/loupe/internal/scrcpy/server"
 	"github.com/bmcreations/loupe/internal/target"
 )
@@ -73,7 +75,7 @@ func main() {
 	serial := flag.Arg(0)
 	ctx := context.Background()
 
-	adb := target.ADB{Path: "adb"}
+	adb := android.ADB{Path: "adb"}
 	devices, err := adb.Devices(ctx)
 	if err != nil {
 		fmt.Println("devices:", err)
@@ -84,10 +86,10 @@ func main() {
 		fmt.Println("materialize:", err)
 		os.Exit(1)
 	}
-	var tgt *target.ADBTarget
+	var tgt *android.ADBTarget
 	for _, d := range devices {
 		if d.Serial == serial {
-			tgt = target.NewADBTarget(adb, d, jar, scrcpyserver.Version)
+			tgt = android.NewADBTarget(adb, d, jar, scrcpyserver.Version)
 		}
 	}
 	if tgt == nil {

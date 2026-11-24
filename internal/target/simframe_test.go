@@ -226,7 +226,7 @@ func TestSimFrameGeometrySizesASmallChromeByItsRim(t *testing.T) {
 	if f.Width != 2109 || f.Height != 2955 || f.Display != (FrameRect{X: 51, Y: 51, Width: 2007, Height: 2853}) {
 		t.Errorf("frame %+v", f)
 	}
-	up := f.turned(ch.turns)
+	up := f.Turned(ch.turns)
 	if up.Width != 2955 || up.Height != 2109 || up.Display.Width != 2853 || up.Display.Height != 2007 {
 		t.Errorf("turned %+v", up)
 	}

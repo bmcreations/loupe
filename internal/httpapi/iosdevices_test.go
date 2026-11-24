@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
 )
@@ -58,7 +60,7 @@ func TestIOSDeviceSyncsAreIndependentOfTheOthers(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
 	m.SyncSimulators([]target.SimInfo{simProbe}, "")
-	m.SyncDevices([]target.DeviceInfo{acmeReady}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 	m.SyncDevices(nil, buildADB)
 	m.SyncSimulators(nil, "")
 	if !infoFor(t, m, "ios:"+iphoneWiFi.UDID).Available {
@@ -79,7 +81,7 @@ func TestIOSDevicesListAfterAndroidDevicesAndBeforeEmulators(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.SyncSimulators([]target.SimInfo{simProbe}, "")
 	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
-	m.SyncDevices([]target.DeviceInfo{acmeReady}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 
 	var kinds []string
 	for _, ti := range m.Targets(context.Background()) {

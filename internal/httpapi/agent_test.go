@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
 	"github.com/bmcreations/loupe/internal/target/revyl"
@@ -2047,7 +2049,7 @@ func TestHardwareKeyboardNeedsADirection(t *testing.T) {
 // target's state rather than a failed device.
 func TestHardwareKeyboardWithNoSessionIs409(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.Register(&fakeRotatorTarget{id: "dev1", keyboardErr: target.ErrNoSession})
+	m.Register(&fakeRotatorTarget{id: "dev1", keyboardErr: android.ErrNoSession})
 	s := &Server{mgr: m}
 	if rec := postInput(s, "dev1", `{"action":"hardwareKeyboard","on":true}`); rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
@@ -2256,7 +2258,7 @@ func TestAgentPhoneDeliveryUnknownIsA503WithItsOwnCode(t *testing.T) {
 func TestAgentRejectedTouchIsAConflictWithACode(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.Register(&fakeAgentTarget{id: "dev1", screenW: 1080, screenH: 2400,
-		tapErr: fmt.Errorf("input tap: %w: Invalid DOWN event - pointers already down", target.ErrTouchRejected)})
+		tapErr: fmt.Errorf("input tap: %w: Invalid DOWN event - pointers already down", android.ErrTouchRejected)})
 	s := &Server{mgr: m}
 	rec := postInput(s, "dev1", `{"action":"tap","x":10,"y":20}`)
 	if rec.Code != http.StatusConflict {
@@ -2350,7 +2352,7 @@ func TestAgentKeyTheTargetCannotPressIs501(t *testing.T) {
 // "input failed".
 func TestAgentTextKeepsFixedNoSessionAndNeedsTapWords(t *testing.T) {
 	const secret = "hunter2-secret"
-	noSession := target.NoSessionError("open this device in a viewer first")
+	noSession := android.NoSessionError("open this device in a viewer first")
 	for _, tc := range []struct {
 		name string
 		err  error

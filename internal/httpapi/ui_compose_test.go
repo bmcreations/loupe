@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -90,7 +92,7 @@ func TestUIComposeAnnotatesThePrunedTree(t *testing.T) {
 func TestUIComposeErrorKeepsTheTree(t *testing.T) {
 	ft := &fakeComposeTarget{
 		fakeInspectorTarget: fakeInspectorTarget{id: "dev1", ui: messageRowUI()},
-		dumpErr:             fmt.Errorf("com.example: %w", target.ErrNotDebuggable),
+		dumpErr:             fmt.Errorf("com.example: %w", android.ErrNotDebuggable),
 	}
 	w, resp := getUI(t, ft, "&compose=1")
 	if w.Code != http.StatusOK {

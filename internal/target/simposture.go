@@ -242,7 +242,7 @@ func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (
 	if len(changes) == 0 {
 		return nil, nil, fmt.Errorf("%w: no changes given", ErrInvalidSetting)
 	}
-	if err := rejectPostureWithHinge(changes); err != nil {
+	if err := RejectPostureWithHinge(changes); err != nil {
 		return nil, nil, err
 	}
 	var want string
@@ -255,8 +255,8 @@ func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (
 				return nil, nil, fmt.Errorf("%w: posture: %v is not one of %v", ErrInvalidSetting, v, simPostureOptions)
 			}
 			want = str
-		case hingeAngleID:
-			deg, err := parseHingeAngle(v)
+		case HingeAngleID:
+			deg, err := ParseHingeAngle(v)
 			if err != nil {
 				return nil, nil, fmt.Errorf("%w: %s", ErrInvalidSetting, err)
 			}
@@ -270,7 +270,7 @@ func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (
 	}
 	if hinge >= 0 {
 		if _, err := s.hinge.Set(ctx, hinge, s.sendHinge); err != nil {
-			return []string{hingeAngleID}, nil, err
+			return []string{HingeAngleID}, nil, err
 		}
 		return nil, nil, nil
 	}
@@ -288,7 +288,7 @@ func (s *Simulator) ApplySettings(ctx context.Context, changes map[string]any) (
 
 // WriteHingeAngle implements HingeWriter.
 func (s *Simulator) WriteHingeAngle(ctx context.Context, v any) (int, error) {
-	deg, err := parseHingeAngle(v)
+	deg, err := ParseHingeAngle(v)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s", ErrInvalidSetting, err)
 	}

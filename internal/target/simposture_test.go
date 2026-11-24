@@ -48,7 +48,7 @@ func TestDuoOffersThreePosturesAndFolds(t *testing.T) {
 		t.Fatalf("Settings = %+v, %v", got, err)
 	}
 	// Before any write the angle is the one the lit panel's posture sends.
-	if h := got[1]; h.ID != hingeAngleID || h.Value != 180.0 || *h.Min != 0 || *h.Max != 180 || *h.Step != 1 {
+	if h := got[1]; h.ID != HingeAngleID || h.Value != 180.0 || *h.Min != 0 || *h.Max != 180 || *h.Step != 1 {
 		t.Fatalf("hingeAngle = %+v", h)
 	}
 	if failed, _, err := s.ApplySettings(ctx, map[string]any{"posture": "closed"}); err != nil || failed != nil {
@@ -80,7 +80,7 @@ func TestDuoHingeAngleSendsTheAngleAndReadsItBack(t *testing.T) {
 	ctx := t.Context()
 
 	for _, deg := range []float64{0, 45, 120} {
-		if failed, _, err := s.ApplySettings(ctx, map[string]any{hingeAngleID: deg}); err != nil || failed != nil {
+		if failed, _, err := s.ApplySettings(ctx, map[string]any{HingeAngleID: deg}); err != nil || failed != nil {
 			t.Fatalf("hinge %v: failed %v, %v", deg, failed, err)
 		}
 	}
@@ -99,9 +99,9 @@ func TestDuoRefusesABadHingeAngleBeforeSendingAnything(t *testing.T) {
 	s := NewSimulator(SimInfo{UDID: "u", Name: "loupe-duo", State: "Booted"}, bin)
 	defer s.input().close()
 	for name, changes := range map[string]map[string]any{
-		"a fraction":     {hingeAngleID: 12.5},
-		"too far":        {hingeAngleID: 200.0},
-		"with a posture": {hingeAngleID: 90.0, "posture": "closed"},
+		"a fraction":     {HingeAngleID: 12.5},
+		"too far":        {HingeAngleID: 200.0},
+		"with a posture": {HingeAngleID: 90.0, "posture": "closed"},
 	} {
 		if _, _, err := s.ApplySettings(t.Context(), changes); !errors.Is(err, ErrInvalidSetting) {
 			t.Errorf("%s = %v, want ErrInvalidSetting", name, err)
@@ -226,7 +226,7 @@ done
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if failed, _, err := s.ApplySettings(ctx, map[string]any{hingeAngleID: 120.0}); err != nil || failed != nil {
+	if failed, _, err := s.ApplySettings(ctx, map[string]any{HingeAngleID: 120.0}); err != nil || failed != nil {
 		t.Fatalf("hingeAngle: failed %v, %v", failed, err)
 	}
 	if err := <-posture; err != nil {
@@ -291,13 +291,13 @@ done
 	}
 	opened := put(map[string]any{"posture": "opened"})
 	waitQueued(t, &s.hinge, simHingeDegrees["opened"])
-	angle := put(map[string]any{hingeAngleID: 99.0})
+	angle := put(map[string]any{HingeAngleID: 99.0})
 	waitQueued(t, &s.hinge, 99)
 
 	if r := <-closed; r.err != nil {
 		t.Fatalf("closed: %v", r.err)
 	}
-	if r := <-angle; r.err == nil || !slices.Equal(r.failed, []string{hingeAngleID}) {
+	if r := <-angle; r.err == nil || !slices.Equal(r.failed, []string{HingeAngleID}) {
 		t.Fatalf("hingeAngle = %+v, want it failed", r)
 	}
 	if r := <-opened; r.err == nil || !strings.Contains(r.err.Error(), "stuck") || !slices.Equal(r.failed, []string{"posture"}) {
