@@ -42,6 +42,7 @@ Common refusals on routes that change a device:
 | `POST /api/sequence` | Several input steps in one request |
 | `POST /api/drop` | Paste an image into a simulator text field |
 | `POST /api/install` | Install an APK or split set, or an iOS app |
+| `DELETE /api/install` | Uninstall an Android app |
 | `POST /api/media` | Add a photo or video to the device library |
 | `POST`, `DELETE /api/camera` | Feed the back camera an image, or an AVD one of the Mac's cameras |
 | `GET /api/camera/sources` | The Mac cameras an AVD can use as its back camera |
@@ -342,6 +343,7 @@ refused with `INSTALL_FAILED_MISSING_SPLIT`.
 | Param | Effect |
 |---|---|
 | `allowTest=1` | Allows `android:testOnly` APKs, which is what Android Studio's Run produces. Without it: `INSTALL_FAILED_TEST_ONLY`. |
+| `downgrade=1` | Passes `-d`, so an APK with a lower `versionCode` replaces the installed one. The package manager allows it only for a debuggable app; a release build is still refused, and the 422 `hint` says to uninstall first. Android only. |
 | `launch=1` | Launches the installed package afterwards. |
 | `package=` | Names the package when `aapt2` is not available. |
 
@@ -349,7 +351,7 @@ refused with `INSTALL_FAILED_MISSING_SPLIT`.
 |---|---|
 | 400 | A part is not a zip (the error names it). |
 | 413 | Upload over 1 GiB. |
-| 422 | The package manager refused. The response has adb's output and the `INSTALL_FAILED_*` code split out. |
+| 422 | The package manager refused. The response has adb's output and the `INSTALL_FAILED_*` code split out. `INSTALL_FAILED_VERSION_DOWNGRADE` adds a `hint`: retry with `downgrade=1` (debuggable app) or uninstall first. |
 
 Any `Failure [...]` line fails the install whatever adb's exit status, and so
 does a zero exit with no `Success` line.
@@ -366,7 +368,8 @@ stays the install's**: the APK is on the device whatever the launch says.
 **On an iPhone or a simulator** the body is one `.ipa`, or a zipped `.app`
 (Finder's Compress, or `ditto -c -k --keepParent Name.app Name.zip`). Two file
 parts are a 400. `package` is the bundle ID from the app's `Info.plist`, so
-`launch=1` works the same way; `allowTest` and `package=` do nothing.
+`launch=1` works the same way; `allowTest` and `package=` do nothing, and
+`downgrade=1` is a 400 `code: "unsupported"`, answered before the body is read.
 
 ```sh
 curl --data-binary @Name.ipa "$URL/api/install?target=ios:$UDID&launch=1"
@@ -384,6 +387,26 @@ curl --data-binary @Name.ipa "$URL/api/install?target=ios:$UDID&launch=1"
   422 with `code: "simctlInstall"`.
 - An archive with no `.app`, two of them, or an entry or link that leaves the
   bundle is a 400.
+
+### `DELETE /api/install?target=<id>&package=<name>`
+
+Removes an Android app and its data (`pm uninstall`). This is the way past an
+`INSTALL_FAILED_VERSION_DOWNGRADE` that `downgrade=1` cannot fix. It reuses
+`/api/install` rather than adding `/api/uninstall`: one resource, and the
+install route's package and target parameters already mean the same thing.
+
+Unlike an install it destroys state, so it is claimed and held like `/api/input`: another
+agent's claim, hands off and a person using the device are each a 409 before
+anything reaches the device. It is recorded in the event trace as
+`action: "uninstall"` with the package and outcome.
+
+| Status | Meaning |
+|---|---|
+| 200 | `{target, ok, package, output, tookMs}` |
+| 400 | `package` is not a package name, or the target is an iOS simulator or iPhone (`code: "unsupported"`; remove the app on the device). |
+| 404 | `code: "notInstalled"`. |
+| 409 | Claimed by another agent, hands off, or held by a person. |
+| 422 | The package manager refused (a device-policy app, say). `code` is the `DELETE_FAILED_*` reason. |
 
 ### `POST /api/media?target=<id>`
 
@@ -1019,7 +1042,7 @@ agent, a claim's holder included. Input answers 409 `code: "handsOff"` with no
 retry time. The mark is saved to `handsoff.json` beside the config file and
 survives a restart.
 
-The shutdown, delete and install `?launch=1` routes go through the same check
+The shutdown, delete, uninstall and install `?launch=1` routes go through the same check
 as `/api/input`. Reads are never refused.
 
 When more than one applies, an agent is told hands off first, then another

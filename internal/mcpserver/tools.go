@@ -49,6 +49,7 @@ var toolRoutes = []toolRoute{
 	{"crashes", http.MethodGet, "/api/crashes"},
 	{"crash", http.MethodGet, "/api/crashes/"},
 	{"install", http.MethodPost, "/api/install"},
+	{"uninstall", http.MethodDelete, "/api/install"},
 	{"camera", http.MethodPost, "/api/camera"},
 	{"drop", http.MethodPost, "/api/drop"},
 	{"boot", http.MethodPost, "/api/devices/boot"},
@@ -215,6 +216,12 @@ type installIn struct {
 	Paths     []string `json:"paths" jsonschema:"APK files on the Mac running loupe mcp: one APK, or a base and its splits"`
 	AllowTest bool     `json:"allowTest,omitempty" jsonschema:"allow an APK marked testOnly, as Android Studio's Run builds are"`
 	Launch    bool     `json:"launch,omitempty" jsonschema:"open the app once it is installed"`
+	Downgrade bool     `json:"downgrade,omitempty" jsonschema:"allow a lower versionCode than the installed one (adb install -d). Works only for a debuggable app; a 422 hint says to uninstall first otherwise"`
+}
+
+type uninstallIn struct {
+	Targeted
+	Package string `json:"package" jsonschema:"the Android package name to remove, e.g. com.example.app"`
 }
 
 type cameraIn struct {
@@ -355,7 +362,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "install",
-		Description: "Android only: install APKs read from this Mac's disk, where loupe mcp runs, not the agent's. Pass a base and its splits together for an App Bundle build. With launch, opening the app is claimed and arbitrated like the input tools.",
+		Description: "Android only: install APKs read from this Mac's disk, where loupe mcp runs, not the agent's. Pass a base and its splits together for an App Bundle build. A lower versionCode than the installed one is refused (INSTALL_FAILED_VERSION_DOWNGRADE): retry with downgrade for a debuggable app, or uninstall first. With launch, opening the app is claimed and arbitrated like the input tools.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in installIn) (*mcp.CallToolResult, any, error) {
 		if len(in.Paths) == 0 {
 			return errResult(fmt.Errorf("paths: at least one APK")), nil, nil
@@ -368,6 +375,9 @@ func addTools(s *mcp.Server, c *Client) {
 		if in.AllowTest {
 			q.Set("allowTest", "1")
 		}
+		if in.Downgrade {
+			q.Set("downgrade", "1")
+		}
 		send := func() (json.RawMessage, error) {
 			b, _, err := c.do(ctx, http.MethodPost, "/api/install", q, ct, bytes.NewReader(body))
 			return b, err
@@ -377,6 +387,17 @@ func addTools(s *mcp.Server, c *Client) {
 		}
 		q.Set("launch", "1")
 		return jsonResult(c.drive(ctx, in.Target, send))
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "uninstall",
+		Description: "Android only: remove an installed app and its data, which is the way past a downgrade a release build refuses. Claimed and arbitrated like the input tools. 404 notInstalled when the package is not on the device.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in uninstallIn) (*mcp.CallToolResult, any, error) {
+		q := url.Values{"target": {in.Target}, "package": {in.Package}}
+		return jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
+			b, _, err := c.do(ctx, http.MethodDelete, "/api/install", q, "", nil)
+			return b, err
+		}))
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

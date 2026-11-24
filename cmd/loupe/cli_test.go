@@ -93,6 +93,8 @@ func TestParseCLIArgs(t *testing.T) {
 		{"swipe", []string{"avd:P", "1", "2", "3", "4", "-ms", "300"}, `map[ms:300 target:avd:P x:1 x2:3 y:2 y2:4]`},
 		{"ui", []string{"avd:P", "--interactive"}, `map[interactive:true target:avd:P]`},
 		{"install", []string{"avd:P", "a.apk", "b.apk", "-launch"}, `map[launch:true paths:[a.apk b.apk] target:avd:P]`},
+		{"install", []string{"avd:P", "a.apk", "-downgrade"}, `map[downgrade:true paths:[a.apk] target:avd:P]`},
+		{"uninstall", []string{"avd:P", "com.example.app"}, `map[package:com.example.app target:avd:P]`},
 		{"type", []string{"avd:P", "--", "-hello"}, `map[target:avd:P text:-hello]`},
 		{"tap", []string{"-server", "https://x", "avd:P", "-5", "7"}, `map[target:avd:P x:-5 y:7]`},
 		{"flags", nil, `map[]`},

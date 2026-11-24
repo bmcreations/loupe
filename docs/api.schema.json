@@ -15,6 +15,12 @@
     "DELETE /api/extensions": {
       "$ref": "#/$defs/httpapi.OKResponse"
     },
+    "DELETE /api/install 200": {
+      "$ref": "#/$defs/httpapi.UninstallResponse"
+    },
+    "DELETE /api/install 422": {
+      "$ref": "#/$defs/httpapi.UninstallResponse"
+    },
     "DELETE /api/overlays": {
       "$ref": "#/$defs/httpapi.OverlayDeleteResponse"
     },
@@ -3492,6 +3498,9 @@
         "code": {
           "type": "string"
         },
+        "hint": {
+          "type": "string"
+        },
         "launch": {
           "anyOf": [
             {
@@ -5079,6 +5088,38 @@
         "height",
         "rotation",
         "nodes"
+      ],
+      "type": "object"
+    },
+    "httpapi.UninstallResponse": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "output": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "tookMs": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target",
+        "ok",
+        "package",
+        "tookMs"
       ],
       "type": "object"
     },

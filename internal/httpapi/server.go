@@ -302,7 +302,7 @@ var routes = []route{
 	{"/api/screenshot", []string{http.MethodGet}, (*Server).handleScreenshot, ""},
 	{"/api/record", []string{http.MethodGet, http.MethodPost}, (*Server).handleRecord, ""},
 	{"/api/record/", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleRecordItem, ""},
-	{"/api/install", []string{http.MethodPost}, (*Server).handleInstall, ""},
+	{"/api/install", []string{http.MethodPost, http.MethodDelete}, (*Server).handleInstall, ""},
 	{"/api/media", []string{http.MethodPost}, (*Server).handleMedia, ""},
 	{"/api/drop", []string{http.MethodPost}, (*Server).handleDrop, ""},
 	{"/api/camera", []string{http.MethodPost, http.MethodDelete}, (*Server).handleCamera, ""},

@@ -1373,6 +1373,9 @@ type InstallResponse struct {
 	// gave one; PackageError then says why.
 	Package      string `json:"package,omitempty"`
 	PackageError string `json:"packageError,omitempty"`
+	// Hint says what to do next when the refusal has a known way past it,
+	// which Output and Reason, being adb's own text, do not.
+	Hint string `json:"hint,omitempty"`
 	// Launch is present when ?launch=1 asked to open the app. It is a
 	// separate verdict: the install above stands whatever it says.
 	Launch *LaunchResponse `json:"launch,omitempty"`
@@ -1400,6 +1403,10 @@ type LaunchResponse struct {
 // the response's launch object with a 200, because the APK is on the device
 // either way and a 409 or 502 would read as the install failing.
 func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		s.handleUninstall(w, r)
+		return
+	}
 	began := time.Now()
 	t, ok := s.agentTarget(w, r)
 	if !ok {
@@ -1410,6 +1417,16 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if !ok && !isIOS {
 		writeJSON(w, http.StatusNotImplemented, ErrorResponse{
 			Error: fmt.Sprintf("target %q cannot install an app", t.ID()),
+		})
+		return
+	}
+	// -d is an adb flag; simctl and devicectl have no equivalent, so an iOS
+	// target is told so before a byte of the archive is staged.
+	downgrade := r.URL.Query().Get("downgrade") == "1"
+	if downgrade && isIOS {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error: fmt.Sprintf("target %q cannot take downgrade=1: it is Android only (adb install -d). Drop it", t.ID()),
+			Code:  ErrCodeUnsupported,
 		})
 		return
 	}
@@ -1459,7 +1476,7 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		s.installIOS(w, r, t, appInst, ctx, apks[0], body.n, began)
 		return
 	}
-	opts := target.InstallOptions{AllowTest: r.URL.Query().Get("allowTest") == "1"}
+	opts := target.InstallOptions{AllowTest: r.URL.Query().Get("allowTest") == "1", Downgrade: downgrade}
 	res, err := inst.Install(ctx, apks, opts)
 	resp := InstallResponse{Target: t.ID(), Bytes: body.n, TookMs: time.Since(began).Milliseconds()}
 	rec := map[string]any{
@@ -1468,6 +1485,9 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	if opts.AllowTest {
 		rec["allowTest"] = true
+	}
+	if opts.Downgrade {
+		rec["downgrade"] = true
 	}
 	switch refused, isRefused := target.IsInstallRefused(err); {
 	case err == nil:
@@ -1486,10 +1506,104 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		rec["outcome"], rec["code"] = "refused", refused.Code
 		s.trace.Record(rec)
 		resp.Output, resp.Code, resp.Reason = refused.Output, refused.Code, refused.Reason
+		resp.Hint = installHint(refused.Code, opts.Downgrade)
 		writeJSON(w, http.StatusUnprocessableEntity, resp)
 	default:
 		rec["outcome"], rec["err"] = "error", err.Error()
 		s.trace.Record(rec)
+		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
+	}
+}
+
+// installHint names the way past a refusal that has one. A lower versionCode
+// is the case that sent callers to raw adb: -d fixes it for a debuggable app
+// and nothing but an uninstall fixes it for any other.
+func installHint(code string, downgrade bool) string {
+	if code != "INSTALL_FAILED_VERSION_DOWNGRADE" {
+		return ""
+	}
+	if downgrade {
+		return "downgrade=1 was sent and the package manager still refused, so the installed app is not debuggable. Uninstall it first with DELETE /api/install?target=<id>&package=<name> (app data is lost), then install again"
+	}
+	return "the APK's versionCode is lower than the installed one. Retry with downgrade=1 if the installed app is debuggable, or uninstall it first with DELETE /api/install?target=<id>&package=<name> (app data is lost)"
+}
+
+// UninstallResponse is what DELETE /api/install answers.
+type UninstallResponse struct {
+	Target  string `json:"target"`
+	OK      bool   `json:"ok"`
+	Package string `json:"package"`
+	Output  string `json:"output,omitempty"`
+	// Code is the package manager's DELETE_FAILED_* reason on a 422.
+	Code   string `json:"code,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	TookMs int64  `json:"tookMs"`
+}
+
+// handleUninstall is DELETE /api/install?target=&package=: remove an Android
+// app and its data. It is the way past a downgrade a release build refuses.
+// Unlike an install it destroys state, so it is claimed and held like a tap:
+// another agent's claim, a hands-off mark and a person using the device each
+// refuse it with a 409 before anything reaches the device.
+func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
+	began := time.Now()
+	t, ok := s.agentTarget(w, r)
+	if !ok {
+		return
+	}
+	// Each refusal no retry can change comes before arbitration, so a claim
+	// or a hold never hides it.
+	un, ok := t.(target.Uninstaller)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error: fmt.Sprintf("target %q cannot uninstall an app through loupe: Android only", t.ID()),
+			Code:  ErrCodeUnsupported,
+		})
+		return
+	}
+	pkg := r.URL.Query().Get("package")
+	if !target.ValidPackageName(pkg) {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error: fmt.Sprintf("?package= must be an Android package name such as com.example.app, got %q", pkg),
+		})
+		return
+	}
+	c := s.inputCaller(r, t.ID())
+	if !s.arbitrate(w, r, t.ID(), "uninstall", c) {
+		return
+	}
+	s.awake.Touch(agentAwake)
+	ctx, cancel := context.WithTimeout(r.Context(), installTimeout)
+	defer cancel()
+	res, err := un.Uninstall(ctx, pkg)
+	resp := UninstallResponse{Target: t.ID(), Package: pkg, TookMs: time.Since(began).Milliseconds()}
+	rec := map[string]any{
+		"kind": "agent", "target": t.ID(), "action": "uninstall",
+		"ua": r.UserAgent(), "package": pkg, "tookMs": resp.TookMs,
+	}
+	c.annotate(rec)
+	refused, isRefused := target.IsInstallRefused(err)
+	switch {
+	case err == nil:
+		rec["outcome"] = "ok"
+		s.trace.Record(rec)
+		s.agentActed(t.ID(), "uninstall", c)
+		resp.OK, resp.Output = true, res.Output
+		writeJSON(w, http.StatusOK, resp)
+	case errors.Is(err, target.ErrAppNotInstalled):
+		rec["outcome"] = "notInstalled"
+		s.trace.Record(rec)
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: err.Error(), Code: "notInstalled"})
+	case isRefused:
+		rec["outcome"], rec["code"] = "refused", refused.Code
+		s.trace.Record(rec)
+		s.agentFailed(t.ID(), "uninstall", c)
+		resp.Output, resp.Code, resp.Reason = refused.Output, refused.Code, refused.Reason
+		writeJSON(w, http.StatusUnprocessableEntity, resp)
+	default:
+		rec["outcome"], rec["err"] = "error", err.Error()
+		s.trace.Record(rec)
+		s.agentFailed(t.ID(), "uninstall", c)
 		writeJSON(w, http.StatusBadGateway, ErrorResponse{Error: err.Error()})
 	}
 }

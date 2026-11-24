@@ -27,6 +27,11 @@ type InstallOptions struct {
 	// android:testOnly, and the package manager refuses one without it
 	// (INSTALL_FAILED_TEST_ONLY); `gradlew assembleDebug` does not.
 	AllowTest bool
+	// Downgrade passes -d, which lets a lower versionCode replace the
+	// installed one. The package manager honours it only for a debuggable
+	// app; a release build is still refused with
+	// INSTALL_FAILED_VERSION_DOWNGRADE and has to be uninstalled first.
+	Downgrade bool
 }
 
 // InstallResult is what adb printed for an install that succeeded.
@@ -72,6 +77,9 @@ func (t *ADBTarget) Install(ctx context.Context, apks []string, opts InstallOpti
 	args := []string{"-s", t.info.Serial, verb, "-r"}
 	if opts.AllowTest {
 		args = append(args, "-t")
+	}
+	if opts.Downgrade {
+		args = append(args, "-d")
 	}
 	out, runErr := exec.CommandContext(ctx, t.adb.bin(), append(args, apks...)...).CombinedOutput()
 	return parseInstall(string(out), runErr)
