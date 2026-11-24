@@ -180,6 +180,23 @@ func TestDeviceLogErrorsNameTheAppByUID(t *testing.T) {
 	}
 }
 
+// An Error with properties prints over several lines, and logcat gives each
+// line the message's header. The lines are one message and one row.
+func TestDeviceListsABracedJSErrorPrintedOverSeveralLines(t *testing.T) {
+	h := "  1795524490.276100 10233  4551  4551 E ReactNativeJS: "
+	dump := h + "{ [Error: sample-js: thrown during render]\n" +
+		h + "  componentStack: '\\n    at Boom (http://localhost:8081/index.bundle//&platform=android&dev=true:122:20)\\n    at RCTView (<anonymous>)' }\n"
+	adb, _ := writeFakeLogcatADB(t, []byte(dump), "", samplePackages)
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	list, err := tgt.Crashes(context.Background(), target.CrashQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Kind != target.KindJSError || list[0].Summary != "Error: sample-js: thrown during render" {
+		t.Fatalf("crashes = %+v", list)
+	}
+}
+
 // The dropbox's crashes and the log's errors are one listing, newest
 // first, with the limit applied to each.
 func TestDeviceCrashesMergesTheDropboxAndTheLog(t *testing.T) {
