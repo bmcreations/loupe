@@ -65,6 +65,22 @@ func TestCallExtensionDefaultsToGetAtTheRoot(t *testing.T) {
 	}
 }
 
+// docs/mcp.md says the path is decoded once and then checked, so one layer of
+// encoding is a plain character, not a refusal.
+func TestCallExtensionDecodesThePathOnce(t *testing.T) {
+	fake := &fakeLoupe{}
+	cs, stop := connect(t, fake)
+	for _, p := range []string{"a%2Fb", "x%2Etxt"} {
+		if res := call(t, cs, "call_extension", map[string]any{"name": "slipway", "path": p}); res.IsError {
+			t.Errorf("%s: %s", p, text(res))
+		}
+	}
+	stop()
+	if got := strings.Join(fake.requests(), "\n"); got != "GET /api/ext/slipway/a/b\nGET /api/ext/slipway/x.txt" {
+		t.Errorf("requests %q", got)
+	}
+}
+
 func TestCallExtensionRefusesAnEscapeWithoutARequest(t *testing.T) {
 	bad := []map[string]any{
 		{"name": "slipway", "path": "../claims"},

@@ -44,9 +44,11 @@ type and body as text, whatever the status, so a 404 from the extension
 arrives with its body and is not a tool error. A redirect is not followed: it
 comes back with its `Location`, which names a path on loupe, not on the
 extension, when it starts with `/`. Bodies over 64 KiB are cut and
-say so; non-text bodies are not shown. A bad extension name, a path with `.`
-or `..` segments, an encoded dot or slash, a leading `//` or a URL, and any
-other method are refused without a request. Neither tool takes a `target`, so
+say so; non-text bodies are not shown. The path is percent-decoded once
+before it is checked, so `a%2Fb` is sent as `a/b` and `%2e%2e` counts as
+`..`. A bad extension name, a path with `.` or `..` segments, a second layer
+of encoding such as `%252e`, a leading `//` or a URL, and any other method
+are refused without a request. Neither tool takes a `target`, so
 neither claims a device.
 
 ## Feedback
