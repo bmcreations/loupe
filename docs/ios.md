@@ -88,7 +88,7 @@ between the page's bottom edge and Safari's toolbar did not open from a tap.
 A web view smaller than a grid cell, about 100x109 points on iPhone 18 Pro,
 can fall between the points. Page nodes never carry `focused`, since WebKit
 calls every one of them focused. Only Safari has been measured. Needs simcap
-with bmcreations/simcap#17.
+with bmcreations/simcap#17, and bmcreations/simcap#18 for the `occluded` page nodes.
 
 A dump takes 90-100ms on the Home Screen, about 50ms of it the web page
 grid, since open wallpaper leaves most grid points to test, and under a
