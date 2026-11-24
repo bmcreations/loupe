@@ -700,7 +700,7 @@ func (r *adbRemote) sendLocked(src *remoteSource, f target.Frame) {
 
 // remoteLauncher starts second sessions on t at the main session's GOP. The
 // track is always H.264, since the session reads its codec from an SPS.
-func (t *ADBTarget) remoteLauncher(opts target.Options) remoteLauncher {
+func (t *Device) remoteLauncher(opts target.Options) remoteLauncher {
 	return func(ctx context.Context, l remoteLaunch) (target.RemoteSession, error) {
 		sess, err := scrcpy.Launch(ctx, scrcpy.Config{
 			ADBPath:             t.adb.Path,

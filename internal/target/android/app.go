@@ -15,19 +15,19 @@ import (
 // version, pid or path that cannot be read is left zero rather than failing
 // the whole request, because a caller after "what is on screen" still gets an
 // answer from a device where `pm path` is slow or `pidof` is missing.
-func (t *ADBTarget) ForegroundApp(ctx context.Context) (*target.App, error) {
+func (t *Device) ForegroundApp(ctx context.Context) (*target.App, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
 	return newAndroidApp(t).ForegroundApp(ctx)
 }
 
-// androidApp is the pure logic behind ADBTarget's AppInfo, kept separate so
+// androidApp is the pure logic behind Device's AppInfo, kept separate so
 // it can be tested with a fake shellFunc instead of a device, the same shape
 // androidSettings uses.
 type androidApp struct{ sh shellFunc }
 
-func newAndroidApp(t *ADBTarget) *androidApp {
+func newAndroidApp(t *Device) *androidApp {
 	return &androidApp{sh: func(ctx context.Context, args ...string) (string, error) {
 		return t.adb.Shell(ctx, t.info.Serial, args...)
 	}}

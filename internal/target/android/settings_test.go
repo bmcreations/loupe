@@ -1020,11 +1020,11 @@ func TestApplySettingsRollbackRestoresRawValuesNotBoolRoundedOnes(t *testing.T) 
 	}
 }
 
-// item 5: ApplySettings is serialized per ADBTarget via settingsMu. A fake
+// item 5: ApplySettings is serialized per Device via settingsMu. A fake
 // adb binary sleeps 50ms and logs a start/end timestamp pair (keyed by its
 // own subprocess PID, so two concurrent invocations are distinguishable)
 // around every command it "runs". Two ApplySettings calls fired at the same
-// ADBTarget from separate goroutines must show no overlap between their
+// Device from separate goroutines must show no overlap between their
 // command intervals: the mutex must hold for the whole call, not just one
 // command within it.
 func TestADBTargetSerializesApplySettings(t *testing.T) {
@@ -1041,7 +1041,7 @@ func TestADBTargetSerializesApplySettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	target := NewADBTarget(ADB{Path: fakeAdb}, DeviceInfo{Serial: "fake-serial", State: "device"}, "", "")
+	target := NewDevice(ADB{Path: fakeAdb}, DeviceInfo{Serial: "fake-serial", State: "device"}, "", "")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
@@ -1286,11 +1286,11 @@ func TestNewNonceHasSubstantialEntropy(t *testing.T) {
 	}
 }
 
-// notReadyTarget builds an ADBTarget whose DeviceInfo.Ready() is false, so
+// notReadyTarget builds a Device whose DeviceInfo.Ready() is false, so
 // Settings, ApplySettings and ForegroundApp all take their pre-flight
 // rejection path without ever touching adb.
-func notReadyTarget() *ADBTarget {
-	return NewADBTarget(ADB{}, DeviceInfo{Serial: "offline-1", State: "offline"}, "", "")
+func notReadyTarget() *Device {
+	return NewDevice(ADB{}, DeviceInfo{Serial: "offline-1", State: "offline"}, "", "")
 }
 
 func TestSettingsWrapsErrDeviceUnreachableWhenNotReady(t *testing.T) {

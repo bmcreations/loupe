@@ -269,7 +269,7 @@ func (m *Manager) Register(t target.Target) {
 
 // SyncDevices brings the registered adb devices in line with what adb lists
 // now. A new serial is registered through build; a known one whose state or
-// model changed is rebuilt, since an ADBTarget keeps the state it was built
+// model changed is rebuilt, since an android.Device keeps the state it was built
 // with; one adb no longer lists is kept and marked "missing" rather than
 // removed, so the picker can say where it went instead of it silently
 // vanishing from under a viewer that had it selected.
@@ -330,7 +330,7 @@ func (m *Manager) SyncDevices(devices []android.DeviceInfo, build func(android.D
 		switch cur, ok := m.targets[d.Serial]; {
 		case !ok:
 			m.targets[d.Serial] = build(d)
-		case isADB(cur) && cur.(*android.ADBTarget).Info() != d:
+		case isADB(cur) && cur.(*android.Device).Info() != d:
 			m.targets[d.Serial] = build(d)
 		}
 		m.setPresence(d.Serial, d.State)
@@ -417,7 +417,7 @@ func (m *Manager) SetIOSSimcap(bin string) {
 	defer m.mu.Unlock()
 	m.iosSimcap = bin
 	for _, t := range m.targets {
-		if d, ok := t.(*ios.IOSDevice); ok {
+		if d, ok := t.(*ios.Device); ok {
 			d.SetSimcap(bin)
 		}
 	}
@@ -430,7 +430,7 @@ func (m *Manager) SetXCRunner(dir string) {
 	defer m.mu.Unlock()
 	m.xcrunner = dir
 	for _, t := range m.targets {
-		if d, ok := t.(*ios.IOSDevice); ok {
+		if d, ok := t.(*ios.Device); ok {
 			d.SetXCRunner(dir)
 		}
 	}
@@ -442,7 +442,7 @@ func (m *Manager) SetXCRunner(dir string) {
 // "offline" while it does not, and a device it stops listing, unpaired, is
 // kept and marked missing. A change of transport, cable to Wi-Fi or back, is
 // traced, since it changes what the device can carry.
-func (m *Manager) SyncIOSDevices(devs []ios.IOSDeviceInfo) {
+func (m *Manager) SyncIOSDevices(devs []ios.DeviceInfo) {
 	var stale []*session.Session
 	defer func() {
 		for _, s := range stale {
@@ -454,9 +454,9 @@ func (m *Manager) SyncIOSDevices(devs []ios.IOSDeviceInfo) {
 
 	seen := map[string]bool{}
 	for _, info := range devs {
-		id := ios.IOSDeviceID(info)
+		id := ios.DeviceID(info)
 		seen[id] = true
-		if cur, ok := m.targets[id].(*ios.IOSDevice); ok {
+		if cur, ok := m.targets[id].(*ios.Device); ok {
 			if was := cur.Info(); was.Transport != info.Transport {
 				m.trace.Record(map[string]any{
 					"kind": "target-state", "target": id, "transport": info.Transport, "was": was.Transport,
@@ -464,7 +464,7 @@ func (m *Manager) SyncIOSDevices(devs []ios.IOSDeviceInfo) {
 			}
 			cur.Update(info)
 		} else {
-			d := ios.NewIOSDevice(info)
+			d := ios.NewDevice(info)
 			d.SetSimcap(m.iosSimcap)
 			d.SetXCRunner(m.xcrunner)
 			m.targets[id] = d
@@ -487,7 +487,7 @@ func (m *Manager) SyncIOSDevices(devs []ios.IOSDeviceInfo) {
 		m.setPresence(id, state)
 	}
 	for id, t := range m.targets {
-		if _, ok := t.(*ios.IOSDevice); ok && !seen[id] {
+		if _, ok := t.(*ios.Device); ok && !seen[id] {
 			m.setPresence(id, "missing")
 		}
 	}
@@ -519,7 +519,7 @@ func (m *Manager) canonical(id string) string {
 }
 
 func isADB(t target.Target) bool {
-	_, ok := t.(*android.ADBTarget)
+	_, ok := t.(*android.Device)
 	return ok
 }
 
@@ -626,7 +626,7 @@ type TargetInfo struct {
 	// seen attached, so opening it will boot the emulator rather than join
 	// something already running. Omitted (rather than false) for every target
 	// that is not a target.Booter at all -- a device, a running emulator
-	// already adopted as an ADBTarget, or synthetic -- since those never
+	// already adopted as an android.Device, or synthetic -- since those never
 	// boot anything on Open and "false" would otherwise be indistinguishable
 	// from "not applicable".
 	BootsOnOpen bool `json:"bootsOnOpen,omitempty"`

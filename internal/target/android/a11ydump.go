@@ -29,7 +29,7 @@ var a11yDumpTimeout = 3 * time.Second
 // inspectA11y runs the a11ydump dex: uiautomator's XML in ~250ms instead of
 // ~2s, plus each scrollable node's scroll-backward and scroll-forward.
 // Called under inspectMu.
-func (t *ADBTarget) inspectA11y(ctx context.Context) (*target.UI, error) {
+func (t *Device) inspectA11y(ctx context.Context) (*target.UI, error) {
 	remote := a11yDeviceDir + "/" + a11ydump.DeviceName
 	if !t.a11yPushed {
 		if err := t.pushA11yDex(ctx, remote); err != nil {
@@ -66,7 +66,7 @@ func (t *ADBTarget) inspectA11y(ctx context.Context) (*target.UI, error) {
 }
 
 // pushA11yDex copies the dex to the device unless this version is there.
-func (t *ADBTarget) pushA11yDex(ctx context.Context, remote string) error {
+func (t *Device) pushA11yDex(ctx context.Context, remote string) error {
 	if out, err := t.adb.Shell(ctx, t.info.Serial, "ls", remote); err == nil && strings.TrimSpace(out) == remote {
 		return nil
 	}

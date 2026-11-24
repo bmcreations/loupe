@@ -18,7 +18,7 @@ func TestPhoneOpenURLLaunchesSafariWithThePayload(t *testing.T) {
 	}
 	t.Cleanup(func() { devicectlOpenURL = old })
 
-	d := NewIOSDevice(IOSDeviceInfo{Identifier: "CORE-ID", UDID: "UDID", Name: "phone"})
+	d := NewDevice(DeviceInfo{Identifier: "CORE-ID", UDID: "UDID", Name: "phone"})
 	res, err := d.OpenURL(context.Background(), "https://example.com/a?token=secret")
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +32,7 @@ func TestPhoneOpenURLLaunchesSafariWithThePayload(t *testing.T) {
 }
 
 func TestPhoneCheckURLRefusesSchemesSafariCannotOpen(t *testing.T) {
-	d := NewIOSDevice(IOSDeviceInfo{UDID: "UDID"})
+	d := NewDevice(DeviceInfo{UDID: "UDID"})
 	for _, u := range []string{"http://example.com", "HTTPS://example.com/x"} {
 		if err := d.CheckURL(u); err != nil {
 			t.Errorf("CheckURL(%q) = %v, want nil", u, err)
@@ -52,7 +52,7 @@ func TestPhoneOpenURLFailureKeepsThePathOutOfTheError(t *testing.T) {
 	}
 	t.Cleanup(func() { devicectlOpenURL = old })
 
-	d := NewIOSDevice(IOSDeviceInfo{UDID: "UDID"})
+	d := NewDevice(DeviceInfo{UDID: "UDID"})
 	_, err := d.OpenURL(context.Background(), "https://example.com/a?token=secret")
 	if err == nil {
 		t.Fatal("want an error")

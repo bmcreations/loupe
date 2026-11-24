@@ -129,7 +129,7 @@ func (c *describeCache) set(d target.Description) {
 
 // Describe reports the device's OS and form by reading getprop once and
 // caching the result for the target's life.
-func (t *ADBTarget) Describe(ctx context.Context) (target.Description, error) {
+func (t *Device) Describe(ctx context.Context) (target.Description, error) {
 	if d, ok := t.describeCache.get(); ok {
 		return d, nil
 	}

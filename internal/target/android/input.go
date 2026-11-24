@@ -12,7 +12,7 @@ import (
 // ScreenSize is guaranteed to implement ScreenSizer; a target that stops
 // doing so fails the build here rather than an agent silently losing
 // coordinates on every event (opus review item 2).
-var _ target.ScreenSizer = (*ADBTarget)(nil)
+var _ target.ScreenSizer = (*Device)(nil)
 
 // ScreenSize is the display in device pixels as currently oriented: the
 // natural, unrotated size dumpsys reports for display 0, with the axes
@@ -26,7 +26,7 @@ var _ target.ScreenSizer = (*ADBTarget)(nil)
 // device that is no longer there. Reading it fresh alongside the rotation,
 // off the one dumpsys call the rotation already pays for, costs no more and
 // cannot go stale either way.
-func (t *ADBTarget) ScreenSize(ctx context.Context) (int, int, error) {
+func (t *Device) ScreenSize(ctx context.Context) (int, int, error) {
 	w, h, rotation, rotErr, err := t.adb.ScreenGeometry(ctx, t.info.Serial)
 	if err != nil {
 		return 0, 0, err
@@ -57,7 +57,7 @@ func orientedSize(w, h, rotation int, rotErr error) (int, int, error) {
 	return w, h, nil
 }
 
-func (t *ADBTarget) Tap(ctx context.Context, x, y int) error {
+func (t *Device) Tap(ctx context.Context, x, y int) error {
 	return t.touchInput(ctx, "tap", strconv.Itoa(x), strconv.Itoa(y))
 }
 
@@ -65,7 +65,7 @@ func (t *ADBTarget) Tap(ctx context.Context, x, y int) error {
 // zero ms to the 300ms default before calling this, so the value passed here
 // is the value it publishes to the event log (opus review item 6) -- this no
 // longer silently substitutes one of its own.
-func (t *ADBTarget) Swipe(ctx context.Context, x1, y1, x2, y2, ms int) error {
+func (t *Device) Swipe(ctx context.Context, x1, y1, x2, y2, ms int) error {
 	return t.touchInput(ctx, "swipe",
 		strconv.Itoa(x1), strconv.Itoa(y1),
 		strconv.Itoa(x2), strconv.Itoa(y2), strconv.Itoa(ms))
@@ -76,7 +76,7 @@ func (t *ADBTarget) Swipe(ctx context.Context, x1, y1, x2, y2, ms int) error {
 // the virtual keyboard's key-character map, so they accept the same
 // characters; the socket skips a few hundred milliseconds of adb per call,
 // which is the difference between typing and waiting for it.
-func (t *ADBTarget) TypeText(ctx context.Context, s string) error {
+func (t *Device) TypeText(ctx context.Context, s string) error {
 	if s == "" {
 		return nil
 	}
@@ -87,7 +87,7 @@ func (t *ADBTarget) TypeText(ctx context.Context, s string) error {
 }
 
 // PressKey takes the same route as TypeText, for the same reason.
-func (t *ADBTarget) PressKey(ctx context.Context, keycode int) error {
+func (t *Device) PressKey(ctx context.Context, keycode int) error {
 	if st := t.liveStream(); st != nil {
 		return st.pressKey(keycode)
 	}
@@ -97,7 +97,7 @@ func (t *ADBTarget) PressKey(ctx context.Context, keycode int) error {
 // input runs `input <args>` on the device. It reports the device's own output
 // on failure because `input` exits zero on some argument errors and explains
 // itself on stdout instead.
-func (t *ADBTarget) input(ctx context.Context, args ...string) error {
+func (t *Device) input(ctx context.Context, args ...string) error {
 	if !t.info.Ready() {
 		return fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}

@@ -13,10 +13,10 @@ import (
 	"github.com/bmcreations/loupe/internal/scrcpy"
 )
 
-// ADBTarget streams any device reachable over adb. A physical handset and a
+// Device streams any device reachable over adb. A physical handset and a
 // running emulator are the same thing at this layer: the emulator type in this
 // package exists only to boot one and then hand control here.
-type ADBTarget struct {
+type Device struct {
 	adb     ADB
 	info    DeviceInfo
 	jar     string
@@ -59,29 +59,29 @@ type ADBTarget struct {
 	a11yPushed bool
 }
 
-// NewADBTarget builds a target for an already-attached device. jar and version
+// NewDevice builds a target for an already-attached device. jar and version
 // must refer to the same scrcpy-server build; a mismatch fails at Open with a
 // connect timeout rather than a clear message, because the server exits before
 // it ever listens.
-func NewADBTarget(adb ADB, info DeviceInfo, jar, version string) *ADBTarget {
+func NewDevice(adb ADB, info DeviceInfo, jar, version string) *Device {
 	kind := target.KindDevice
 	if info.Emulator {
 		kind = target.KindEmulator
 	}
-	return &ADBTarget{adb: adb, info: info, jar: jar, version: version, kind: kind}
+	return &Device{adb: adb, info: info, jar: jar, version: version, kind: kind}
 }
 
-func (t *ADBTarget) ID() string        { return t.info.Serial }
-func (t *ADBTarget) Kind() target.Kind { return t.kind }
-func (t *ADBTarget) Label() string     { return t.info.Label() }
+func (t *Device) ID() string        { return t.info.Serial }
+func (t *Device) Kind() target.Kind { return t.kind }
+func (t *Device) Label() string     { return t.info.Label() }
 
 // Info is what adb reported about the device when this target was built. It
 // is fixed for the life of the target; a device whose state changes gets a new
 // one.
-func (t *ADBTarget) Info() DeviceInfo { return t.info }
+func (t *Device) Info() DeviceInfo { return t.info }
 
 // Open launches scrcpy-server on the device and returns a live stream.
-func (t *ADBTarget) Open(ctx context.Context, opts target.Options) (target.Stream, error) {
+func (t *Device) Open(ctx context.Context, opts target.Options) (target.Stream, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("device %s is in state %q, not ready to stream", t.info.Serial, t.info.State)
 	}

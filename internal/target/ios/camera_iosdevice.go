@@ -162,7 +162,7 @@ var homeRE = regexp.MustCompile(`dyld\[\d+\]: HOME=(/\S+)`)
 // DYLD_PRINT_ENV and reading HOME off the console. Stopping devicectl ends
 // that launch too; the real one follows. An app dyld will not take an
 // environment from prints nothing, which is ErrNotDevSigned.
-func (d *IOSDevice) phoneHome(ctx context.Context, bundle string) (string, error) {
+func (d *Device) phoneHome(ctx context.Context, bundle string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "xcrun", "devicectl", "device", "process", "launch",
@@ -217,7 +217,7 @@ func (d *IOSDevice) phoneHome(ctx context.Context, bundle string) (string, error
 }
 
 // copyToApp copies a local file into bundle's data container at rel.
-func (d *IOSDevice) copyToApp(ctx context.Context, bundle, src, rel string) error {
+func (d *Device) copyToApp(ctx context.Context, bundle, src, rel string) error {
 	b, err := exec.CommandContext(ctx, "xcrun", "devicectl", "device", "copy", "to",
 		"--device", d.device(), "--domain-type", "appDataContainer", "--domain-identifier", bundle,
 		"--source", src, "--destination", rel).CombinedOutput()
@@ -228,7 +228,7 @@ func (d *IOSDevice) copyToApp(ctx context.Context, bundle, src, rel string) erro
 }
 
 // readFromApp reads rel out of bundle's data container.
-func (d *IOSDevice) readFromApp(ctx context.Context, bundle, rel string) ([]byte, error) {
+func (d *Device) readFromApp(ctx context.Context, bundle, rel string) ([]byte, error) {
 	dir, err := os.MkdirTemp("", "loupe-phonecam")
 	if err != nil {
 		return nil, err
@@ -277,7 +277,7 @@ func launchPid(raw []byte) int {
 }
 
 // runningPids is the phone's running processes' pids.
-func (d *IOSDevice) runningPids(ctx context.Context) (map[int]bool, error) {
+func (d *Device) runningPids(ctx context.Context) (map[int]bool, error) {
 	dir, err := os.MkdirTemp("", "loupe-phonecam")
 	if err != nil {
 		return nil, err
@@ -314,7 +314,7 @@ func parseRunningPids(raw []byte) map[int]bool {
 
 // liveCams is the apps launched with the shim that are still running,
 // forgetting the pids of the ones that are not.
-func (d *IOSDevice) liveCams(ctx context.Context) ([]string, error) {
+func (d *Device) liveCams(ctx context.Context) ([]string, error) {
 	d.camMu.Lock()
 	n := 0
 	for _, c := range d.cams {
@@ -344,7 +344,7 @@ func (d *IOSDevice) liveCams(ctx context.Context) ([]string, error) {
 	return live, nil
 }
 
-func (d *IOSDevice) cam(bundle string) *phoneCam {
+func (d *Device) cam(bundle string) *phoneCam {
 	d.camMu.Lock()
 	defer d.camMu.Unlock()
 	if d.cams == nil {
@@ -358,10 +358,10 @@ func (d *IOSDevice) cam(bundle string) *phoneCam {
 	return c
 }
 
-func (d *IOSDevice) cameraName() string { return "ios-" + d.Info().UDID }
+func (d *Device) cameraName() string { return "ios-" + d.Info().UDID }
 
 // stagedCamera is the phone's staged image on this Mac, or "".
-func (d *IOSDevice) stagedCamera() string {
+func (d *Device) stagedCamera() string {
 	path, err := target.CameraFile(d.cameraName())
 	if err != nil {
 		return ""
@@ -376,7 +376,7 @@ func (d *IOSDevice) stagedCamera() string {
 // copied into each running app that has the shim, which sees it within a
 // quarter of a second; the next launch through loupe gives the shim to the
 // app it opens.
-func (d *IOSDevice) SetCamera(ctx context.Context, png []byte) (target.CameraApplies, error) {
+func (d *Device) SetCamera(ctx context.Context, png []byte) (target.CameraApplies, error) {
 	// Built and signed now, so a missing Xcode or identity fails here
 	// rather than at the launch.
 	if _, err := loupecamPhoneShims(ctx); err != nil {
@@ -394,7 +394,7 @@ func (d *IOSDevice) SetCamera(ctx context.Context, png []byte) (target.CameraApp
 
 // ClearCamera implements CameraFeeder. Running apps with the shim see black;
 // the next launch of each is a plain one.
-func (d *IOSDevice) ClearCamera(ctx context.Context) (target.CameraApplies, error) {
+func (d *Device) ClearCamera(ctx context.Context) (target.CameraApplies, error) {
 	path, err := target.CameraFile(d.cameraName())
 	if err != nil {
 		return "", err
@@ -410,7 +410,7 @@ func (d *IOSDevice) ClearCamera(ctx context.Context) (target.CameraApplies, erro
 }
 
 // pushCamera copies src over the image in each running app with the shim.
-func (d *IOSDevice) pushCamera(ctx context.Context, src string) (target.CameraApplies, error) {
+func (d *Device) pushCamera(ctx context.Context, src string) (target.CameraApplies, error) {
 	live, err := d.liveCams(ctx)
 	if err != nil {
 		return "", err
@@ -428,7 +428,7 @@ func (d *IOSDevice) pushCamera(ctx context.Context, src string) (target.CameraAp
 
 // LaunchBudget implements LaunchBudgeter: a launch that gives an app the
 // shim is a handful of devicectl calls, each a few seconds over Wi-Fi.
-func (d *IOSDevice) LaunchBudget() time.Duration {
+func (d *Device) LaunchBudget() time.Duration {
 	if d.stagedCamera() == "" {
 		return 0
 	}
@@ -440,7 +440,7 @@ func (d *IOSDevice) LaunchBudget() time.Duration {
 // with them in its environment, then the shim's marker is read back. It
 // reports false when there is nothing staged or the running app already has
 // the shim, and the launch should be a plain one.
-func (d *IOSDevice) cameraLaunch(ctx context.Context, bundle string) (bool, error) {
+func (d *Device) cameraLaunch(ctx context.Context, bundle string) (bool, error) {
 	file := d.stagedCamera()
 	if file == "" {
 		return false, nil
@@ -466,7 +466,7 @@ func (d *IOSDevice) cameraLaunch(ctx context.Context, bundle string) (bool, erro
 	return true, err
 }
 
-func (d *IOSDevice) shimLaunch(ctx context.Context, bundle, file string, shims phoneShims) error {
+func (d *Device) shimLaunch(ctx context.Context, bundle, file string, shims phoneShims) error {
 	c := d.cam(bundle)
 	d.camMu.Lock()
 	home, libs := c.home, c.libs

@@ -140,14 +140,14 @@ func fakeDumpsysWindowDisplays(naturalWH, curWH, rotation string) string {
     mSupportAutoRotation=true`, naturalWH, curWH, rotation, rotation)
 }
 
-// TestADBTargetScreenSize covers opus review item 2: ADBTarget.ScreenSize
+// TestADBTargetScreenSize covers opus review item 2: Device.ScreenSize
 // against a fake adb across rotations 0, 1 and 3, and a failing dumpsys. It
 // is what kills "skip orientedSize", "hard-code rotation 0" and "swallow the
 // size error" as mutations, alongside the compile-time ScreenSizer assertion
-// above for "ADBTarget no longer implements the interface".
+// above for "Device no longer implements the interface".
 func TestADBTargetScreenSize(t *testing.T) {
 	script := writeFakeADB(t)
-	tgt := NewADBTarget(ADB{Path: script}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: script}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
 
 	cases := []struct {
 		name         string

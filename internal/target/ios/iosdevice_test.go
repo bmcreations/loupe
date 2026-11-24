@@ -30,7 +30,7 @@ func TestDevicectlListKeepsPairedPhysicalIOSDevicesOnly(t *testing.T) {
 	}
 
 	phone := devs[0]
-	want := IOSDeviceInfo{
+	want := DeviceInfo{
 		Identifier: "11111111-AAAA-BBBB-CCCC-000000000001", UDID: "00008140-000A00000000001C",
 		Name: "Brandon’s iPhone", Model: "iPhone 16 Pro", OSVersion: "26.6", Form: "phone",
 		Transport: "localNetwork", DeveloperMode: "enabled",
@@ -38,8 +38,8 @@ func TestDevicectlListKeepsPairedPhysicalIOSDevicesOnly(t *testing.T) {
 	if phone != want {
 		t.Errorf("phone\n got %+v\nwant %+v", phone, want)
 	}
-	if !phone.Reachable() || IOSDeviceID(phone) != "ios:00008140-000A00000000001C" {
-		t.Errorf("phone reachable=%v id=%s", phone.Reachable(), IOSDeviceID(phone))
+	if !phone.Reachable() || DeviceID(phone) != "ios:00008140-000A00000000001C" {
+		t.Errorf("phone reachable=%v id=%s", phone.Reachable(), DeviceID(phone))
 	}
 
 	// Paired, state "unavailable" and no transport: listed, not reachable.
@@ -100,7 +100,7 @@ func TestIOSDeviceStreamsOverWifiOnlyFromIOS27(t *testing.T) {
 		{"", "localNetwork", true},
 		{"27.2", "localNetwork", false},
 	} {
-		d := NewIOSDevice(IOSDeviceInfo{Identifier: "X", UDID: "U", Name: "p", OSVersion: c.os, Transport: c.transport})
+		d := NewDevice(DeviceInfo{Identifier: "X", UDID: "U", Name: "p", OSVersion: c.os, Transport: c.transport})
 		d.SetSimcap(bin)
 		_, err := d.Open(t.Context(), target.Options{})
 		if err == nil {
@@ -110,7 +110,7 @@ func TestIOSDeviceStreamsOverWifiOnlyFromIOS27(t *testing.T) {
 			t.Errorf("iOS %q over Wi-Fi: %v", c.os, err)
 		}
 	}
-	d := NewIOSDevice(IOSDeviceInfo{Identifier: "X", UDID: "U", Name: "p", OSVersion: "27.2"})
+	d := NewDevice(DeviceInfo{Identifier: "X", UDID: "U", Name: "p", OSVersion: "27.2"})
 	d.SetSimcap(bin)
 	if _, err := d.Open(t.Context(), target.Options{}); err == nil || !strings.Contains(err.Error(), "out of reach") {
 		t.Errorf("Open with no transport: %v", err)
@@ -118,7 +118,7 @@ func TestIOSDeviceStreamsOverWifiOnlyFromIOS27(t *testing.T) {
 }
 
 func TestIOSDeviceStreamsOnlyOnACableAndChecksLaunchNames(t *testing.T) {
-	d := NewIOSDevice(IOSDeviceInfo{Identifier: "X", UDID: "U", Name: "p", Transport: "localNetwork"})
+	d := NewDevice(DeviceInfo{Identifier: "X", UDID: "U", Name: "p", Transport: "localNetwork"})
 	if _, err := d.Open(t.Context(), target.Options{}); err == nil || !strings.Contains(err.Error(), "simcap is not built") {
 		t.Errorf("Open without simcap: %v", err)
 	}

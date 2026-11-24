@@ -40,7 +40,10 @@ Read the doc before touching its area. None of these load automatically.
   bmcreations/loupe-private (`~/dev/loupe-private`). Its `traps.md` is
   symptom first. Grep it for the symptom you see, and read the entry before
   changing code a trap names. Its other files hold the mechanism and history
-  behind each public doc, one file per doc.
+  behind each public doc, one file per doc. A change that moves, renames or
+  deletes a file or name those docs cite updates them in the same run, as a
+  loupe-private PR. `make test` fails on a cited `.go` path that no longer
+  exists (`scripts/check-private-paths.sh`).
 - `docs/protocol.md`: session wire protocol.
 - `docs/extensions.md`: the v0 contract for extensions: registering, the
   `/api/ext` proxy, and the security model.
@@ -54,7 +57,7 @@ Read the doc before touching its area. None of these load automatically.
 make build           # this IS the deploy: launchd's supervisor restarts onto it
 make agent-status    # state, pid, last exit
 make agent-log       # tail loupe-run.log
-make test            # go test ./... and node web/run-tests.mjs
+make test            # go test ./..., node web/run-tests.mjs, private-doc paths
 make simcap          # clones and builds the simulator/iPhone helper, not part of build
 ```
 

@@ -19,7 +19,7 @@ import (
 // broadcast indexed it; `content call --method scan_file` threw a
 // NullPointerException there. So the broadcast is sent on every level: on 34
 // it finds the file already indexed.
-func (t *ADBTarget) AddMedia(ctx context.Context, path, name string, kind target.MediaKind) error {
+func (t *Device) AddMedia(ctx context.Context, path, name string, kind target.MediaKind) error {
 	if !t.info.Ready() {
 		return fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
@@ -48,6 +48,6 @@ func (e *Emulator) AddMedia(ctx context.Context, path, name string, kind target.
 }
 
 var (
-	_ target.MediaAdder = (*ADBTarget)(nil)
+	_ target.MediaAdder = (*Device)(nil)
 	_ target.MediaAdder = (*Emulator)(nil)
 )

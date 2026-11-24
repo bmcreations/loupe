@@ -422,7 +422,7 @@ func main() {
 	// The android CLI and the SDK are looked up per call, so either one
 	// installed while loupe runs (POST /api/android/cli, or the CLI fetching
 	// the emulator for its first AVD) needs no restart.
-	findCLI := func() string { return android.AndroidCLI(*androidCLI) }
+	findCLI := func() string { return android.FindCLI(*androidCLI) }
 	sdkRoot := func() string { return android.SDKRoot(*androidSDK) }
 	// adbKick cuts the device watcher's wait short once adb is installed or
 	// an AVD create has brought it, so adb reads as reachable at once and not
@@ -525,7 +525,7 @@ func main() {
 	// accept the prompt.
 	if needScrcpy && !*noDevices {
 		build := func(d android.DeviceInfo) target.Target {
-			return android.NewADBTarget(adb, d, jar, version)
+			return android.NewDevice(adb, d, jar, version)
 		}
 		avds, models := android.NewAVDResolver(adb), android.NewModelResolver(adb)
 		// names fills in what adb's listing leaves out: an emulator's AVD,
@@ -617,12 +617,12 @@ func main() {
 				fmt.Printf("xcrunner: not built in %s yet (make xcrunner TEAM=...)\n", dir)
 			}
 		}
-		if devs, err := ios.ListIOSDevices(ctx); err != nil {
+		if devs, err := ios.ListDevices(ctx); err != nil {
 			fmt.Printf("ios devices: not listed, %v\n", err)
 		} else {
 			mgr.SyncIOSDevices(devs)
 			for _, d := range devs {
-				fmt.Printf("target: %s (%s, iOS %s, %s)\n", ios.IOSDeviceID(d), d.Name, d.OSVersion, cmp.Or(d.Transport, "unreachable"))
+				fmt.Printf("target: %s (%s, iOS %s, %s)\n", ios.DeviceID(d), d.Name, d.OSVersion, cmp.Or(d.Transport, "unreachable"))
 			}
 			go watchIOSDevices(ctx, mgr)
 		}
@@ -730,7 +730,7 @@ func main() {
 	// SDK. One install at a time, shared by /api/android/cli and
 	// /api/remote/cli.
 	androidTools := httpapi.NewAndroidTools(httpapi.AndroidToolsConfig{
-		Installer: httpapi.NewCLIInstaller(android.PrivateAndroidCLI()),
+		Installer: httpapi.NewCLIInstaller(android.PrivateCLI()),
 		FindCLI:   findCLI, SDK: sdkRoot,
 		FindADB:      func() string { return android.FindADB(*adbPath) },
 		ADBInstalled: kickADB,
@@ -1134,7 +1134,7 @@ func watchIOSDevices(ctx context.Context, mgr *httpapi.Manager) {
 		case <-tick.C:
 		}
 		lctx, cancel := context.WithTimeout(ctx, iosDevicePoll)
-		devs, err := ios.ListIOSDevices(lctx)
+		devs, err := ios.ListDevices(lctx)
 		cancel()
 		if err != nil {
 			// As with simctl, a failed listing is not every device gone.

@@ -106,10 +106,10 @@ func TestAFailedDescribeOmitsTheFieldsRatherThanFailingTheList(t *testing.T) {
 // calls Describe exactly once per listed target per request, no more (a
 // double-collection bug) and no fewer (a target silently skipped). The
 // per-server-life caching that keeps this from costing an adb call on every
-// /api/targets poll lives in ADBTarget.Describe, not here -- this stub has no
+// /api/targets poll lives in android.Device.Describe, not here -- this stub has no
 // cache of its own, which is what makes it able to isolate Targets' behavior
 // from Describe's; the caching guarantee itself is pinned directly against
-// ADBTarget by TestDescribeIsCachedForTheTargetsLife in internal/target.
+// android.Device by TestDescribeIsCachedForTheTargetsLife in internal/target.
 func TestTargetsCallsDescribeOnceEachPerRequest(t *testing.T) {
 	d := &describingTarget{id: "d1", desc: target.Description{Form: "phone", OS: "android"}}
 	m := NewManager(target.Options{})
@@ -377,7 +377,7 @@ func TestTargetsReportsBootsOnOpenForABooter(t *testing.T) {
 
 // TestTargetsOmitsBootsOnOpenForANonBooter is the other side: a target.Target
 // that is not a target.Booter at all -- a device, an already-running emulator
-// adopted as ADBTarget, or synthetic -- must not report bootsOnOpen:false in
+// adopted as android.Device, or synthetic -- must not report bootsOnOpen:false in
 // the JSON. "Not applicable" and "answered false" are different things, and
 // only omitempty on a false zero value keeps them distinguishable on the
 // wire.
@@ -444,7 +444,7 @@ func TestTargetsDoesNotWaitOutAnInProgressEmulatorBoot(t *testing.T) {
 	bootDone := make(chan struct{})
 	go func() {
 		defer close(bootDone)
-		// Open calls ensureBooted first and only reaches ADBTarget if that
+		// Open calls ensureBooted first and only reaches android.Device if that
 		// succeeds; here it always fails once BootBudget elapses (the fake
 		// adb never reports boot_completed=1), so this never actually opens
 		// a stream. It exists only to hold e.mu for the boot's duration, the

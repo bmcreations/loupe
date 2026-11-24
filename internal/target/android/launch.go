@@ -40,7 +40,7 @@ func ValidActivityName(s string) bool { return activityNameRE.MatchString(s) }
 // activity when it works. resolve-activity names the component, `pm path`
 // tells the two failures apart, and -W makes am wait for the activity and
 // print the one that actually came up.
-func (t *ADBTarget) Launch(ctx context.Context, pkg, activity string) (*target.LaunchResult, error) {
+func (t *Device) Launch(ctx context.Context, pkg, activity string) (*target.LaunchResult, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
@@ -50,7 +50,7 @@ func (t *ADBTarget) Launch(ctx context.Context, pkg, activity string) (*target.L
 }
 
 // CheckLaunch implements Launcher.
-func (t *ADBTarget) CheckLaunch(pkg, activity string) error {
+func (t *Device) CheckLaunch(pkg, activity string) error {
 	return checkAndroidLaunch(pkg, activity)
 }
 

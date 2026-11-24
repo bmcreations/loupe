@@ -14,7 +14,7 @@ import (
 )
 
 // TestApplySettingsSerializesConcurrentCallsOnOneTarget drives two concurrent
-// ApplySettings calls against one *ADBTarget, through a real subprocess (a
+// ApplySettings calls against one *Device, through a real subprocess (a
 // fake "adb" script) rather than a shellFunc double, so it exercises
 // settingsMu itself rather than assuming it is wired up correctly.
 //
@@ -48,7 +48,7 @@ exit 0
 		t.Fatalf("write fake adb script: %v", err)
 	}
 
-	tgt := NewADBTarget(ADB{Path: scriptPath}, DeviceInfo{Serial: "fake-serial", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: scriptPath}, DeviceInfo{Serial: "fake-serial", State: "device"}, "", "")
 
 	var wg sync.WaitGroup
 	results := make([]error, 2)

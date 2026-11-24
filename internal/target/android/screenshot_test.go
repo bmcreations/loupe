@@ -40,12 +40,12 @@ func TestScreenshotOnAFoldableNamesTheLitDisplay(t *testing.T) {
 `+foldDumpsysDisplay+`X
 ;;
 esac`)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5556", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5556", State: "device"}, "", "")
 	png, err := tgt.Screenshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.HasPrefix(png, target.PngMagic) {
+	if !bytes.HasPrefix(png, target.PNGMagic) {
 		t.Fatalf("got %q; want the PNG from the lit display", png)
 	}
 	if calls := readArgv(t, argv); len(calls) != 3 {

@@ -15,9 +15,9 @@ import (
 	"github.com/bmcreations/loupe/internal/target"
 )
 
-// IOSDeviceInfo is one physical iPhone or iPad as `devicectl list devices`
+// DeviceInfo is one physical iPhone or iPad as `devicectl list devices`
 // reports it, over a cable or the network.
-type IOSDeviceInfo struct {
+type DeviceInfo struct {
 	// Identifier is CoreDevice's id for the device, the one devicectl's
 	// --device takes and simcap -devices prints.
 	Identifier string
@@ -35,21 +35,21 @@ type IOSDeviceInfo struct {
 }
 
 // Reachable reports whether the Mac can talk to the device now.
-func (i IOSDeviceInfo) Reachable() bool {
+func (i DeviceInfo) Reachable() bool {
 	return i.Transport == "wired" || i.Transport == "localNetwork"
 }
 
-// IOSDeviceID is the target id for a physical device.
-func IOSDeviceID(i IOSDeviceInfo) string {
+// DeviceID is the target id for a physical device.
+func DeviceID(i DeviceInfo) string {
 	if i.UDID != "" {
 		return "ios:" + i.UDID
 	}
 	return "ios:" + i.Identifier
 }
 
-// ListIOSDevices returns every physical iOS device paired with this Mac,
+// ListDevices returns every physical iOS device paired with this Mac,
 // reachable or not.
-func ListIOSDevices(ctx context.Context) ([]IOSDeviceInfo, error) {
+func ListDevices(ctx context.Context) ([]DeviceInfo, error) {
 	dir, err := os.MkdirTemp("", "loupe-devicectl")
 	if err != nil {
 		return nil, err
@@ -141,7 +141,7 @@ func (s *devModeStatus) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func parseDevicectlList(raw []byte) ([]IOSDeviceInfo, error) {
+func parseDevicectlList(raw []byte) ([]DeviceInfo, error) {
 	var doc struct {
 		Result struct {
 			Devices []devicectlDevice `json:"devices"`
@@ -150,7 +150,7 @@ func parseDevicectlList(raw []byte) ([]IOSDeviceInfo, error) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("devicectl list devices: %w", err)
 	}
-	var out []IOSDeviceInfo
+	var out []DeviceInfo
 	for _, d := range doc.Result.Devices {
 		p := d.Properties
 		hw, old := p.Hardware, d.HardwareProperties
@@ -187,7 +187,7 @@ func parseDevicectlList(raw []byte) ([]IOSDeviceInfo, error) {
 		if strings.EqualFold(cmp.Or(hw.DeviceType, old.DeviceType), "iPad") {
 			form = "tablet"
 		}
-		out = append(out, IOSDeviceInfo{
+		out = append(out, DeviceInfo{
 			Identifier:    d.Identifier,
 			UDID:          cmp.Or(hw.UDID, old.UDID),
 			Name:          cmp.Or(p.State.Name, d.DeviceProperties.Name, cmp.Or(hw.MarketingName, old.MarketingName)),
@@ -201,7 +201,7 @@ func parseDevicectlList(raw []byte) ([]IOSDeviceInfo, error) {
 	return out, nil
 }
 
-// IOSDevice is a physical iPhone or iPad paired with this Mac. It is listed,
+// Device is a physical iPhone or iPad paired with this Mac. It is listed,
 // described, launched into and screenshotted through devicectl, over a cable
 // or the network alike. On a cable it streams through `simcap -phone` and the
 // screen-capture device QuickTime records from. Over Wi-Fi there is no such
@@ -209,9 +209,9 @@ func parseDevicectlList(raw []byte) ([]IOSDeviceInfo, error) {
 // mirrored stream CoreDevice negotiates; the phone refuses that before
 // iOS 27. Input goes through CoreDevice HID on either, through
 // `simcap -phone-input` (iosdeviceinput.go).
-type IOSDevice struct {
+type Device struct {
 	mu     sync.Mutex
-	info   IOSDeviceInfo
+	info   DeviceInfo
 	simcap string
 
 	// in is the input process, made on first use for the identifier it
@@ -233,22 +233,22 @@ type IOSDevice struct {
 	cams  map[string]*phoneCam
 }
 
-// NewIOSDevice returns a target for info.
-func NewIOSDevice(info IOSDeviceInfo) *IOSDevice { return &IOSDevice{info: info} }
+// NewDevice returns a target for info.
+func NewDevice(info DeviceInfo) *Device { return &Device{info: info} }
 
-func (d *IOSDevice) ID() string        { return IOSDeviceID(d.Info()) }
-func (d *IOSDevice) Kind() target.Kind { return target.KindIOSDevice }
-func (d *IOSDevice) Label() string     { return d.Info().Name }
+func (d *Device) ID() string        { return DeviceID(d.Info()) }
+func (d *Device) Kind() target.Kind { return target.KindIOSDevice }
+func (d *Device) Label() string     { return d.Info().Name }
 
 // Info is what devicectl last said about this device.
-func (d *IOSDevice) Info() IOSDeviceInfo {
+func (d *Device) Info() DeviceInfo {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.info
 }
 
 // Update records a fresh listing.
-func (d *IOSDevice) Update(info IOSDeviceInfo) {
+func (d *Device) Update(info DeviceInfo) {
 	d.mu.Lock()
 	if info.Identifier != d.info.Identifier {
 		d.dropInputLocked()
@@ -262,14 +262,14 @@ func (d *IOSDevice) Update(info IOSDeviceInfo) {
 
 // device is what devicectl's --device takes. CoreDevice's identifier is its
 // own; the UDID is accepted too, and is the fallback.
-func (d *IOSDevice) device() string {
+func (d *Device) device() string {
 	i := d.Info()
 	return cmp.Or(i.Identifier, i.UDID)
 }
 
 // SetSimcap records the simcap that streams this device, or "" when none is
 // built.
-func (d *IOSDevice) SetSimcap(bin string) {
+func (d *Device) SetSimcap(bin string) {
 	d.mu.Lock()
 	if bin != d.simcap {
 		d.dropInputLocked()
@@ -288,7 +288,7 @@ var ErrIOSStreamNeedsCable = fmt.Errorf("this iPhone streams only over a cable; 
 // Open implements Target with `simcap <udid> -phone` on a cable and
 // `simcap <identifier> -phone-wifi` over Wi-Fi, whose output is the same wire
 // format a simulator's is.
-func (d *IOSDevice) Open(ctx context.Context, opts target.Options) (target.Stream, error) {
+func (d *Device) Open(ctx context.Context, opts target.Options) (target.Stream, error) {
 	d.mu.Lock()
 	info, bin := d.info, d.simcap
 	d.mu.Unlock()
@@ -334,7 +334,7 @@ func (d *IOSDevice) Open(ctx context.Context, opts target.Options) (target.Strea
 // streamsOverWifi reports whether a Wi-Fi Open can work: the phone refused
 // CoreDevice's media stream on iOS 26.6 with "Remote control requires iOS
 // 27.0", and an older simcap reads -phone-wifi as a simulator's UDID.
-func (d *IOSDevice) streamsOverWifi(ctx context.Context) bool {
+func (d *Device) streamsOverWifi(ctx context.Context) bool {
 	d.mu.Lock()
 	info, bin, known := d.info, d.simcap, d.phoneWifi
 	d.mu.Unlock()
@@ -358,7 +358,7 @@ func (d *IOSDevice) streamsOverWifi(ctx context.Context) bool {
 }
 
 // Describe implements Describer from the listing, with no subprocess.
-func (d *IOSDevice) Describe(context.Context) (target.Description, error) {
+func (d *Device) Describe(context.Context) (target.Description, error) {
 	i := d.Info()
 	transport := map[string]string{"wired": "usb", "localNetwork": "wifi"}[i.Transport]
 	return target.Description{OS: "ios", OSVersion: i.OSVersion, Form: i.Form, Transport: transport}, nil
@@ -369,7 +369,7 @@ func (d *IOSDevice) Describe(context.Context) (target.Description, error) {
 // A bundle the device lacks fails with CoreDeviceError 10002, the code for
 // any failed launch, whose NSLocalizedFailureReason reads "The requested
 // application <bundle> is not installed.", so the reason is what is matched.
-func (d *IOSDevice) Launch(ctx context.Context, bundle, activity string) (*target.LaunchResult, error) {
+func (d *Device) Launch(ctx context.Context, bundle, activity string) (*target.LaunchResult, error) {
 	if err := d.CheckLaunch(bundle, activity); err != nil {
 		return nil, err
 	}
@@ -395,7 +395,7 @@ func devicectlNotInstalled(out []byte) bool {
 }
 
 // CheckLaunch implements Launcher.
-func (d *IOSDevice) CheckLaunch(bundle, activity string) error {
+func (d *Device) CheckLaunch(bundle, activity string) error {
 	if activity != "" {
 		return fmt.Errorf("%w: an iOS app has no activities to name", target.ErrBadLaunchName)
 	}
@@ -407,7 +407,7 @@ func (d *IOSDevice) CheckLaunch(bundle, activity string) error {
 
 // Screenshot implements Screenshotter with `devicectl device capture
 // screenshot`, which Xcode 26.6 added for devices and simulators alike.
-func (d *IOSDevice) Screenshot(ctx context.Context) ([]byte, error) {
+func (d *Device) Screenshot(ctx context.Context) ([]byte, error) {
 	dir, err := os.MkdirTemp("", "loupe-iosshot")
 	if err != nil {
 		return nil, err
@@ -423,7 +423,7 @@ func (d *IOSDevice) Screenshot(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) < len(target.PngMagic) || string(raw[:len(target.PngMagic)]) != string(target.PngMagic) {
+	if len(raw) < len(target.PNGMagic) || string(raw[:len(target.PNGMagic)]) != string(target.PNGMagic) {
 		return nil, fmt.Errorf("devicectl screenshot did not write a PNG (%d bytes)", len(raw))
 	}
 	return raw, nil

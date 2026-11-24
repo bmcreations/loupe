@@ -23,7 +23,7 @@
 //
 // "Shut down" marks a registered AVD that has not booted. The signal is the
 // server's `bootsOnOpen`, not an inference over `kind`/`osVersion`: an
-// ADBTarget for an attached `emulator-5554` is also `kind: "emulator"`, and
+// android.Device for an attached `emulator-5554` is also `kind: "emulator"`, and
 // an emulator whose Describe lost the race against describeTimeout reads the
 // same as one that never booted. `bootsOnOpen` is absent, not false, for
 // anything that never boots. The line names no boot time: a warm AVD opens

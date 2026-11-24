@@ -51,7 +51,7 @@ const talkBackPackage = "com.google.android.marvin.talkback"
 const rollbackTimeout = 10 * time.Second
 
 // shellFunc runs one `adb shell` command and returns its output. Settings
-// logic is written against this instead of *ADBTarget directly so it can be
+// logic is written against this instead of *Device directly so it can be
 // exercised without a device, the same shape adb.go's own tests use.
 type shellFunc func(ctx context.Context, args ...string) (string, error)
 
@@ -125,13 +125,13 @@ func validateRange(f settingField, v any) error {
 	return nil
 }
 
-// androidSettings is the pure logic behind ADBTarget's DeviceSettings, kept
-// separate from ADBTarget so it can be tested with a fake shellFunc instead
+// androidSettings is the pure logic behind Device's DeviceSettings, kept
+// separate from Device so it can be tested with a fake shellFunc instead
 // of a device.
 //
 // emu is set only on an emulator, and adds the posture and hingeAngle fields.
 // foldable, when set, answers requireFold in place of a fresh print-states
-// read; ADBTarget sets it to its cached check.
+// read; Device sets it to its cached check.
 type androidSettings struct {
 	sh       shellFunc
 	emu      emuFunc
@@ -181,10 +181,10 @@ func readFoldable(ctx context.Context, sh shellFunc) (bool, error) {
 
 // foldable is requireFold's check on a live target. A yes is kept for the
 // life of the target, since an AVD's device states do not change while it
-// runs and a reattach builds a new ADBTarget, so a slider pays the two
+// runs and a reattach builds a new Device, so a slider pays the two
 // print-states reads once. A no is read again each time: it only costs a
 // refused write, and it keeps a read taken early in a boot from sticking.
-func (t *ADBTarget) foldable(ctx context.Context) (bool, error) {
+func (t *Device) foldable(ctx context.Context) (bool, error) {
 	if t.folds.Load() {
 		return true, nil
 	}
@@ -205,11 +205,11 @@ func (a *androidSettings) fields() []settingField {
 	return append(out, postureField(a.emu, a.hinge), hingeAngleField(a.emu, a.hinge), locationField(a.emu, a.lastFix()))
 }
 
-// Settings reads current device state. It does not lock ADBTarget's
+// Settings reads current device state. It does not lock Device's
 // settingsMu: a GET racing a PUT can see a value mid-change, which is no
 // worse than any other unsynchronized read of live device state, and the PUT
 // path's own re-read runs inside the lock it already holds.
-func (t *ADBTarget) Settings(ctx context.Context) ([]target.Setting, error) {
+func (t *Device) Settings(ctx context.Context) ([]target.Setting, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
@@ -221,7 +221,7 @@ func (t *ADBTarget) Settings(ctx context.Context) ([]target.Setting, error) {
 // talkBack would otherwise interleave their reads of
 // enabled_accessibility_services and one caller's change would be silently
 // dropped by the other's write.
-func (t *ADBTarget) ApplySettings(ctx context.Context, changes map[string]any) ([]string, []string, error) {
+func (t *Device) ApplySettings(ctx context.Context, changes map[string]any) ([]string, []string, error) {
 	if !t.info.Ready() {
 		return nil, nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
@@ -239,7 +239,7 @@ func (t *ADBTarget) ApplySettings(ctx context.Context, changes map[string]any) (
 // one console write, nothing to roll back if it fails, and the coalescer
 // already sends one write at a time. Only the newest of the angles queued
 // behind a running write is sent.
-func (t *ADBTarget) applyHingeAngle(ctx context.Context, a *androidSettings, v any) ([]string, []string, error) {
+func (t *Device) applyHingeAngle(ctx context.Context, a *androidSettings, v any) ([]string, []string, error) {
 	if _, err := t.sendHingeAngle(ctx, a, v); err != nil {
 		if errors.Is(err, target.ErrInvalidSetting) || errors.Is(err, target.ErrDeviceUnreachable) {
 			return nil, nil, err
@@ -249,7 +249,7 @@ func (t *ADBTarget) applyHingeAngle(ctx context.Context, a *androidSettings, v a
 	return nil, nil, nil
 }
 
-func (t *ADBTarget) sendHingeAngle(ctx context.Context, a *androidSettings, v any) (int, error) {
+func (t *Device) sendHingeAngle(ctx context.Context, a *androidSettings, v any) (int, error) {
 	deg, err := target.ParseHingeAngle(v)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s", target.ErrInvalidSetting, err)
@@ -272,7 +272,7 @@ func (t *ADBTarget) sendHingeAngle(ctx context.Context, a *androidSettings, v an
 }
 
 // WriteHingeAngle implements HingeWriter.
-func (t *ADBTarget) WriteHingeAngle(ctx context.Context, v any) (int, error) {
+func (t *Device) WriteHingeAngle(ctx context.Context, v any) (int, error) {
 	if !t.info.Ready() {
 		return 0, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
@@ -283,7 +283,7 @@ func (t *ADBTarget) WriteHingeAngle(ctx context.Context, v any) (int, error) {
 	return t.sendHingeAngle(ctx, a, v)
 }
 
-func newAndroidSettings(t *ADBTarget) *androidSettings {
+func newAndroidSettings(t *Device) *androidSettings {
 	a := &androidSettings{sh: func(ctx context.Context, args ...string) (string, error) {
 		return t.adb.Shell(ctx, t.info.Serial, args...)
 	}, fix: &t.lastFix}

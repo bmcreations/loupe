@@ -22,7 +22,7 @@ import (
 // It costs a device round trip in the low hundreds of milliseconds and a few
 // megabytes of PNG, so it is a still to look at rather than a way to sample
 // frames.
-func (t *ADBTarget) Screenshot(ctx context.Context) ([]byte, error) {
+func (t *Device) Screenshot(ctx context.Context) ([]byte, error) {
 	if !t.info.Ready() {
 		return nil, fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}
@@ -52,7 +52,7 @@ func (t *ADBTarget) Screenshot(ctx context.Context) ([]byte, error) {
 			return nil, fmt.Errorf("screencap -d %s: %w", id, err)
 		}
 	}
-	if !bytes.HasPrefix(raw, target.PngMagic) {
+	if !bytes.HasPrefix(raw, target.PNGMagic) {
 		msg := strings.TrimSpace(string(raw))
 		if len(msg) > 200 {
 			msg = msg[:200]

@@ -122,6 +122,10 @@ records.
 make test    # go test ./... and every web/*.test.mjs
 ```
 
+On a machine with loupe-private checked out, `make test` also runs
+`scripts/check-private-paths.sh`. It fails when that repo's `docs/internals`
+cite a `.go` file that no longer exists. Without the private repo it skips.
+
 Server-side WebTransport is proven with `cmd/wtprobe`, a native Go client,
 rather than inferred from a browser. Point it at the address the phone uses:
 loopback has a 16KB MTU and will hide anything the path cannot carry.

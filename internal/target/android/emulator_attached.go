@@ -8,7 +8,7 @@ import (
 )
 
 // An Emulator can do everything the device it runs as can, once it runs.
-// Each capability goes through the inner ADBTarget rather than the handlers
+// Each capability goes through the inner Device rather than the handlers
 // swapping the Emulator for it, because the handlers key sessions and trace
 // records on the target's ID, and the inner one's ID is the serial.
 //
@@ -41,7 +41,7 @@ const wakeBudget = 10 * time.Second
 // was paused for being idle, since adbd answers nothing while it is. The
 // call holds off a pause until done, because an install can outlast the
 // idle window and a pause mid-call would hang its adb shell.
-func (e *Emulator) running() (in *ADBTarget, done func(), err error) {
+func (e *Emulator) running() (in *Device, done func(), err error) {
 	if in := e.current(); in != nil {
 		release := e.hold()
 		ctx, cancel := context.WithTimeout(context.Background(), wakeBudget)
@@ -250,7 +250,7 @@ func (e *Emulator) Launch(ctx context.Context, pkg, activity string) (*target.La
 }
 
 // CheckLaunch needs no running emulator: the names are checked the way
-// the ADBTarget it would delegate to checks them.
+// the Device it would delegate to checks them.
 func (e *Emulator) CheckLaunch(pkg, activity string) error {
 	return checkAndroidLaunch(pkg, activity)
 }

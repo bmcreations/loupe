@@ -33,11 +33,11 @@ var phoneInputBudget = 15 * time.Second
 // iosWakeTimeout bounds the devicectl call that brings a phone's tunnel up.
 var iosWakeTimeout = 15 * time.Second
 
-// IOSInputDeadline is the longest one phone input call can take: a command
+// DeviceInputDeadline is the longest one phone input call can take: a command
 // that times out, the wake, and the one retry, plus a slow swipe's own
 // duration. A request context shorter than this ends the call with a bare
 // context error before any of those can name a cause.
-func IOSInputDeadline() time.Duration {
+func DeviceInputDeadline() time.Duration {
 	return 2*phoneInputBudget + iosWakeTimeout + 5*time.Second
 }
 
@@ -87,7 +87,7 @@ var wakeIOSDevice = func(ctx context.Context, device string) error {
 var errNoPhoneInput = errors.New("this simcap has no -phone-input; run make simcap")
 
 // input returns the device's input process, creating it on first use.
-func (d *IOSDevice) input(ctx context.Context) (*simInput, error) {
+func (d *Device) input(ctx context.Context) (*simInput, error) {
 	d.mu.Lock()
 	bin, id, known := d.simcap, d.info.Identifier, d.phoneInput
 	d.mu.Unlock()
@@ -124,7 +124,7 @@ func (d *IOSDevice) input(ctx context.Context) (*simInput, error) {
 }
 
 // dropInputLocked stops the input process. Called with mu held.
-func (d *IOSDevice) dropInputLocked() {
+func (d *Device) dropInputLocked() {
 	if d.in != nil {
 		go d.in.close()
 		d.in = nil
@@ -169,7 +169,7 @@ func simcapHas(ctx context.Context, bin, capability string) (bool, error) {
 // The messages of the two phone errors are built from CoreDevice's reply, the
 // wake's outcome and fixed words only. They leave out the command line, which
 // for a typed character names the key, so a text action can return them.
-func (d *IOSDevice) do(ctx context.Context, budget time.Duration, format string, a ...any) (string, error) {
+func (d *Device) do(ctx context.Context, budget time.Duration, format string, a ...any) (string, error) {
 	if line := fmt.Sprintf(format, a...); runnerVerb(line) && d.touchesViaRunner() {
 		return d.runnerDo(ctx, budget, line)
 	}
@@ -211,7 +211,7 @@ func (d *IOSDevice) do(ctx context.Context, budget time.Duration, format string,
 // touchesViaRunner reports whether this phone's touches go to the XCUITest
 // runner: below iOS 27, where CoreDevice's digitizer answers ok and nothing
 // lands. An OS version that does not parse stays on CoreDevice.
-func (d *IOSDevice) touchesViaRunner() bool {
+func (d *Device) touchesViaRunner() bool {
 	major, _, _ := strings.Cut(d.Info().OSVersion, ".")
 	v, err := strconv.Atoi(major)
 	return err == nil && v < 27
@@ -219,7 +219,7 @@ func (d *IOSDevice) touchesViaRunner() bool {
 
 // runnerDo sends one line to the phone's XCUITest runner, starting it when
 // it is not answering.
-func (d *IOSDevice) runnerDo(ctx context.Context, budget time.Duration, line string) (string, error) {
+func (d *Device) runnerDo(ctx context.Context, budget time.Duration, line string) (string, error) {
 	d.mu.Lock()
 	info, dir := d.info, d.xcrunner
 	if info.Transport != "wired" {
@@ -244,7 +244,7 @@ func (d *IOSDevice) runnerDo(ctx context.Context, budget time.Duration, line str
 
 // SetXCRunner records the built runner's products directory, or "" when it
 // is not built.
-func (d *IOSDevice) SetXCRunner(dir string) {
+func (d *Device) SetXCRunner(dir string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if dir != d.xcrunner {
@@ -255,7 +255,7 @@ func (d *IOSDevice) SetXCRunner(dir string) {
 
 // dropRunnerLocked forgets the runner and stops an xcodebuild this server
 // started for it. Called with mu held.
-func (d *IOSDevice) dropRunnerLocked() {
+func (d *Device) dropRunnerLocked() {
 	if d.runner != nil {
 		go d.runner.close()
 		d.runner = nil
@@ -269,13 +269,13 @@ func deliveryUnknown(err error) bool {
 }
 
 // Tap implements Actuator, in screen pixels.
-func (d *IOSDevice) Tap(ctx context.Context, x, y int) error {
+func (d *Device) Tap(ctx context.Context, x, y int) error {
 	_, err := d.do(ctx, 0, "tap %d %d", x, y)
 	return err
 }
 
 // Swipe implements Actuator.
-func (d *IOSDevice) Swipe(ctx context.Context, x1, y1, x2, y2, ms int) error {
+func (d *Device) Swipe(ctx context.Context, x1, y1, x2, y2, ms int) error {
 	_, err := d.do(ctx, time.Duration(ms)*time.Millisecond, "swipe %d %d %d %d %d", x1, y1, x2, y2, ms)
 	return err
 }
@@ -283,7 +283,7 @@ func (d *IOSDevice) Swipe(ctx context.Context, x1, y1, x2, y2, ms int) error {
 // TypeText implements Actuator one keystroke per character, on the US
 // layout a simulator's text uses. Every character is checked before any is
 // sent.
-func (d *IOSDevice) TypeText(ctx context.Context, text string) error {
+func (d *Device) TypeText(ctx context.Context, text string) error {
 	keys := make([]iosKey, 0, len(text))
 	for _, r := range text {
 		k, ok := charToIOS[r]
@@ -306,7 +306,7 @@ func (d *IOSDevice) TypeText(ctx context.Context, text string) error {
 }
 
 // PressKey implements Actuator with the simulator's keycode table.
-func (d *IOSDevice) PressKey(ctx context.Context, keycode int) error {
+func (d *Device) PressKey(ctx context.Context, keycode int) error {
 	k, ok := androidToIOS[int32(keycode)]
 	if !ok {
 		return fmt.Errorf("keycode %d has no iOS equivalent", keycode)
@@ -320,7 +320,7 @@ func (d *IOSDevice) PressKey(ctx context.Context, keycode int) error {
 
 // PressButton implements ButtonPresser: home and lock are CoreDevice's
 // consumer usages, and the app switcher is two Home presses.
-func (d *IOSDevice) PressButton(ctx context.Context, name string) error {
+func (d *Device) PressButton(ctx context.Context, name string) error {
 	if !slices.Contains(iosButtons, name) {
 		return fmt.Errorf("%w %q; want %s", target.ErrUnknownButton, name, strings.Join(iosButtons, ", "))
 	}
@@ -329,10 +329,10 @@ func (d *IOSDevice) PressButton(ctx context.Context, name string) error {
 }
 
 // Buttons implements ButtonPresser.
-func (d *IOSDevice) Buttons() []string { return iosButtons }
+func (d *Device) Buttons() []string { return iosButtons }
 
 // ScreenSize implements ScreenSizer from CoreDevice's display info.
-func (d *IOSDevice) ScreenSize(ctx context.Context) (int, int, error) {
+func (d *Device) ScreenSize(ctx context.Context) (int, int, error) {
 	out, err := d.do(ctx, 0, "size")
 	if err != nil {
 		return 0, 0, err
@@ -346,10 +346,10 @@ func (d *IOSDevice) ScreenSize(ctx context.Context) (int, int, error) {
 
 // keyContext implements simcapInputOwner. A phone has no Device Hub hold
 // to check.
-func (d *IOSDevice) keyContext(ctx context.Context) (context.Context, error) { return ctx, nil }
+func (d *Device) keyContext(ctx context.Context) (context.Context, error) { return ctx, nil }
 
 var (
-	_ target.Actuator      = (*IOSDevice)(nil)
-	_ target.ButtonPresser = (*IOSDevice)(nil)
-	_ target.ScreenSizer   = (*IOSDevice)(nil)
+	_ target.Actuator      = (*Device)(nil)
+	_ target.ButtonPresser = (*Device)(nil)
+	_ target.ScreenSizer   = (*Device)(nil)
 )

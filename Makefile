@@ -112,6 +112,7 @@ xcrunner:
 test:
 	go test ./...
 	node web/run-tests.mjs
+	./scripts/check-private-paths.sh
 
 vet:
 	go vet ./...

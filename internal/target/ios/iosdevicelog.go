@@ -17,7 +17,7 @@ import (
 	"github.com/bmcreations/loupe/internal/usbmux"
 )
 
-var _ target.Logcatter = (*IOSDevice)(nil)
+var _ target.Logcatter = (*Device)(nil)
 
 // syslogOpen opens the phone's syslog_relay. A variable so tests can hand
 // in a pipe.
@@ -37,7 +37,7 @@ var (
 // lockdownd's syslog_relay over a cable or Wi-Fi. It has no history to
 // query by time and no structured form, so Since and Format are refused, and
 // a package has no route to its pid here, so only PID narrows it.
-func (d *IOSDevice) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logcat, error) {
+func (d *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logcat, error) {
 	switch {
 	case q.Format != "":
 		return nil, fmt.Errorf("%w: a phone's log is text only", ErrLogQueryUnsupported)

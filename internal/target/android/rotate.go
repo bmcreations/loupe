@@ -12,7 +12,7 @@ import (
 	"github.com/bmcreations/loupe/internal/target"
 )
 
-var _ target.Rotator = (*ADBTarget)(nil)
+var _ target.Rotator = (*Device)(nil)
 
 // androidButtons names the hardware and software buttons /api/input's
 // "button" action can press, and the Android keycode each one sends.
@@ -76,7 +76,7 @@ func ButtonNames() []string {
 // activity twice as the rotation settles twice instead of once; and if the
 // second write then fails, the device is left locked at the wrong rotation
 // rather than merely un-pinned.
-func (t *ADBTarget) rotateCommands(to int) ([][]string, error) {
+func (t *Device) rotateCommands(to int) ([][]string, error) {
 	if to < 0 || to > 3 {
 		return nil, fmt.Errorf("rotation %d out of range [0,3]", to)
 	}
@@ -139,7 +139,7 @@ func heldFromGravity(out string, display int) int {
 // held is the quarter turn the device is held at. An emulator's tilt sensor
 // says, and keeps saying across a loupe restart. Anything else has no sensor
 // loupe can set, so it is held the way its display is.
-func (t *ADBTarget) held(ctx context.Context, display int) int {
+func (t *Device) held(ctx context.Context, display int) int {
 	if !t.info.Emulator {
 		return display
 	}
@@ -158,7 +158,7 @@ func (t *ADBTarget) held(ctx context.Context, display int) int {
 // status through, so `settings put` failing on the device -- most often a
 // SecurityException -- can still come back as exit 0, and trusting the exit
 // code alone would read that as success.
-func (t *ADBTarget) Rotate(ctx context.Context, to int) error {
+func (t *Device) Rotate(ctx context.Context, to int) error {
 	cmds, err := t.rotateCommands(to)
 	if err != nil {
 		return err
@@ -190,7 +190,7 @@ func (t *ADBTarget) Rotate(ctx context.Context, to int) error {
 //
 // Upside down (2) is a real tilt too, and most apps do not turn for it, as
 // on a phone.
-func (t *ADBTarget) tilt(ctx context.Context, to int) error {
+func (t *Device) tilt(ctx context.Context, to int) error {
 	out, err := t.adb.Emu(ctx, t.info.Serial, "sensor", "set", "acceleration", gravities[to])
 	if err != nil {
 		return fmt.Errorf("rotate: set tilt sensor: %w: %s", err, strings.TrimSpace(out))
@@ -220,7 +220,7 @@ func (t *ADBTarget) tilt(ctx context.Context, to int) error {
 // here, and on an app that locks portrait the display stays at 0 however
 // often the emulator is tilted, so counting from the display would ask for
 // 90 forever.
-func (t *ADBTarget) Rotation(ctx context.Context) (int, error) {
+func (t *Device) Rotation(ctx context.Context) (int, error) {
 	display, err := t.adb.DisplayRotation(ctx, t.info.Serial)
 	if err != nil {
 		return 0, err

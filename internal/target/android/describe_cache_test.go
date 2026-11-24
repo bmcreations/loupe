@@ -8,7 +8,7 @@ import (
 )
 
 // TestDescribeIsCachedForTheTargetsLife pins the plan's caching requirement
-// directly against ADBTarget: describing a target must not cost an adb call
+// directly against Device: describing a target must not cost an adb call
 // per /api/targets request (trap 33 is exactly this shape of adb connection
 // churn, one layer up). A fake "adb" binary counts its own invocations to a
 // file, since ADB.Shell always execs a binary rather than going through an
@@ -30,7 +30,7 @@ func TestDescribeIsCachedForTheTargetsLife(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tgt := NewADBTarget(ADB{Path: fakeADB}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: fakeADB}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
 
 	for i := 0; i < 3; i++ {
 		d, err := tgt.Describe(context.Background())
@@ -64,7 +64,7 @@ func TestDescribeIsCachedForTheTargetsLife(t *testing.T) {
 // path nothing resolves makes that failure mode loud (exec: no such file)
 // instead of quietly reaching a real adb.
 func TestDescribeIsNotCachedOnFailure(t *testing.T) {
-	tgt := NewADBTarget(ADB{Path: "/nonexistent/loupe-test-adb-should-not-run"}, DeviceInfo{Serial: "not-ready", State: "offline"}, "", "")
+	tgt := NewDevice(ADB{Path: "/nonexistent/loupe-test-adb-should-not-run"}, DeviceInfo{Serial: "not-ready", State: "offline"}, "", "")
 
 	if _, err := tgt.Describe(context.Background()); err == nil {
 		t.Fatal("Describe on a not-ready device: want an error, got nil")
@@ -94,7 +94,7 @@ func TestDescribeIsNotCachedOnIncompleteOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tgt := NewADBTarget(ADB{Path: fakeADB}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: fakeADB}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
 
 	if _, err := tgt.Describe(context.Background()); err == nil {
 		t.Fatal("Describe on empty getprop output: want an error, got nil")

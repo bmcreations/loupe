@@ -18,7 +18,7 @@ import (
 // dump archives; iosdeviceax.go decodes them.
 const simcapBridgeName = "simcap-bridge"
 
-var _ target.Inspector = (*IOSDevice)(nil)
+var _ target.Inspector = (*Device)(nil)
 
 // maxAXFrame caps a single dump archive. Real trees are a few MiB (the lock
 // screen is ~1.6MB); this is only a guard against a desynced pipe.
@@ -32,7 +32,7 @@ const maxAXFrame = 64 << 20
 //
 // The phone's own path is untouched: ScreenSize and Tap still go through
 // simcap and CoreDevice; only the tree is new.
-func (d *IOSDevice) Inspect(ctx context.Context) (*target.UI, error) {
+func (d *Device) Inspect(ctx context.Context) (*target.UI, error) {
 	d.mu.Lock()
 	info, bin := d.info, d.simcap
 	d.mu.Unlock()

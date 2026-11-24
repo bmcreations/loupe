@@ -60,7 +60,7 @@ func readCalls(t *testing.T, path string) string {
 
 func TestInspectReadsScrollActionsFromTheA11yDump(t *testing.T) {
 	adb, calls := fakeA11yADB(t, "cat $DIR/a11y.xml")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	ui, err := tgt.Inspect(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestInspectReadsScrollActionsFromTheA11yDump(t *testing.T) {
 
 func TestInspectReportsBusyWithoutFallingBack(t *testing.T) {
 	adb, calls := fakeA11yADB(t, "echo busy; exit 3")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	_, err := tgt.Inspect(context.Background())
 	if !errors.Is(err, target.ErrUIAutomationBusy) {
 		t.Fatalf("err = %v; want ErrUIAutomationBusy", err)
@@ -92,7 +92,7 @@ func TestInspectReportsBusyWithoutFallingBack(t *testing.T) {
 
 func TestInspectFallsBackToUIAutomatorWhenTheA11yDumpFails(t *testing.T) {
 	adb, _ := fakeA11yADB(t, "echo 'java.lang.ClassNotFoundException' >&2; exit 1")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	ui, err := tgt.Inspect(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestInspectFallsBackToUIAutomatorWhenTheA11yDumpFails(t *testing.T) {
 func TestInspectSkipsTheA11yDumpWhenTurnedOff(t *testing.T) {
 	t.Setenv("LOUPE_A11Y_DUMP", "0")
 	adb, calls := fakeA11yADB(t, "cat $DIR/a11y.xml")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	if _, err := tgt.Inspect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestInspectFallsBackWhenTheA11yDumpHangs(t *testing.T) {
 	a11yDumpTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { a11yDumpTimeout = old })
 	adb, calls := fakeA11yADB(t, "exec sleep 5")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	start := time.Now()
 	ui, err := tgt.Inspect(context.Background())
 	if err != nil {

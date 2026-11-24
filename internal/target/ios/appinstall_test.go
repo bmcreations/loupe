@@ -58,7 +58,7 @@ func TestUnpackIOSAppIPA(t *testing.T) {
 		{name: "iTunesMetadata.plist", body: "skipped"},
 	})
 	dir := t.TempDir()
-	app, err := UnpackIOSApp(p, dir)
+	app, err := UnpackApp(p, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestUnpackIOSAppZippedApp(t *testing.T) {
 		{name: "Handset.app/Info.plist", body: "plist"},
 		{name: "__MACOSX/Handset.app/._Info.plist", body: "fork"},
 	})
-	app, err := UnpackIOSApp(p, t.TempDir())
+	app, err := UnpackApp(p, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestUnpackIOSAppRefuses(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := UnpackIOSApp(c.path, t.TempDir())
+			_, err := UnpackApp(c.path, t.TempDir())
 			if !errors.Is(err, ErrNotIOSApp) || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("err = %v, want ErrNotIOSApp with %q", err, c.want)
 			}
@@ -148,7 +148,7 @@ func TestIOSDeviceInstallApp(t *testing.T) {
 	appBundleID = func(context.Context, string) (string, error) { return "dev.bmcreations.handset", nil }
 	defer func(f func(context.Context, string, string, string) ([]byte, error)) { devicectlInstall = f }(devicectlInstall)
 
-	d := &IOSDevice{info: IOSDeviceInfo{UDID: "00008140-0004583C22D8801C"}}
+	d := &Device{info: DeviceInfo{UDID: "00008140-0004583C22D8801C"}}
 	p := writeZip(t, []zipEntry{{name: "Payload/Handset.app/Info.plist", body: "plist"}})
 
 	var gotDevice, gotApp string

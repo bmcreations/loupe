@@ -20,7 +20,7 @@ const touchLogMarker = "__loupe_log__"
 // returns: on emulator-5554 the read straight after found it every time.
 // Args are digits and a verb, never caller text, so they go into the script
 // as they are.
-func (t *ADBTarget) touchInput(ctx context.Context, args ...string) error {
+func (t *Device) touchInput(ctx context.Context, args ...string) error {
 	if !t.info.Ready() {
 		return fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}

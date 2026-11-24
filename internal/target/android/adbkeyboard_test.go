@@ -13,7 +13,7 @@ import (
 // a later stream -- the next phone to connect would lose its on-screen
 // keyboard without asking. Off needs nothing and succeeds.
 func TestADBKeyboardWithNoStreamIsRefused(t *testing.T) {
-	tgt := NewADBTarget(ADB{}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	if err := tgt.SetHardwareKeyboard(context.Background(), true); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("on with no stream: err = %v, want ErrNoSession", err)
 	}
@@ -28,7 +28,7 @@ func TestADBKeyboardWithNoStreamIsRefused(t *testing.T) {
 // TestTheLastStreamClosingClearsTheKeyboard: the setting lasts as long as a
 // stream is open, including across a relaunch's overlap, and not after.
 func TestTheLastStreamClosingClearsTheKeyboard(t *testing.T) {
-	tgt := NewADBTarget(ADB{}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	tgt := NewDevice(ADB{}, DeviceInfo{Serial: "s", State: "device"}, "", "")
 	a, b := &adbStream{}, &adbStream{}
 	tgt.streams = map[*adbStream]struct{}{a: {}, b: {}}
 	tgt.hwKeyboard = true
@@ -47,7 +47,7 @@ func TestTheLastStreamClosingClearsTheKeyboard(t *testing.T) {
 // The device here is not ready, so reaching adb is the error that proves
 // the route was taken.
 func TestADBTextFallsBackToADBWithNoStream(t *testing.T) {
-	tgt := NewADBTarget(ADB{}, DeviceInfo{Serial: "s", State: "offline"}, "", "")
+	tgt := NewDevice(ADB{}, DeviceInfo{Serial: "s", State: "offline"}, "", "")
 	if tgt.liveStream() != nil {
 		t.Fatal("a fresh target reports a live stream")
 	}

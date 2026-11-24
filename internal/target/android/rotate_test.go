@@ -57,7 +57,7 @@ func TestButtonForKeycodeRejectsAnUnknownCode(t *testing.T) {
 // turned off second, applying both in one transition. The reverse order
 // would leave the display locked at a stale user_rotation, however briefly.
 func TestRotateCommandsSetsUserRotationThenPinsAutoRotateOff(t *testing.T) {
-	tgt := &ADBTarget{}
+	tgt := &Device{}
 	got, err := tgt.rotateCommands(1)
 	if err != nil {
 		t.Fatalf("rotateCommands(1): %v", err)
@@ -84,7 +84,7 @@ func TestRotateCommandsSetsUserRotationThenPinsAutoRotateOff(t *testing.T) {
 // TestRotateCommandsRejectsAnOutOfRangeRotation: rotation is 0..3 quarter
 // turns; 4 has no meaning and must fail before anything runs on the device.
 func TestRotateCommandsRejectsAnOutOfRangeRotation(t *testing.T) {
-	tgt := &ADBTarget{}
+	tgt := &Device{}
 	if _, err := tgt.rotateCommands(4); err == nil {
 		t.Fatal("rotateCommands(4) succeeded; want an error, rotation is 0..3")
 	}
@@ -182,7 +182,7 @@ func readLines(t *testing.T, path string) []string {
 func TestADBTargetRotateRunsBothCommandsInOrder(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "adb.log")
 	adb := writeFakeRotateADB(t, log)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
 
 	if err := tgt.Rotate(t.Context(), 2); err != nil {
 		t.Fatalf("Rotate(2): %v", err)
@@ -205,7 +205,7 @@ func TestADBTargetRotateRunsBothCommandsInOrder(t *testing.T) {
 func TestADBTargetRotateTiltsAnEmulator(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "adb.log")
 	adb := writeFakeRotateADB(t, log)
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
 
 	if err := tgt.Rotate(t.Context(), 1); err != nil {
 		t.Fatalf("Rotate(1): %v", err)
@@ -233,7 +233,7 @@ func TestADBTargetRotateTiltsAnEmulator(t *testing.T) {
 func TestADBTargetRotateSurfacesARefusedTilt(t *testing.T) {
 	adb := writeFakeRotateADB(t, filepath.Join(t.TempDir(), "adb.log"))
 	t.Setenv("FAKE_ADB_SENSOR_OUT", "KO: bad sensor value")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
 	if err := tgt.Rotate(t.Context(), 1); err == nil || !strings.Contains(err.Error(), "KO") {
 		t.Fatalf("Rotate(1) = %v; want the console's KO", err)
 	}
@@ -246,7 +246,7 @@ func TestADBTargetRotationCountsFromTheHeldTurn(t *testing.T) {
 	adb := writeFakeRotateADB(t, filepath.Join(t.TempDir(), "adb.log"))
 	t.Setenv("FAKE_ADB_DISPLAY", "0")
 	t.Setenv("FAKE_ADB_GRAVITY", "9.81:0:0")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "emulator-5554", State: "device", Emulator: true}, "", "")
 	got, err := tgt.Rotation(t.Context())
 	if err != nil || got != 1 {
 		t.Fatalf("Rotation() = %d, %v; want 1, the held turn", got, err)
@@ -260,7 +260,7 @@ func TestADBTargetRotationOfAPhoneIsItsDisplay(t *testing.T) {
 	adb := writeFakeRotateADB(t, log)
 	t.Setenv("FAKE_ADB_DISPLAY", "180")
 	t.Setenv("FAKE_ADB_GRAVITY", "9.81:0:0")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "phone-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "phone-1", State: "device"}, "", "")
 	got, err := tgt.Rotation(t.Context())
 	if err != nil || got != 2 {
 		t.Fatalf("Rotation() = %d, %v; want 2, the display", got, err)
@@ -310,7 +310,7 @@ func TestADBTargetRotateSurfacesAFailedShellCall(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "adb.log")
 	adb := writeFakeRotateADB(t, log)
 	t.Setenv("FAKE_ADB_ACCEL_FAIL", "Failure calling service")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
 
 	err := tgt.Rotate(t.Context(), 1)
 	if err == nil {
@@ -332,7 +332,7 @@ func TestADBTargetRotateFailsOnExceptionInOutputEvenWithZeroExit(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "adb.log")
 	adb := writeFakeRotateADB(t, log)
 	t.Setenv("FAKE_ADB_USER_ROTATION_OUT", "java.lang.SecurityException: Permission Denial")
-	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "fake-1", State: "device"}, "", "")
 
 	err := tgt.Rotate(t.Context(), 1)
 	if err == nil {

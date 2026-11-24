@@ -384,7 +384,7 @@ Display: mDisplayId=0
 X
 ;;
 esac`)
-		tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "R5CT", State: "device"}, "", "")
+		tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "R5CT", State: "device"}, "", "")
 		f, err := tgt.DeviceFrame(context.Background())
 		if err != nil {
 			t.Fatal(err)

@@ -22,12 +22,12 @@ var ErrNotIOSApp = errors.New("not an iOS app")
 // thousand; this only stops a zip bomb of empty entries.
 const maxAppEntries = 200_000
 
-// UnpackIOSApp extracts the one .app bundle in archive into dir and returns
+// UnpackApp extracts the one .app bundle in archive into dir and returns
 // its path. The bundle is either Payload/Name.app, as in an .ipa, or a
 // Name.app at the top, as Finder zips one. Entries outside the bundle are
 // skipped; an entry that would land outside dir, or a symlink that points
 // out of the bundle, fails the whole unpack.
-func UnpackIOSApp(archive, dir string) (string, error) {
+func UnpackApp(archive, dir string) (string, error) {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
 		return "", fmt.Errorf("%w: not a zip", ErrNotIOSApp)
