@@ -65,7 +65,7 @@ func (d *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logc
 	if err != nil {
 		return nil, err
 	}
-	return &target.Logcat{PID: q.PID, ReadCloser: io.NopCloser(bytes.NewReader(joinLines(lines)))}, nil
+	return &target.Logcat{PID: q.PID, ReadCloser: io.NopCloser(bytes.NewReader(target.JoinLines(lines)))}, nil
 }
 
 // syslogDump reads until the stream is quiet or the cap runs out, keeping

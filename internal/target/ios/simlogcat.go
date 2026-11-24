@@ -225,7 +225,7 @@ func simLogTail(ctx context.Context, udid string, q target.LogcatQuery, pid int)
 		if err != nil {
 			return nil, err
 		}
-		lines, err := lastFiltered(simLogReader(r, q), q.Lines)
+		lines, err := target.LastLines(simLogReader(r, q), q.Lines)
 		if err != nil {
 			// A narrower window finished, so what it kept is the answer,
 			// even when a tag or text matched nothing in it.
@@ -234,7 +234,7 @@ func simLogTail(ctx context.Context, udid string, q target.LogcatQuery, pid int)
 			}
 			return nil, err
 		}
-		best = joinLines(lines)
+		best = target.JoinLines(lines)
 		if len(lines) >= q.Lines || i+1 == len(simLogWindows) {
 			return best, nil
 		}
@@ -245,39 +245,6 @@ func simLogTail(ctx context.Context, udid string, q target.LogcatQuery, pid int)
 		}
 	}
 	return best, nil
-}
-
-// lastFiltered reads r to the end, keeping its last n lines, and closes it.
-func lastFiltered(r io.ReadCloser, n int) ([]string, error) {
-	ring := make([]string, 0, n)
-	start := 0
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), 4<<20)
-	for sc.Scan() {
-		if len(ring) < n {
-			ring = append(ring, sc.Text())
-			continue
-		}
-		ring[start] = sc.Text()
-		start = (start + 1) % n
-	}
-	err := sc.Err()
-	if cerr := r.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return nil, err
-	}
-	return append(ring[start:], ring[:start]...), nil
-}
-
-func joinLines(lines []string) []byte {
-	var b bytes.Buffer
-	for _, l := range lines {
-		b.WriteString(l)
-		b.WriteByte('\n')
-	}
-	return b.Bytes()
 }
 
 // simLogFilter drops what `log` prints around the entries: compact's

@@ -747,14 +747,20 @@ In compact, a message from the process's own binary that starts with
 `[a:b]` or `(x)` reads as that tag. `format=ndjson` takes the tag from its
 own fields.
 
-A filtered dump only finds what it reads. On Android that is the whole ring
-buffer, which has to come back inside the 15 second dump limit or the dump is
-502. A device with large log buffers can miss it, and `since` or `package`
-narrows the read. On a simulator the dump widens its window from a minute to
-10 minutes to an hour until it has `lines` matching lines. It stops widening
-when the next window looks unable to finish inside the limit, or the limit
-cuts one, and answers with what the last finished window kept, which can be
-nothing. A rare tag with no `package` can take most of the limit.
+A filtered dump only finds what it reads, inside the 15 second dump limit.
+On Android it reads the newest 10000 lines first, or `lines` when that is
+more, and widens until it has `lines` matching lines or has read the whole
+buffer, sizing each wider read to finish inside the limit. A phone with large
+log buffers can take longer than the limit to send the whole buffer: one with
+16 MiB main and system buffers took 33 s. There a match older than the widest
+read that fits is missed. With `package`, `pid` or `foreground`, logcat reads
+only that process's lines, and the whole buffer is tried first. On a
+simulator the dump widens its window from a minute to 10 minutes to an hour
+until it has `lines` matching lines. On either, it stops widening when the
+next read looks unable to finish inside the limit, or the limit cuts one, and
+answers with what the last finished read kept, which can be nothing. Only a
+first read the limit cuts is 502. A rare tag with no `package` can take most
+of the limit, and `since` bounds how far back it reads.
 
 A follow with a filter starts from the last `lines` lines on Android and keeps
 those that match, so it can start with fewer. On a simulator a follow starts

@@ -178,3 +178,39 @@ func (r *filteredLog) Read(p []byte) (int, error) {
 }
 
 func (r *filteredLog) Close() error { return r.src.Close() }
+
+// LastLines reads r to the end, keeping its last n lines, and closes it. A
+// dump that has to read further back than it will answer, such as a filtered
+// one, keeps only what it serves.
+func LastLines(r io.ReadCloser, n int) ([]string, error) {
+	ring := make([]string, 0, n)
+	start := 0
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for sc.Scan() {
+		if len(ring) < n {
+			ring = append(ring, sc.Text())
+			continue
+		}
+		ring[start] = sc.Text()
+		start = (start + 1) % n
+	}
+	err := sc.Err()
+	if cerr := r.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return nil, err
+	}
+	return append(ring[start:], ring[:start]...), nil
+}
+
+// JoinLines is lines as a log again, each ending in a newline.
+func JoinLines(lines []string) []byte {
+	var b bytes.Buffer
+	for _, l := range lines {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	return b.Bytes()
+}
