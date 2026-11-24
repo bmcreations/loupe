@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -171,7 +173,7 @@ func TestParseResolveActivityTakesTheLastLine(t *testing.T) {
 }
 
 func TestSimulatorLaunchRefusesAnActivityAndABadBundle(t *testing.T) {
-	s := target.NewSimulator(target.SimInfo{UDID: "u"}, "")
+	s := ios.NewSimulator(ios.SimInfo{UDID: "u"}, "")
 	if _, err := s.Launch(context.Background(), "com.apple.Preferences", ".Main"); err == nil {
 		t.Error("an activity on a simulator was accepted")
 	}

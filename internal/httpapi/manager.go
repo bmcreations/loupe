@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target/android"
 
 	"github.com/bmcreations/loupe/internal/clipshare"
@@ -353,7 +355,7 @@ func (m *Manager) SyncDevices(devices []android.DeviceInfo, build func(android.D
 // never comes back, and test runs create and delete them all day. One still
 // being watched is kept and marked missing, so its viewer can say where it
 // went, and is dropped by the first listing after its session ends.
-func (m *Manager) SyncSimulators(sims []target.SimInfo, simcap string) {
+func (m *Manager) SyncSimulators(sims []ios.SimInfo, simcap string) {
 	m.SyncSimulatorsAt(time.Now(), sims, simcap)
 }
 
@@ -362,7 +364,7 @@ func (m *Manager) SyncSimulators(sims []target.SimInfo, simcap string) {
 // 5s poll can start before `simctl create` returns and apply after the
 // creator's own sync, and would mark the new simulator missing until the next
 // poll.
-func (m *Manager) SyncSimulatorsAt(listedAt time.Time, sims []target.SimInfo, simcap string) {
+func (m *Manager) SyncSimulatorsAt(listedAt time.Time, sims []ios.SimInfo, simcap string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if listedAt.Before(m.simListedAt) {
@@ -372,13 +374,13 @@ func (m *Manager) SyncSimulatorsAt(listedAt time.Time, sims []target.SimInfo, si
 
 	seen := map[string]bool{}
 	for _, info := range sims {
-		id := target.SimulatorID(info.UDID)
+		id := ios.SimulatorID(info.UDID)
 		if at, ok := m.gone[id]; ok && !listedAt.After(at) {
 			// Deleted after this listing began: simctl had not yet dropped it.
 			continue
 		}
 		seen[id] = true
-		if cur, ok := m.targets[id].(*target.Simulator); ok {
+		if cur, ok := m.targets[id].(*ios.Simulator); ok {
 			if was := cur.Info(); was.State != info.State {
 				m.trace.Record(map[string]any{
 					"kind": "target-state", "target": id, "state": info.State, "was": was.State,
@@ -386,14 +388,14 @@ func (m *Manager) SyncSimulatorsAt(listedAt time.Time, sims []target.SimInfo, si
 			}
 			cur.Update(info)
 		} else {
-			sim := target.NewSimulator(info, simcap)
+			sim := ios.NewSimulator(info, simcap)
 			sim.SetBootHooks(m.simSlim.Load, func(r map[string]any) { m.trace.Record(r) })
 			m.targets[id] = sim
 		}
 		m.setPresence(id, "device")
 	}
 	for id, t := range m.targets {
-		if _, ok := t.(*target.Simulator); !ok || seen[id] {
+		if _, ok := t.(*ios.Simulator); !ok || seen[id] {
 			continue
 		}
 		if _, live := m.sessions[id]; live {
@@ -415,7 +417,7 @@ func (m *Manager) SetIOSSimcap(bin string) {
 	defer m.mu.Unlock()
 	m.iosSimcap = bin
 	for _, t := range m.targets {
-		if d, ok := t.(*target.IOSDevice); ok {
+		if d, ok := t.(*ios.IOSDevice); ok {
 			d.SetSimcap(bin)
 		}
 	}
@@ -428,7 +430,7 @@ func (m *Manager) SetXCRunner(dir string) {
 	defer m.mu.Unlock()
 	m.xcrunner = dir
 	for _, t := range m.targets {
-		if d, ok := t.(*target.IOSDevice); ok {
+		if d, ok := t.(*ios.IOSDevice); ok {
 			d.SetXCRunner(dir)
 		}
 	}
@@ -440,7 +442,7 @@ func (m *Manager) SetXCRunner(dir string) {
 // "offline" while it does not, and a device it stops listing, unpaired, is
 // kept and marked missing. A change of transport, cable to Wi-Fi or back, is
 // traced, since it changes what the device can carry.
-func (m *Manager) SyncIOSDevices(devs []target.IOSDeviceInfo) {
+func (m *Manager) SyncIOSDevices(devs []ios.IOSDeviceInfo) {
 	var stale []*session.Session
 	defer func() {
 		for _, s := range stale {
@@ -452,9 +454,9 @@ func (m *Manager) SyncIOSDevices(devs []target.IOSDeviceInfo) {
 
 	seen := map[string]bool{}
 	for _, info := range devs {
-		id := target.IOSDeviceID(info)
+		id := ios.IOSDeviceID(info)
 		seen[id] = true
-		if cur, ok := m.targets[id].(*target.IOSDevice); ok {
+		if cur, ok := m.targets[id].(*ios.IOSDevice); ok {
 			if was := cur.Info(); was.Transport != info.Transport {
 				m.trace.Record(map[string]any{
 					"kind": "target-state", "target": id, "transport": info.Transport, "was": was.Transport,
@@ -462,7 +464,7 @@ func (m *Manager) SyncIOSDevices(devs []target.IOSDeviceInfo) {
 			}
 			cur.Update(info)
 		} else {
-			d := target.NewIOSDevice(info)
+			d := ios.NewIOSDevice(info)
 			d.SetSimcap(m.iosSimcap)
 			d.SetXCRunner(m.xcrunner)
 			m.targets[id] = d
@@ -485,7 +487,7 @@ func (m *Manager) SyncIOSDevices(devs []target.IOSDeviceInfo) {
 		m.setPresence(id, state)
 	}
 	for id, t := range m.targets {
-		if _, ok := t.(*target.IOSDevice); ok && !seen[id] {
+		if _, ok := t.(*ios.IOSDevice); ok && !seen[id] {
 			m.setPresence(id, "missing")
 		}
 	}
@@ -1678,7 +1680,7 @@ func (m *Manager) SimulatorNames() []string {
 	defer m.mu.Unlock()
 	var out []string
 	for _, t := range m.targets {
-		if s, ok := t.(*target.Simulator); ok {
+		if s, ok := t.(*ios.Simulator); ok {
 			out = append(out, s.Info().Name)
 		}
 	}

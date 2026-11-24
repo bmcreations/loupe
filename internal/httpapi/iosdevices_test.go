@@ -7,20 +7,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target/android"
 
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
 )
 
-var iphoneWiFi = target.IOSDeviceInfo{
+var iphoneWiFi = ios.IOSDeviceInfo{
 	Identifier: "11111111-AAAA-BBBB-CCCC-000000000001", UDID: "00008150-000A1B2C3D4E5F60",
 	Name: "Brandon's iPhone", OSVersion: "27.0", Form: "phone", Transport: "localNetwork",
 }
 
 func TestAnIOSDeviceIsListedAvailableWhileReachable(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi})
 
 	got := infoFor(t, m, "ios:"+iphoneWiFi.UDID)
 	if got.Kind != "iosDevice" || got.Label != "Brandon's iPhone" || !got.Available || got.State != "device" {
@@ -35,14 +37,14 @@ func TestAnUnreachableIOSDeviceSaysHowToReachIt(t *testing.T) {
 	m := NewManager(target.Options{})
 	away := iphoneWiFi
 	away.Transport = ""
-	m.SyncIOSDevices([]target.IOSDeviceInfo{away})
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{away})
 
 	got := infoFor(t, m, "ios:"+iphoneWiFi.UDID)
 	if got.Available || got.State != "offline" || !strings.Contains(got.Reason, "network") || strings.Contains(got.Reason, "adb") {
 		t.Fatalf("unreachable: %+v", got)
 	}
 
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi})
 	if !infoFor(t, m, "ios:"+iphoneWiFi.UDID).Available {
 		t.Error("back on the network and still unavailable")
 	}
@@ -58,8 +60,8 @@ func TestAnUnreachableIOSDeviceSaysHowToReachIt(t *testing.T) {
 // it alone, and its sync must leave theirs alone.
 func TestIOSDeviceSyncsAreIndependentOfTheOthers(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
-	m.SyncSimulators([]target.SimInfo{simProbe}, "")
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi})
+	m.SyncSimulators([]ios.SimInfo{simProbe}, "")
 	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 	m.SyncDevices(nil, buildADB)
 	m.SyncSimulators(nil, "")
@@ -67,9 +69,9 @@ func TestIOSDeviceSyncsAreIndependentOfTheOthers(t *testing.T) {
 		t.Error("an adb or simctl sync marked the iPhone missing")
 	}
 
-	m.SyncSimulators([]target.SimInfo{simProbe}, "")
+	m.SyncSimulators([]ios.SimInfo{simProbe}, "")
 	m.SyncIOSDevices(nil)
-	if !infoFor(t, m, target.SimulatorID(simProbe.UDID)).Available {
+	if !infoFor(t, m, ios.SimulatorID(simProbe.UDID)).Available {
 		t.Error("a devicectl sync marked a simulator missing")
 	}
 }
@@ -79,8 +81,8 @@ func TestIOSDeviceSyncsAreIndependentOfTheOthers(t *testing.T) {
 // picks a device or an emulator first.
 func TestIOSDevicesListAfterAndroidDevicesAndBeforeEmulators(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncSimulators([]target.SimInfo{simProbe}, "")
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	m.SyncSimulators([]ios.SimInfo{simProbe}, "")
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi})
 	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 
 	var kinds []string
@@ -94,7 +96,7 @@ func TestIOSDevicesListAfterAndroidDevicesAndBeforeEmulators(t *testing.T) {
 
 func TestOpeningAnIOSDeviceExplainsWhy(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi})
 	if _, err := m.Acquire(context.Background(), "ios:"+iphoneWiFi.UDID); err == nil || !strings.Contains(err.Error(), "simcap is not built") {
 		t.Errorf("Acquire with no simcap: %v", err)
 	}
@@ -102,9 +104,9 @@ func TestOpeningAnIOSDeviceExplainsWhy(t *testing.T) {
 	m.SetIOSSimcap("/nonexistent/simcap")
 	later := iphoneWiFi
 	later.UDID, later.Identifier = "00008150-000A1B2C3D4E5F61", "11111111-AAAA-BBBB-CCCC-000000000002"
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi, later})
-	for _, d := range []target.IOSDeviceInfo{iphoneWiFi, later} {
-		if _, err := m.Acquire(context.Background(), "ios:"+d.UDID); !errors.Is(err, target.ErrIOSStreamNeedsCable) {
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi, later})
+	for _, d := range []ios.IOSDeviceInfo{iphoneWiFi, later} {
+		if _, err := m.Acquire(context.Background(), "ios:"+d.UDID); !errors.Is(err, ios.ErrIOSStreamNeedsCable) {
 			t.Errorf("Acquire %s over Wi-Fi: %v", d.UDID, err)
 		}
 	}
@@ -116,7 +118,7 @@ func TestOpeningAnIOSDeviceExplainsWhy(t *testing.T) {
 // a fresh one; a phone that stays reachable keeps its stream.
 func TestAPhoneBackFromOfflineGetsAFreshStream(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi})
 	id := "ios:" + iphoneWiFi.UDID
 	s, err := session.Open(context.Background(), id, &stubTarget{}, target.Options{})
 	if err != nil {
@@ -127,7 +129,7 @@ func TestAPhoneBackFromOfflineGetsAFreshStream(t *testing.T) {
 	m.sessions[id] = s
 	m.mu.Unlock()
 
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi})
 	select {
 	case <-s.Done():
 		t.Fatal("a phone that stayed reachable lost its stream")
@@ -136,14 +138,14 @@ func TestAPhoneBackFromOfflineGetsAFreshStream(t *testing.T) {
 
 	away := iphoneWiFi
 	away.Transport = ""
-	m.SyncIOSDevices([]target.IOSDeviceInfo{away})
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{away})
 	select {
 	case <-s.Done():
 		t.Fatal("the stream closed while the phone was away; a viewer has nothing to reopen onto")
 	default:
 	}
 
-	m.SyncIOSDevices([]target.IOSDeviceInfo{iphoneWiFi})
+	m.SyncIOSDevices([]ios.IOSDeviceInfo{iphoneWiFi})
 	select {
 	case <-s.Done():
 	case <-time.After(2 * time.Second):

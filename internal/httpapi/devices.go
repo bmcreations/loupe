@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target/android"
 
 	"github.com/bmcreations/loupe/internal/target"
@@ -138,9 +140,9 @@ type DeviceCreator struct {
 	run      func(ctx context.Context, env []string, name string, args ...string) (stdout, stderr []byte, err error)
 	images   func() []android.SystemImage
 	devices  func() ([]android.AVDDevice, error)
-	runtimes func(ctx context.Context) ([]target.SimRuntime, error)
-	sizes    func(ctx context.Context, types []target.SimDeviceType) map[string]target.SimTypeInfo
-	listSims func(ctx context.Context) ([]target.SimInfo, error)
+	runtimes func(ctx context.Context) ([]ios.SimRuntime, error)
+	sizes    func(ctx context.Context, types []ios.SimDeviceType) map[string]ios.SimTypeInfo
+	listSims func(ctx context.Context) ([]ios.SimInfo, error)
 }
 
 // NewDeviceCreator returns a creator, or nil when neither platform can create.
@@ -169,9 +171,9 @@ func NewDeviceCreator(cfg DeviceCreatorConfig) *DeviceCreator {
 			return android.InstalledSystemImages(cfg.SDK)
 		},
 		devices:  func() ([]android.AVDDevice, error) { return android.AVDDevices(cfg.SDK) },
-		runtimes: target.ListSimRuntimes,
-		sizes:    target.ReadSimTypeInfos,
-		listSims: target.ListSimulators,
+		runtimes: ios.ListSimRuntimes,
+		sizes:    ios.ReadSimTypeInfos,
+		listSims: ios.ListSimulators,
 	}
 }
 
@@ -287,10 +289,10 @@ func (c *DeviceCreator) iosPlatform(ctx context.Context) DevicePlatform {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 		return p
 	}
-	slices.SortStableFunc(rts, func(a, b target.SimRuntime) int {
+	slices.SortStableFunc(rts, func(a, b ios.SimRuntime) int {
 		return slices.Compare(runtimeVersionKey(b.Version), runtimeVersionKey(a.Version))
 	})
-	var all []target.SimDeviceType
+	var all []ios.SimDeviceType
 	seen := map[string]bool{}
 	for _, rt := range rts {
 		for _, t := range rt.Types {
@@ -301,7 +303,7 @@ func (c *DeviceCreator) iosPlatform(ctx context.Context) DevicePlatform {
 		}
 	}
 	infos := c.sizes(ctx, all)
-	slices.SortStableFunc(all, func(a, b target.SimDeviceType) int {
+	slices.SortStableFunc(all, func(a, b ios.SimDeviceType) int {
 		return groupOrder[infos[a.ID].Group] - groupOrder[infos[b.ID].Group]
 	})
 	for _, rt := range rts {
@@ -634,7 +636,7 @@ func (c *DeviceCreator) createSimulator(ctx context.Context, req CreateDeviceReq
 	} else if c.cfg.Manager != nil {
 		c.cfg.Manager.SyncSimulatorsAt(listedAt, sims, c.cfg.Simcap)
 	}
-	return target.SimulatorID(udid), ""
+	return ios.SimulatorID(udid), ""
 }
 
 func firstLine(s string) string {

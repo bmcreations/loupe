@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 
 	"github.com/bmcreations/loupe/internal/scrcpy"
@@ -180,7 +182,7 @@ type remoteLauncher func(ctx context.Context, l remoteLaunch) (target.RemoteSess
 // physical devices by default, where it was measured, and emulators only
 // with LOUPE_REMOTE_TRACK=on. LOUPE_REMOTE_TRACK=off turns it off for both.
 func adbRemoteWanted(kind target.Kind) bool {
-	return target.RemoteTrackWanted(kind == target.KindDevice)
+	return ios.RemoteTrackWanted(kind == target.KindDevice)
 }
 
 // rungPicker turns rate control's cap into a rung. It cuts at once, to the

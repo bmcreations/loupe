@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -33,7 +35,7 @@ func (t *ADBTarget) Logcat(ctx context.Context, q target.LogcatQuery) (*target.L
 		return nil, fmt.Errorf("%w: device %s is in state %q", target.ErrDeviceUnreachable, t.info.Serial, t.info.State)
 	}
 	if q.Format != "" {
-		return nil, fmt.Errorf("%w: logcat has no %s format", target.ErrLogQueryUnsupported, q.Format)
+		return nil, fmt.Errorf("%w: logcat has no %s format", ios.ErrLogQueryUnsupported, q.Format)
 	}
 	pid, pkg, err := t.logcatPID(ctx, q)
 	if err != nil {

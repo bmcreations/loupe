@@ -5,21 +5,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target/android"
 
 	"github.com/bmcreations/loupe/internal/target"
 )
 
 var (
-	simProbe = target.SimInfo{UDID: "98F85F5F-A448-4F5A-A511-45529A267273", Name: "loupe-probe", State: "Shutdown", OSVersion: "27.0", Form: "phone"}
-	simPro   = target.SimInfo{UDID: "1651B3AF-0FCC-4297-A849-F78349FC26F3", Name: "iPhone 18 Pro", State: "Shutdown", OSVersion: "27.0", Form: "phone"}
+	simProbe = ios.SimInfo{UDID: "98F85F5F-A448-4F5A-A511-45529A267273", Name: "loupe-probe", State: "Shutdown", OSVersion: "27.0", Form: "phone"}
+	simPro   = ios.SimInfo{UDID: "1651B3AF-0FCC-4297-A849-F78349FC26F3", Name: "iPhone 18 Pro", State: "Shutdown", OSVersion: "27.0", Form: "phone"}
 )
 
 func TestASimulatorIsListedAndFollowsItsBootState(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncSimulators([]target.SimInfo{simProbe}, "/nonexistent/simcap")
+	m.SyncSimulators([]ios.SimInfo{simProbe}, "/nonexistent/simcap")
 
-	id := target.SimulatorID(simProbe.UDID)
+	id := ios.SimulatorID(simProbe.UDID)
 	got := infoFor(t, m, id)
 	if got.Kind != "simulator" || got.Label != "loupe-probe" || !got.Available || !got.BootsOnOpen {
 		t.Fatalf("listed as %+v", got)
@@ -30,7 +32,7 @@ func TestASimulatorIsListedAndFollowsItsBootState(t *testing.T) {
 
 	booted := simProbe
 	booted.State = "Booted"
-	m.SyncSimulators([]target.SimInfo{booted}, "/nonexistent/simcap")
+	m.SyncSimulators([]ios.SimInfo{booted}, "/nonexistent/simcap")
 	if infoFor(t, m, id).BootsOnOpen {
 		t.Error("a simulator booted from Xcode still reads as booting on open")
 	}
@@ -40,24 +42,24 @@ func TestASimulatorIsListedAndFollowsItsBootState(t *testing.T) {
 // say where it went, until the first listing after its session ends.
 func TestADeletedSimulatorIsKeptAndSaysWhy(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncSimulators([]target.SimInfo{simProbe, simPro}, "")
-	probe := target.SimulatorID(simProbe.UDID)
+	m.SyncSimulators([]ios.SimInfo{simProbe, simPro}, "")
+	probe := ios.SimulatorID(simProbe.UDID)
 	m.sessions[probe] = nil // watched
-	m.SyncSimulators([]target.SimInfo{simPro}, "")
+	m.SyncSimulators([]ios.SimInfo{simPro}, "")
 
-	got := infoFor(t, m, target.SimulatorID(simProbe.UDID))
+	got := infoFor(t, m, ios.SimulatorID(simProbe.UDID))
 	if got.Available || got.State != "missing" {
 		t.Fatalf("after deleting: available=%v state=%q", got.Available, got.State)
 	}
 	if !strings.Contains(got.Reason, "simctl") || strings.Contains(got.Reason, "adb") {
 		t.Errorf("reason %q blames the wrong tool", got.Reason)
 	}
-	if !infoFor(t, m, target.SimulatorID(simPro.UDID)).Available {
+	if !infoFor(t, m, ios.SimulatorID(simPro.UDID)).Available {
 		t.Error("the simulator still listed became unavailable")
 	}
 
 	delete(m.sessions, probe)
-	m.SyncSimulators([]target.SimInfo{simPro}, "")
+	m.SyncSimulators([]ios.SimInfo{simPro}, "")
 	if _, ok := m.Target(probe); ok {
 		t.Error("the deleted simulator stayed after its session ended")
 	}
@@ -66,11 +68,11 @@ func TestADeletedSimulatorIsKeptAndSaysWhy(t *testing.T) {
 // adb never lists a simulator, so an adb sync must leave them alone.
 func TestAnAdbSyncDoesNotMarkSimulatorsMissing(t *testing.T) {
 	m := NewManager(target.Options{})
-	m.SyncSimulators([]target.SimInfo{simProbe}, "")
+	m.SyncSimulators([]ios.SimInfo{simProbe}, "")
 	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 	m.SyncDevices(nil, buildADB)
 
-	if !infoFor(t, m, target.SimulatorID(simProbe.UDID)).Available {
+	if !infoFor(t, m, ios.SimulatorID(simProbe.UDID)).Available {
 		t.Error("an adb sync marked a simulator missing")
 	}
 }
@@ -80,8 +82,8 @@ func TestSimulatorsListAfterDevicesRunningFirstThenByName(t *testing.T) {
 	m := NewManager(target.Options{})
 	booted := simPro
 	booted.State = "Booted"
-	other := target.SimInfo{UDID: "00000000-0000-0000-0000-000000000000", Name: "iPhone 17", State: "Shutdown"}
-	m.SyncSimulators([]target.SimInfo{simProbe, other, booted}, "")
+	other := ios.SimInfo{UDID: "00000000-0000-0000-0000-000000000000", Name: "iPhone 17", State: "Shutdown"}
+	m.SyncSimulators([]ios.SimInfo{simProbe, other, booted}, "")
 	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 
 	var ids []string

@@ -32,7 +32,8 @@ connection.
 | `internal/session/` | Session lifecycle, protocol constants, the pacer (congestion control), adaptive bitrate policy (`bitrate.go`) and encoder swap (`relaunch.go`), input arbitration (`arbiter.go`), `Tap` for recorders |
 | `internal/httpapi/` | Routes, auth, the transport-agnostic `Conn`, the shared viewer loop, WebTransport; one file per `/api/*` area |
 | `internal/wsx/` | Dependency-free RFC 6455 WebSocket |
-| `internal/target/` | The target contract and the interfaces for what you do to one (input, app launch, UI tree, settings, device frames, clipboard, crashes, media); the iOS simulator, physical iPhone and `Synthetic` targets |
+| `internal/target/` | The target contract and the interfaces for what you do to one (input, app launch, UI tree, settings, device frames, clipboard, crashes, media), and the `Synthetic` target |
+| `internal/target/ios/` | iOS targets: `Simulator` over simcap and simctl, `IOSDevice` for a physical iPhone over devicectl and the XCUITest runner, and the simulator's camera (`loupecam/`) and open-URL helper (`simopen/`) |
 | `internal/target/android/` | Android targets: `ADBTarget` for a device over adb, `Emulator`, AVD lifecycle and snapshots, and the adb side of every interface in `target` |
 | `internal/target/revyl/` | Revyl cloud devices: the revyl CLI and REST clients, the target, and the WHEP receiver its video arrives on. `target.KindRevyl` stays in `target` |
 | `internal/target/firebase/` | Firebase Device Streaming: reading what `android device remote ...` prints, and the project and codename checks. Running the CLI and the reservations themselves are `httpapi.RemoteDevices` (`remote.go`) |

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -104,7 +106,7 @@ func TestDropIs501OffASimulator(t *testing.T) {
 }
 
 func TestDropWithNoPasteIs422(t *testing.T) {
-	f := &dropTarget{err: target.ErrNoPaste}
+	f := &dropTarget{err: ios.ErrNoPaste}
 	w := serveAgent(t, f, http.MethodPost, "/api/drop?target=stub&x=1&y=1", strings.NewReader(png))
 	if w.Code != http.StatusUnprocessableEntity || errBody(t, w).Code != ErrCodeNoPaste {
 		t.Errorf("status %d %s; want 422 noPaste", w.Code, w.Body)
@@ -120,7 +122,7 @@ func TestDropDeviceFailureIs502(t *testing.T) {
 }
 
 func TestDropWhosePasteDidNotTakeIs422(t *testing.T) {
-	f := &dropTarget{err: target.ErrPasteFailed}
+	f := &dropTarget{err: ios.ErrPasteFailed}
 	w := serveAgent(t, f, http.MethodPost, "/api/drop?target=stub&x=1&y=1", strings.NewReader(png))
 	if w.Code != http.StatusUnprocessableEntity || errBody(t, w).Code != ErrCodePasteFailed {
 		t.Errorf("status %d %s; want 422 pasteFailed", w.Code, w.Body)
@@ -130,7 +132,7 @@ func TestDropWhosePasteDidNotTakeIs422(t *testing.T) {
 // An old simcap is refused before anything reaches the device, the image
 // included.
 func TestDropThroughAnOldSimcapIs501BeforeAnyTap(t *testing.T) {
-	f := &dropTarget{canErr: target.ErrSimcapOutdated}
+	f := &dropTarget{canErr: ios.ErrSimcapOutdated}
 	w := serveAgent(t, f, http.MethodPost, "/api/drop?target=stub&x=1&y=1", strings.NewReader(png))
 	if w.Code != http.StatusNotImplemented || errBody(t, w).Code != ErrCodeSimcapOutdated || f.calls != 0 {
 		t.Errorf("status %d %s, target called %d times; want 501 simcapOutdated and no call", w.Code, w.Body, f.calls)
@@ -159,7 +161,7 @@ func TestDropPublishesATapAtThePoint(t *testing.T) {
 		name    string
 		err     error
 		wantErr bool
-	}{{"ok", nil, false}, {"failed", target.ErrPasteFailed, true}} {
+	}{{"ok", nil, false}, {"failed", ios.ErrPasteFailed, true}} {
 		m := NewManager(target.Options{})
 		m.Register(&dropAgentTarget{fakeAgentTarget: &fakeAgentTarget{id: "dev1", screenW: 1080, screenH: 2400}, err: c.err})
 		sess, err := m.Acquire(t.Context(), "dev1")

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -241,11 +243,11 @@ func TestInstallAndLogcatCapabilities(t *testing.T) {
 	var (
 		_ target.Installer = (*ADBTarget)(nil)
 		_ target.Logcatter = (*ADBTarget)(nil)
-		_ target.Logcatter = (*target.Simulator)(nil)
+		_ target.Logcatter = (*ios.Simulator)(nil)
 	)
 	for name, tgt := range map[string]target.Target{
 		"synthetic": &target.Synthetic{},
-		"simulator": target.NewSimulator(target.SimInfo{UDID: "u"}, ""),
+		"simulator": ios.NewSimulator(ios.SimInfo{UDID: "u"}, ""),
 	} {
 		if _, ok := tgt.(target.Installer); ok {
 			t.Errorf("%s implements Installer", name)
