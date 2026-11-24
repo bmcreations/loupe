@@ -209,9 +209,10 @@ func simLogArgs(q target.LogcatQuery, pid int, window time.Duration) []string {
 
 // simLogTail is the last q.Lines entries, trying each of simLogWindows
 // until one holds enough. With a tag or text, it counts the lines that
-// match, so a sparse tag can widen to the last window. It gives up widening when the next window,
-// guessed from how long this one took, would not finish before ctx's
-// deadline, and returns what it has.
+// match, so a sparse tag can widen to the last window. It gives up
+// widening when the next window, guessed from how long this one took,
+// would not finish before ctx's deadline, or when the deadline cuts one,
+// and returns what the last finished window had, which may be nothing.
 //
 // It counts lines, not entries, so a compact entry that runs over several
 // lines (a dictionary printed whole) can lose its first lines at the cut.
@@ -226,7 +227,9 @@ func simLogTail(ctx context.Context, udid string, q target.LogcatQuery, pid int)
 		}
 		lines, err := lastFiltered(simLogReader(r, q), q.Lines)
 		if err != nil {
-			if best != nil && ctx.Err() != nil {
+			// A narrower window finished, so what it kept is the answer,
+			// even when a tag or text matched nothing in it.
+			if i > 0 && ctx.Err() != nil {
 				return best, nil
 			}
 			return nil, err

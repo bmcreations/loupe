@@ -2,6 +2,7 @@ package ios
 
 import (
 	"context"
+	"errors"
 	"io"
 	"reflect"
 	"strings"
@@ -327,6 +328,73 @@ func TestSimLogReaderKeepsTheSameEntriesInBothStyles(t *testing.T) {
 	got := readAll(t, simLogReader(io.NopCloser(strings.NewReader(bothCompact)), target.LogcatQuery{Text: "_NSSwiftCalendar:"}))
 	if want := "2026-11-24 07:47:45.300 Df Preferences[400:1a] (CoreSpotlight) indexing {\n    kind = _NSSwiftCalendar: gregorian;\n}\n"; got != want {
 		t.Errorf("got %q; want %q", got, want)
+	}
+}
+
+// cutSimLog stands in for simctl: each "style window" in byWindow, such as
+// "ndjson 60s", prints its entries as log show would and ends, and any
+// other blocks until ctx ends and then fails as a killed log show does.
+func cutSimLog(t *testing.T, byWindow map[string]string) {
+	t.Helper()
+	old := simLogStart
+	simLogStart = func(ctx context.Context, udid string, args []string) (io.ReadCloser, error) {
+		style := args[2]
+		lines, ok := byWindow[style+" "+args[len(args)-1]]
+		if !ok {
+			return &killedLog{ctx: ctx}, nil
+		}
+		if style == LogFormatNDJSON {
+			return io.NopCloser(strings.NewReader(lines + `{"count":1,"finished":1}` + "\n")), nil
+		}
+		return io.NopCloser(strings.NewReader("Timestamp header\n" + lines)), nil
+	}
+	t.Cleanup(func() { simLogStart = old })
+}
+
+const ndjsonOther = `{"subsystem":"com.apple.locationd","category":"QA","processImagePath":"/usr/libexec/locationd","senderImagePath":"/usr/libexec/locationd","eventMessage":"tick"}` + "\n"
+
+type killedLog struct{ ctx context.Context }
+
+func (k *killedLog) Read([]byte) (int, error) {
+	<-k.ctx.Done()
+	return 0, errors.New("simctl spawn log show: signal: terminated")
+}
+
+func (k *killedLog) Close() error { return nil }
+
+// A window that finished with no match is an answer: the dump is empty, not
+// the error of a wider window that the deadline cut.
+func TestSimLogTailWithNoMatchBeforeTheDeadlineIsEmpty(t *testing.T) {
+	cutSimLog(t, map[string]string{"compact 60s": compactOther + compactOther, "ndjson 60s": ndjsonOther + ndjsonOther})
+	for _, q := range []target.LogcatQuery{
+		{Lines: 10, Tag: "nothing.matches"},
+		{Lines: 10, Text: "nothing matches"},
+		{Lines: 10, Tag: "nothing.matches", Format: LogFormatNDJSON},
+		{Lines: 10, Text: "nothing matches", Format: LogFormatNDJSON},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		got, err := simLogTail(ctx, "u", q, 0)
+		cancel()
+		if err != nil || len(got) != 0 {
+			t.Errorf("%+v: got %q, %v; want nothing and no error", q, got, err)
+		}
+	}
+}
+
+// A dump whose first window the deadline cuts has nothing to answer with.
+func TestSimLogTailCutInItsFirstWindowFails(t *testing.T) {
+	cutSimLog(t, nil)
+	for _, q := range []target.LogcatQuery{
+		{Lines: 10},
+		{Lines: 10, Tag: "nothing.matches"},
+		{Lines: 10, Tag: "nothing.matches", Format: LogFormatNDJSON},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		_, err := simLogTail(ctx, "u", q, 0)
+		cancel()
+		if err == nil {
+			t.Errorf("%+v: no error", q)
+		}
 	}
 }
 
