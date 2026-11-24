@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -126,6 +127,8 @@ type claim struct {
 	// holdUntil is the latest a hold on any server ends, as the file says,
 	// so a boot running through one server keeps the claim alive on all.
 	holdUntil time.Time
+	// via is the server the claim was last taken through; see savedClaim.Via.
+	via string
 }
 
 // key is who holds the claim: the session when one was named, else the agent.
@@ -206,6 +209,10 @@ type claimBook struct {
 	// nil keeps those claims in memory only; with no shared file, local
 	// keeps them all.
 	shared, local *claimFile
+	// self is this server's listen address, which a claim taken through it
+	// records as its via. Two servers running at once cannot share one, and
+	// a restart with the same flags keeps it.
+	self string
 }
 
 func newClaimBook(record func(map[string]any)) *claimBook {
@@ -268,7 +275,9 @@ func (b *claimBook) loadClaims(local, shared string) error {
 			old = claimData{}
 		}
 	}
-	b.update(func() bool {
+	// Another server holding the lock leaves the move to the next start: the
+	// file beside the config is rewritten only when the move is.
+	_ = b.update(claimLockWait, func() bool {
 		now := b.now()
 		moved := false
 		for _, sc := range old.Claims {
@@ -281,6 +290,8 @@ func (b *claimBook) loadClaims(local, shared string) error {
 				b.claims[sc.Target] = &claim{
 					agent: sc.Agent, session: sc.Session, link: sc.Link,
 					since: sc.Since, seen: sc.Seen, saved: sc.Seen,
+					// Only this server read the file beside its config.
+					via: b.self,
 				}
 			}
 		}
@@ -330,7 +341,7 @@ func (b *claimBook) fold(f *claimFile, d claimData) {
 			c = &claim{session: sc.Session, since: sc.Since}
 			b.claims[sc.Target] = c
 		}
-		c.agent, c.link, c.saved, c.holdUntil = sc.Agent, sc.Link, sc.Seen, sc.HoldUntil
+		c.agent, c.link, c.saved, c.holdUntil, c.via = sc.Agent, sc.Link, sc.Seen, sc.HoldUntil, sc.Via
 		if sc.Seen.After(c.seen) {
 			c.seen = sc.Seen
 		}
@@ -386,13 +397,17 @@ func (b *claimBook) failing(f *claimFile, action string, err error) bool {
 
 // view brings memory up to date for a read: it folds in other servers'
 // changes and lapses claims that have run out, writing the lapse so every
-// server sees it. Called with mu held.
+// server sees it. A read does not wait for the lock: when another server
+// holds it, the lapse stands in memory, and the next change writes it. Called
+// with mu held.
 func (b *claimBook) view() {
 	b.sync()
 	now := b.now()
 	for _, c := range b.claims {
 		if c.runOut(now) {
-			b.update(func() bool { return false })
+			if err := b.update(0, func() bool { return false }); err != nil {
+				b.expire()
+			}
 			return
 		}
 	}
@@ -400,21 +415,37 @@ func (b *claimBook) view() {
 
 // update makes a change with the files locked: it reads them again, lapses
 // claims that have run out, runs fn, and writes the files when either changed
-// anything. A file that cannot be locked is changed anyway, and the change
-// stands in memory when it cannot be written. Called with mu held.
-func (b *claimBook) update(fn func() bool) {
+// anything. A lock another server still holds after wait fails the change
+// with errClaimLockBusy before fn runs. A file whose lock cannot be taken at
+// all, such as one in a directory that cannot be written, is changed anyway,
+// and the change stands in memory when it cannot be written. Called with mu
+// held.
+func (b *claimBook) update(wait time.Duration, fn func() bool) error {
+	var unlocks []func()
+	defer func() {
+		for _, unlock := range unlocks {
+			unlock()
+		}
+	}()
 	for _, f := range b.files() {
-		unlock, err := f.lock()
+		unlock, err := f.lock(wait)
+		if errors.Is(err, errClaimLockBusy) {
+			if wait > 0 {
+				b.trace(map[string]any{"action": "claimLockBusy", "error": err.Error()})
+			}
+			return err
+		}
 		if b.failing(f, "claimLockFailed", err) {
 			continue
 		}
-		defer unlock()
+		unlocks = append(unlocks, unlock)
 	}
 	b.sync()
 	lapsed := b.expire()
 	if fn() || lapsed {
 		b.write()
 	}
+	return nil
 }
 
 // expire drops every claim that has run out and remembers who held it.
@@ -445,7 +476,7 @@ func (b *claimBook) write() {
 			if b.fileFor(id) == f {
 				d.Claims = append(d.Claims, savedClaim{
 					Target: id, Agent: c.agent, Session: c.session, Link: c.link,
-					Since: c.since, Seen: c.seen, HoldUntil: c.holdUntil,
+					Since: c.since, Seen: c.seen, HoldUntil: c.holdUntil, Via: c.via,
 				})
 			}
 		}
@@ -484,20 +515,52 @@ func readJSONFile(path string, v any) error {
 	return nil
 }
 
-// writeJSONFile writes v to path atomically.
+// writeJSONFile writes v to path by renaming a new file over it. The new file
+// has a name no other write shares, so two writers at once, in this process
+// or another, never write into one file, and it is synced to disk before the
+// rename, so a crash or power loss leaves the old file or the new one rather
+// than an empty one.
 func writeJSONFile(path string, v any) error {
 	raw, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	_, err = tmp.Write(raw)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	syncDir(dir)
+	return nil
+}
+
+// syncDir syncs a directory so a rename in it reaches the disk, where the
+// system can. Windows cannot sync a directory and does not need it.
+func syncDir(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		d.Close()
+	}
 }
 
 // save writes the hands-off set. Called with mu held.
@@ -558,45 +621,48 @@ func (b *claimBook) trace(rec map[string]any) {
 }
 
 // take claims id for the caller, or renews the caller's own claim and
-// replaces its link. It fails with the holder when someone else holds it.
-func (b *claimBook) take(id, agent, session, link string) (got, holder *ClaimInfo) {
+// replaces its link. It fails with the holder when someone else holds it, and
+// with errClaimLockBusy, granting nothing, when another server holds the lock
+// past claimLockWait.
+func (b *claimBook) take(id, agent, session, link string) (got, holder *ClaimInfo, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	key := callerKey(agent, session)
-	b.update(func() bool {
+	err = b.update(claimLockWait, func() bool {
 		now := b.now()
 		if c := b.claims[id]; c != nil {
 			if c.key() != key {
 				holder = b.info(id, c)
 				return false
 			}
-			changed := c.agent != agent || (link != "" && link != c.link)
-			c.agent, c.seen = agent, now
+			changed := c.agent != agent || (link != "" && link != c.link) || c.via != b.self
+			c.agent, c.seen, c.via = agent, now, b.self
 			if link != "" {
 				c.link = link
 			}
 			got = b.info(id, c)
 			return changed || now.Sub(c.saved) >= claimSaveEvery
 		}
-		c := &claim{agent: agent, session: session, link: link, since: now, seen: now}
+		c := &claim{agent: agent, session: session, link: link, since: now, seen: now, via: b.self}
 		b.claims[id] = c
 		delete(b.lapsed, lapseKey{id, key})
 		b.trace(map[string]any{"action": "claim", "target": id, "agent": agent, "session": session})
 		got = b.info(id, c)
 		return true
 	})
-	return got, holder
+	return got, holder, err
 }
 
 // release ends the target's claim. A caller that does not hold it is refused
 // with the holder unless force is set, which is for a person in the picker.
 // Releasing a target nobody holds succeeds. released reports whether a claim
 // ended and gone is its holder's agent name; the holder's driving badge ends
-// with the claim.
-func (b *claimBook) release(id, agent, session string, force bool) (holder *ClaimInfo, gone string, released bool) {
+// with the claim. It fails with errClaimLockBusy, ending nothing, as take
+// does.
+func (b *claimBook) release(id, agent, session string, force bool) (holder *ClaimInfo, gone string, released bool, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.update(func() bool {
+	err = b.update(claimLockWait, func() bool {
 		c := b.claims[id]
 		if c == nil {
 			return false
@@ -613,7 +679,7 @@ func (b *claimBook) release(id, agent, session string, force bool) (holder *Clai
 		gone, released = c.agent, true
 		return true
 	})
-	return holder, gone, released
+	return holder, gone, released, err
 }
 
 // has reports whether id has a live claim.
@@ -624,14 +690,16 @@ func (b *claimBook) has(id string) bool {
 	return b.held(id)
 }
 
-// drop removes id's claim, whoever holds it, because the target is gone.
+// drop removes id's claim, whoever holds it, because the target is gone. When
+// another server holds the lock the claim stays until it lapses, which refuses
+// nobody a device that no longer exists.
 func (b *claimBook) drop(id, reason string) {
 	if b == nil {
 		return
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.update(func() bool {
+	_ = b.update(claimLockWait, func() bool {
 		c := b.claims[id]
 		if c == nil {
 			return false
@@ -644,7 +712,9 @@ func (b *claimBook) drop(id, reason string) {
 
 // seen renews the claim when the caller holds it. Every agent endpoint calls
 // it, reads included, so an agent reading the screen keeps its claim. The
-// renewal reaches the file at most every claimSaveEvery.
+// renewal reaches the file at most every claimSaveEvery, and not while
+// another server holds the lock: seen does not wait for it, and the next call
+// tries again.
 func (b *claimBook) seen(id, agent, session string) {
 	if b == nil {
 		return
@@ -662,7 +732,7 @@ func (b *claimBook) seen(id, agent, session string) {
 	}
 	c.seen = b.now()
 	if c.seen.Sub(c.saved) >= claimSaveEvery {
-		b.update(func() bool {
+		_ = b.update(0, func() bool {
 			c := b.claims[id]
 			return c != nil && c.key() == key
 		})
@@ -674,16 +744,22 @@ func (b *claimBook) seen(id, agent, session string) {
 // lease, such as a boot with a long ?wait=, calls it so the holder does not
 // lose the device to its own wait. The file records the hold as lasting
 // claimHoldMax, so it keeps the claim alive on every server, and no longer
-// than that if this one dies. A caller without the claim holds nothing.
-func (b *claimBook) hold(id, agent, session string) func() {
+// than that if this one dies. A caller without the claim holds nothing. The
+// holder's hold fails with errClaimLockBusy, holding nothing, as take does.
+func (b *claimBook) hold(id, agent, session string) (func(), error) {
 	key := callerKey(agent, session)
 	if b == nil || key == "" {
-		return func() {}
+		return func() {}, nil
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	// A caller without the claim holds nothing, so it never waits on the lock.
+	b.view()
+	if c := b.claims[id]; c == nil || c.key() != key {
+		return func() {}, nil
+	}
 	var c *claim
-	b.update(func() bool {
+	err := b.update(claimLockWait, func() bool {
 		c = b.claims[id]
 		if c == nil || c.key() != key {
 			c = nil
@@ -695,15 +771,18 @@ func (b *claimBook) hold(id, agent, session string) func() {
 		}
 		return true
 	})
+	if err != nil {
+		return nil, err
+	}
 	if c == nil {
-		return func() {}
+		return func() {}, nil
 	}
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			b.mu.Lock()
 			defer b.mu.Unlock()
-			b.update(func() bool {
+			end := func() bool {
 				c.holds--
 				// A claim released or replaced during the hold is not renewed.
 				if b.claims[id] != c {
@@ -714,9 +793,15 @@ func (b *claimBook) hold(id, agent, session string) func() {
 					c.holdUntil = time.Time{}
 				}
 				return true
-			})
+			}
+			// The hold ends here either way. When another server holds the
+			// lock, the end stands in memory and the next change writes it;
+			// the file's holdUntil bounds it on the others meanwhile.
+			if b.update(claimLockWait, end) != nil {
+				end()
+			}
 		})
-	}
+	}, nil
 }
 
 // refusal says why an agent may not act on id, or nil when it may. Hands-off
@@ -858,6 +943,36 @@ func (b *claimBook) holderOf(id string) (agent, session string, ok bool) {
 	return c.agent, c.session, true
 }
 
+// holderHere is holderOf for a holder whose claim was last taken through this
+// server, which is where its flag listener is. A claim taken through another
+// server still refuses other agents here, but a flag raised here goes to
+// whoever listens here, so it names no holder.
+func (b *claimBook) holderHere(id string) (agent, session string, ok bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.view()
+	c := b.claims[id]
+	if c == nil || (b.shared != nil && b.fileFor(id) == b.shared && c.via != b.self) {
+		return "", "", false
+	}
+	return c.agent, c.session, true
+}
+
+// lockBusy answers a change refused because another server holds the claims
+// lock, and reports whether err was that.
+func lockBusy(w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, errClaimLockBusy) {
+		return false
+	}
+	w.Header().Set("Retry-After", "1")
+	writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{
+		Error: "the claim lock is busy: another loupe server on this Mac has held it for " +
+			claimLockWait.String() + "; nothing changed, retry",
+		Code: ErrCodeClaimLockBusy,
+	})
+	return true
+}
+
 // decorate fills each row's claim, hands-off and driving fields.
 func (b *claimBook) decorate(rows []TargetInfo) {
 	if b == nil {
@@ -965,7 +1080,10 @@ func (s *Server) handleClaims(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "link must be an absolute https URL of at most 512 bytes"})
 		return
 	}
-	got, holder := s.claims.take(id, agent, session, req.Link)
+	got, holder, err := s.claims.take(id, agent, session, req.Link)
+	if lockBusy(w, err) {
+		return
+	}
 	if holder != nil {
 		writeJSON(w, http.StatusConflict, ErrorResponse{
 			Error: fmt.Sprintf("%s is already claimed by %s", id, cmpOr(holder.Agent, "another agent")),
@@ -996,7 +1114,10 @@ func (s *Server) releaseClaim(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 	force := r.URL.Query().Get("force") == "1"
-	holder, gone, released := s.claims.release(id, agent, session, force)
+	holder, gone, released, err := s.claims.release(id, agent, session, force)
+	if lockBusy(w, err) {
+		return
+	}
 	if holder != nil {
 		writeJSON(w, http.StatusConflict, ErrorResponse{
 			Error: fmt.Sprintf("%s is claimed by someone else; ?force=1 releases it anyway", id),
@@ -1047,8 +1168,10 @@ func (s *Server) SetHandsOffPath(path string) error { return s.claims.load(path)
 
 // SetClaimsPaths loads the claims from local, this server's own file, and
 // shared, the file every loupe server on the machine reads, and keeps them
-// there.
-func (s *Server) SetClaimsPaths(local, shared string) error {
+// there. self is this server's listen address: a claim records the server it
+// was taken through, and only that one names the holder on a flag.
+func (s *Server) SetClaimsPaths(local, shared, self string) error {
+	s.claims.self = self
 	return s.claims.loadClaims(local, shared)
 }
 

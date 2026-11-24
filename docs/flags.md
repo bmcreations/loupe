@@ -30,7 +30,10 @@ human hold gate them, and reading one claims nothing.
 - `region` is `[left, top, right, bottom]` as fractions of the picture.
 - The server keeps the screen as it was: a screenshot with the region outlined
   in red, the interactive UI tree, the region in device pixels, and
-  `claimedBy`, the agent holding the target then. A failed capture is recorded
+  `claimedBy`, the agent holding the target then through this server. A holder
+  whose claim was taken through another loupe server on the Mac is left out, so
+  the flag goes to this server's listeners ([agent-api.md](agent-api.md#claims)).
+  A failed capture is recorded
   on the flag (`screenshotError`, `uiError`) rather than failing it.
 - `to` picks the destination:
 
@@ -66,7 +69,8 @@ first.
 
 - Each session long-polling `/api/flags` (`waitMs`), now or in the last 5s,
   with `holds` set on the one holding the target.
-- `claimedBy`, and `holder`: that session as a `to`, listening or not.
+- `claimedBy`, and `holder`: that session as a `to`, listening or not. Both
+  name only a holder that claimed through this server.
 - `active`: sessions that called the agent API in the last 15 minutes without
   waiting on flags, with `target` and `idleMs`. A flag can be sent to one, but
   it sees it only when it checks (an interrupt still stops its next input).
@@ -194,7 +198,9 @@ one on a ⇧⌘-drag, or from "Stop agent & flag" on the driving banner.
 - From the post until the holder reads the ended flag (`GET /api/flags?id=` with
   its headers, or the `flag` tool), its input answers 409 `code: "interrupted"`
   with the flag's `id`. Pointing (`move`) is not refused.
-- When nobody held the target, every agent is refused until one reads it.
+- When nobody held the target, every agent is refused until one reads it. A
+  holder that claimed through another loupe server counts as nobody here, as
+  for `claimedBy`.
 - An interrupt with `to` stops that session instead, whoever holds the target. A
   `to` on its end moves the stop onto that session, and `loupe mcp` tells every
   other session it pushed the interrupt to that it may go on

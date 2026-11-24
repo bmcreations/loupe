@@ -688,8 +688,10 @@ func main() {
 	// another. A device's claim goes in the cache directory beside the token,
 	// which every loupe server on the machine reads whatever its -config, so
 	// two servers cannot give one device to two agents. The file beside the
-	// config keeps the synthetic target's, which is each server's own.
-	if err := api.SetClaimsPaths(filepath.Join(filepath.Dir(cfgPath), "claims.json"), filepath.Join(scrcpyserver.DefaultDir(), "claims.json")); err != nil {
+	// config keeps the synthetic target's, which is each server's own. The
+	// listen address names this server in the file: no two running at once
+	// share one, and a restart keeps it.
+	if err := api.SetClaimsPaths(filepath.Join(filepath.Dir(cfgPath), "claims.json"), filepath.Join(scrcpyserver.DefaultDir(), "claims.json"), *addr); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: claims unreadable, starting with none: %v\n", err)
 	}
 	// Paired devices' sessions and pending codes, hashed. Beside hands-off

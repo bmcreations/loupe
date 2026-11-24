@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -46,6 +47,10 @@ type savedClaim struct {
 	// request's latest end, so a server that dies mid-boot holds the device
 	// no longer than that.
 	HoldUntil time.Time `json:"holdUntil,omitzero"`
+	// Via is the listen address of the server the claim was last taken or
+	// renewed through with POST /api/claims. The holder's flag listener is
+	// on that server, so only that one names the holder on a flag.
+	Via string `json:"via,omitempty"`
 }
 
 // savedLapse is a lapse marker as the file holds it.
@@ -106,15 +111,23 @@ func (f *claimFile) write(d claimData) error {
 	return nil
 }
 
-// claimLockWait bounds how long a change waits for another server to let go
-// of the lock. A server holds it for a read and a write of a small file, so
-// running out means that server is stopped mid-change, and the change goes
-// ahead without the lock rather than stall every agent call on the machine.
-const claimLockWait = 5 * time.Second
+// claimLockWait bounds how long a claim, a release or a boot's hold waits for
+// another server to let go of the lock. A server holds it for a read and a
+// write of a small file, so running out means that server is stopped
+// mid-change. The change is refused then, not made without the lock, so two
+// servers never give one device to two sessions. A var so tests can shorten
+// it.
+var claimLockWait = 5 * time.Second
 
-// lock takes the lock beside the file and returns the func that lets go of
-// it. The system lets go of it too when the process holding it exits.
-func (f *claimFile) lock() (func(), error) {
+// errClaimLockBusy is a lock still held by another server after the wait.
+var errClaimLockBusy = errors.New("held by another loupe server")
+
+// lock takes the lock beside the file, trying for up to wait, and returns the
+// func that lets go of it. Zero tries once. The system lets go of it too when
+// the process holding it exits. A lock still held at the end of the wait is
+// errClaimLockBusy; any other error is one the lock cannot be taken through
+// at all, such as a cache directory that cannot be written.
+func (f *claimFile) lock(wait time.Duration) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
 		return nil, err
 	}
@@ -122,7 +135,7 @@ func (f *claimFile) lock() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	deadline := time.Now().Add(claimLockWait)
+	deadline := time.Now().Add(wait)
 	for {
 		ok, err := tryLockFile(fh)
 		if err != nil {
@@ -132,9 +145,9 @@ func (f *claimFile) lock() (func(), error) {
 		if ok {
 			break
 		}
-		if time.Now().After(deadline) {
+		if !time.Now().Before(deadline) {
 			fh.Close()
-			return nil, fmt.Errorf("lock %s: still held after %s", fh.Name(), claimLockWait)
+			return nil, fmt.Errorf("lock %s: %w after %s", fh.Name(), errClaimLockBusy, wait)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

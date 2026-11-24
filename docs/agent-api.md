@@ -31,6 +31,7 @@ Common refusals on routes that change a device:
 | 409 | `claimLapsed` | The caller's own claim ran out (no call for 10 minutes) and nobody has claimed since. Claim again. |
 | 409 | `handsOff` | The target is marked off limits. No retry time. |
 | 409 | `interrupted` | A person sent an interrupt flag the agent has not read ([flags.md](flags.md)). |
+| 503 | `claimLockBusy` | `POST` or `DELETE /api/claims`, or the holder's boot: another loupe server on the Mac held the claims lock for 5 seconds. Nothing changed. Has a `Retry-After` header. Retry. |
 
 ## Routes
 
@@ -642,7 +643,9 @@ lose the device to another agent. `idleMs` reads 0 while it holds, and the
 lease starts again when the boot returns. Other loupe servers on the Mac see
 the hold as lasting at most 15 minutes, the longest `wait`, so a server stopped
 mid-boot keeps the device from other agents no longer than that. A boot from
-an agent with no claim holds nothing.
+an agent with no claim holds nothing. When the hold cannot be saved because
+another server keeps the claims lock (see Claims), the boot answers 503
+`claimLockBusy` before it starts anything.
 
 Viewers get `MsgEnded` before the session closes. An AVD booted this way is
 paused and shut down by the idle clock like any other. With
@@ -1236,8 +1239,31 @@ minute short. So can the lease as a server other than the one the holder calls
 reads it: the holder may hear `claimLapsed` up to a minute early, and claims
 again. A claim ends only when it is released or its lease runs out, so a server
 stopped with a claim held keeps that device from other agents on every server
-for up to 10 minutes. Claims are kept out of `handsoff.json`, which holds only
-what the person marked.
+until the 10-minute lease runs out from the holder's last saved call. Claims
+are kept out of `handsoff.json`, which holds only what the person marked.
+
+A server changes `claims.json` with a lock beside it (`claims.json.lock`)
+held. A claim, a release or the holder's boot waits up to 5 seconds for
+another server to let go, which only a server stopped mid-change makes it do,
+and then answers 503 `code: "claimLockBusy"` with nothing changed, so two
+servers never give one device to two agents. While it waits, that server's
+other claim checks, input refusals and `GET /api/claims` among them, wait
+with it. Reads on other servers do not wait for the lock, and a renewal that
+cannot get it at once is saved on a later call. When the cache directory
+cannot be written, claims still work, kept in that server's memory as they
+were before claims were shared, and other servers do not see them.
+
+A server writes `claims.json` as a new file of its own, synced to disk before
+it is renamed over the old one, so a crash leaves the old file or the new one.
+If the file still cannot be parsed, as after a hand edit, each server goes on
+with what it last read, and the next claim, release or lapse replaces the file
+with that server's copy: a claim the file held that this server had not read
+yet is lost, and its device is free to any agent.
+
+A flag names a holder (`claimedBy`, and `held_by_you` in `loupe mcp`) only on
+the server the holder last claimed through, where its flag listener runs. A
+flag raised on another server names nobody and goes to that server's
+listeners, as it did before claims were shared ([flags.md](flags.md)).
 
 ### Hands off
 

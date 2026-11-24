@@ -595,7 +595,10 @@ func (s *Server) handleFlags(w http.ResponseWriter, r *http.Request) {
 
 	gate := ""
 	if s.claims != nil {
-		if agent, session, ok := s.claims.holderOf(t.ID()); ok {
+		// Only a holder who claimed through this server listens here. One
+		// who claimed through another server never sees this flag, so it
+		// names nobody, and an interrupt stops every agent here.
+		if agent, session, ok := s.claims.holderHere(t.ID()); ok {
 			f.ClaimedBy = agent
 			gate = callerKey(agent, session)
 		}
@@ -717,7 +720,7 @@ func (s *Server) handleFlagListeners(w http.ResponseWriter, r *http.Request) {
 	resp := FlagListenersResponse{Listeners: s.flags.listening()}
 	resp.Active = s.flags.activeOnly(resp.Listeners)
 	if id := r.URL.Query().Get("target"); id != "" && s.claims != nil {
-		if agent, session, ok := s.claims.holderOf(id); ok {
+		if agent, session, ok := s.claims.holderHere(id); ok {
 			resp.ClaimedBy = agent
 			resp.Holder = &FlagRecipient{Agent: agent, Session: session}
 			key := callerKey(agent, session)

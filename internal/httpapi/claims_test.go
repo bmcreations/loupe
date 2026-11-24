@@ -394,10 +394,10 @@ func TestAClaimRefusesOnEveryServerSharingTheFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, holder := a.take("avd:Pixel_9", "claude", "review-A", ""); holder != nil {
+	if _, holder, _ := a.take("avd:Pixel_9", "claude", "review-A", ""); holder != nil {
 		t.Fatalf("first claim refused: %+v", holder)
 	}
-	if _, holder := b.take("avd:Pixel_9", "claude", "review-B", ""); holder == nil || holder.Session != "review-A" {
+	if _, holder, _ := b.take("avd:Pixel_9", "claude", "review-B", ""); holder == nil || holder.Session != "review-A" {
 		t.Fatalf("second server's claim: holder %+v, want review-A", holder)
 	}
 	if e := b.refusal("avd:Pixel_9", "claude", "review-B"); e == nil || e.Code != ErrCodeClaimed {
@@ -416,6 +416,7 @@ func twoServers(t *testing.T) (a, b *claimBook, now *time.Time, dir string) {
 	for i := range books {
 		books[i] = newClaimBook(nil)
 		books[i].now = func() time.Time { return *now }
+		books[i].self = ":1845" + strconv.Itoa(i)
 		local := filepath.Join(dir, "config"+strconv.Itoa(i), "claims.json")
 		if err := books[i].loadClaims(local, filepath.Join(dir, "cache", "claims.json")); err != nil {
 			t.Fatal(err)
@@ -429,14 +430,14 @@ func twoServers(t *testing.T) (a, b *claimBook, now *time.Time, dir string) {
 func TestAClaimReleasesThroughAnotherServer(t *testing.T) {
 	a, b, _, _ := twoServers(t)
 	a.take("avd:x", "claude", "s1", "")
-	if _, _, released := b.release("avd:x", "claude", "s1", false); !released || a.held("avd:x") {
+	if _, _, released, _ := b.release("avd:x", "claude", "s1", false); !released || a.held("avd:x") {
 		t.Fatalf("holder's release through b: released %v, a still holds %v", released, a.held("avd:x"))
 	}
 	a.take("avd:x", "claude", "s1", "")
-	if holder, _, released := b.release("avd:x", "claude", "s2", false); holder == nil || released {
+	if holder, _, released, _ := b.release("avd:x", "claude", "s2", false); holder == nil || released {
 		t.Fatalf("another session's release through b: holder %+v released %v", holder, released)
 	}
-	if _, gone, released := b.release("avd:x", "", "", true); !released || gone != "claude" || a.held("avd:x") {
+	if _, gone, released, _ := b.release("avd:x", "", "", true); !released || gone != "claude" || a.held("avd:x") {
 		t.Fatalf("forced release through b: released %v gone %q, a still holds %v", released, gone, a.held("avd:x"))
 	}
 }
@@ -446,18 +447,18 @@ func TestAClaimReleasesThroughAnotherServer(t *testing.T) {
 func TestAHoldKeepsTheClaimOnEveryServer(t *testing.T) {
 	a, b, now, _ := twoServers(t)
 	a.take("avd:x", "claude", "s1", "")
-	unhold := a.hold("avd:x", "claude", "s1")
+	unhold, _ := a.hold("avd:x", "claude", "s1")
 	*now = now.Add(claimLease + time.Minute)
-	if _, holder := b.take("avd:x", "claude", "s2", ""); holder == nil || holder.IdleMs != 0 {
+	if _, holder, _ := b.take("avd:x", "claude", "s2", ""); holder == nil || holder.IdleMs != 0 {
 		t.Fatalf("another session's claim during the hold: holder %+v, want s1 and idle 0", holder)
 	}
 	unhold()
 	*now = now.Add(claimLease - time.Second)
-	if _, holder := b.take("avd:x", "claude", "s2", ""); holder == nil {
+	if _, holder, _ := b.take("avd:x", "claude", "s2", ""); holder == nil {
 		t.Fatal("the hold's end did not renew the claim on b")
 	}
 	*now = now.Add(time.Second)
-	if _, holder := b.take("avd:x", "claude", "s2", ""); holder != nil {
+	if _, holder, _ := b.take("avd:x", "claude", "s2", ""); holder != nil {
 		t.Fatalf("claim outlived its lease after the hold: %+v", holder)
 	}
 }
@@ -469,11 +470,11 @@ func TestAHoldFromADeadServerEnds(t *testing.T) {
 	a.take("avd:x", "claude", "s1", "")
 	a.hold("avd:x", "claude", "s1") // never let go
 	*now = now.Add(claimHoldMax - time.Second)
-	if _, holder := b.take("avd:x", "claude", "s2", ""); holder == nil {
+	if _, holder, _ := b.take("avd:x", "claude", "s2", ""); holder == nil {
 		t.Fatal("hold ended early on b")
 	}
 	*now = now.Add(time.Second)
-	if _, holder := b.take("avd:x", "claude", "s2", ""); holder != nil {
+	if _, holder, _ := b.take("avd:x", "claude", "s2", ""); holder != nil {
 		t.Fatalf("hold from a dead server outlived claimHoldMax: %+v", holder)
 	}
 }
@@ -484,13 +485,13 @@ func TestAHoldFromADeadServerEnds(t *testing.T) {
 func TestTheFileDecidesWhoHoldsAClaim(t *testing.T) {
 	takenOver := func(t *testing.T, a, b *claimBook) {
 		t.Helper()
-		if _, holder := b.take("avd:x", "claude", "s2", ""); holder != nil {
+		if _, holder, _ := b.take("avd:x", "claude", "s2", ""); holder != nil {
 			t.Fatalf("b refused s2 after the lapse: holder %+v", holder)
 		}
 		if e := a.refusal("avd:x", "claude", "s1"); e == nil || e.Code != ErrCodeClaimed {
 			t.Fatalf("a's refusal of the old holder = %+v, want claimedBy", e)
 		}
-		if _, holder := a.take("avd:x", "claude", "s1", ""); holder == nil || holder.Session != "s2" {
+		if _, holder, _ := a.take("avd:x", "claude", "s1", ""); holder == nil || holder.Session != "s2" {
 			t.Fatalf("a let the old holder take it back: holder %+v", holder)
 		}
 		if got := a.list(); len(got) != 1 || got[0].Session != "s2" {
@@ -510,7 +511,7 @@ func TestTheFileDecidesWhoHoldsAClaim(t *testing.T) {
 	t.Run("hold past its bound", func(t *testing.T) {
 		a, b, now, _ := twoServers(t)
 		a.take("avd:x", "claude", "s1", "")
-		unhold := a.hold("avd:x", "claude", "s1")
+		unhold, _ := a.hold("avd:x", "claude", "s1")
 		*now = now.Add(claimHoldMax)
 		takenOver(t, a, b)
 		unhold()
@@ -550,7 +551,7 @@ func TestALeaseIsSharedAcrossServers(t *testing.T) {
 func TestSyntheticClaimsStayOnTheirServer(t *testing.T) {
 	a, b, _, dir := twoServers(t)
 	a.take("synthetic", "claude", "s1", "")
-	if _, holder := b.take("synthetic", "claude", "s2", ""); holder != nil {
+	if _, holder, _ := b.take("synthetic", "claude", "s2", ""); holder != nil {
 		t.Fatalf("b's synthetic refused by a's claim: %+v", holder)
 	}
 	var shared claimData
