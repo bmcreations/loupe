@@ -28,6 +28,11 @@ type listTarget struct {
 	bounce   int
 	bouncing int
 	lastMs   int
+	// descRows labels rows in content-desc and leaves text empty, as
+	// Flutter and React Native do on Android.
+	descRows bool
+	// above is drawn over the list's top, outside it, like a toolbar icon.
+	above *target.Node
 }
 
 func (f *listTarget) ID() string { return f.id }
@@ -74,15 +79,22 @@ func (f *listTarget) Inspect(ctx context.Context) (*target.UI, error) {
 	}
 	for i := 0; i < n; i++ {
 		y := 200 + i*300 + off
-		list.Children = append(list.Children, &target.Node{
+		row := &target.Node{
 			Class: "TextView", Text: fmt.Sprintf("row %d", f.pos+i),
 			Bounds: [4]int{0, y, 1000, y + 300}, Center: [2]int{500, y + 150},
-		})
+		}
+		if f.descRows {
+			row.Class, row.Text, row.Desc = "View", "", row.Text
+		}
+		list.Children = append(list.Children, row)
 	}
 	clock := &target.Node{Class: "TextView", ID: "com.android.systemui:id/clock", Text: "9:41",
 		Bounds: [4]int{20, 0, 120, 60}, Center: [2]int{70, 30}}
 	root := &target.Node{Class: "FrameLayout", Bounds: [4]int{0, 0, 1000, 2000}, Center: [2]int{500, 1000},
 		Children: []*target.Node{clock, list}}
+	if f.above != nil {
+		root.Children = append(root.Children, f.above)
+	}
 	return &target.UI{Width: 1000, Height: 2000, Root: root}, nil
 }
 
@@ -164,6 +176,44 @@ func TestScrollFindStopsAtTheNode(t *testing.T) {
 	// Rows 0-4 are on screen; each stroke shows one more.
 	if resp.Swipes != 3 || resp.Matched == nil || resp.Matched.Text != "row 7" {
 		t.Fatalf("swipes = %d, matched = %+v; want 3, row 7", resp.Swipes, resp.Matched)
+	}
+}
+
+// rowSevenIcon is an icon button over the list whose only label is "row 7",
+// the shape of a native Android toolbar or nav icon.
+func rowSevenIcon() *target.Node {
+	return &target.Node{Class: "ImageButton", Desc: "row 7", Clickable: true,
+		Bounds: [4]int{880, 80, 1000, 180}, Center: [2]int{940, 130}}
+}
+
+// A text= find falls back to content-desc only inside the list it scrolls:
+// an icon elsewhere carrying the label must not end the scroll before the
+// row comes into view.
+func TestScrollFindByTextPassesAnIconOutsideTheList(t *testing.T) {
+	ft := &listTarget{id: "dev1", maxPos: 20, above: rowSevenIcon()}
+	s := scrollServer(t, ft)
+	rec := postInput(s, "dev1", `{"action":"scroll","direction":"down","find":{"text":"row 7"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeInput(t, rec.Body.Bytes())
+	if resp.Swipes != 3 || resp.Matched == nil || resp.Matched.Class != "TextView" || resp.Matched.Text != "row 7" {
+		t.Fatalf("swipes = %d, matched = %+v; want 3, the row 7 TextView", resp.Swipes, resp.Matched)
+	}
+}
+
+// Rows labelled only in content-desc, as Flutter and React Native draw them,
+// are still found by text= inside the list, past the same icon.
+func TestScrollFindByTextFindsADescOnlyRowInTheList(t *testing.T) {
+	ft := &listTarget{id: "dev1", maxPos: 20, descRows: true, above: rowSevenIcon()}
+	s := scrollServer(t, ft)
+	rec := postInput(s, "dev1", `{"action":"scroll","direction":"down","find":{"text":"row 7"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeInput(t, rec.Body.Bytes())
+	if resp.Swipes != 3 || resp.Matched == nil || resp.Matched.Class != "View" || resp.Matched.Desc != "row 7" {
+		t.Fatalf("swipes = %d, matched = %+v; want 3, the row 7 View in the list", resp.Swipes, resp.Matched)
 	}
 }
 

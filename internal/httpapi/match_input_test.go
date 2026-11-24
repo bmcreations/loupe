@@ -249,6 +249,102 @@ func TestAWaitForANodeAnswersWithItAndTouchesNothing(t *testing.T) {
 	}
 }
 
+// sendIconsScreen is the screen on its way out: icon buttons whose only
+// labels are content-descs, and no node with text.
+func sendIconsScreen(descs ...string) *target.UI {
+	root := &target.Node{Bounds: [4]int{0, 0, 1080, 2400}, Center: [2]int{540, 1200}}
+	for i, d := range descs {
+		x := 900 - i*120
+		root.Children = append(root.Children, &target.Node{
+			Class: "ImageButton", Desc: d, Clickable: true,
+			Bounds: [4]int{x, 100, x + 100, 200}, Center: [2]int{x + 50, 150},
+		})
+	}
+	return &target.UI{Width: 1080, Height: 2400, Root: root}
+}
+
+// sendButtonScreen is the screen coming in, with a Send button labelled in
+// its text.
+func sendButtonScreen() *target.UI {
+	return &target.UI{Width: 1080, Height: 2400, Root: &target.Node{
+		Bounds: [4]int{0, 0, 1080, 2400}, Center: [2]int{540, 1200},
+		Children: []*target.Node{
+			{Class: "Button", Text: "Send", Clickable: true, Bounds: [4]int{100, 2000, 980, 2200}, Center: [2]int{540, 2100}},
+		},
+	}}
+}
+
+// While a match has time left, nodes found only by their content-desc that
+// are more than one keep it looking, as no match would: a later dump may hold
+// the node with that text. Once the time is up it answers as a single look.
+func TestAPollingMatchLooksPastSeveralDescOnlyNodes(t *testing.T) {
+	outgoing := sendIconsScreen("Send now", "Send later")
+	for _, tc := range []struct {
+		name, body string
+		uis        []*target.UI
+		status     int
+		tap        bool
+		minLooks   int // 0 means exactly one
+	}{
+		{"tap finds the button", `{"action":"tap","match":{"text":"send","contains":true,"waitMs":2000}}`,
+			[]*target.UI{outgoing, outgoing, sendButtonScreen()}, http.StatusOK, true, 3},
+		{"wait finds the button", `{"action":"wait","match":{"text":"send","contains":true,"waitMs":2000}}`,
+			[]*target.UI{outgoing, outgoing, sendButtonScreen()}, http.StatusOK, false, 3},
+		{"no button by the deadline", `{"action":"tap","match":{"text":"send","contains":true,"waitMs":300}}`,
+			[]*target.UI{outgoing}, http.StatusConflict, false, 2},
+		{"one look answers at once", `{"action":"tap","match":{"text":"send","contains":true}}`,
+			[]*target.UI{outgoing, sendButtonScreen()}, http.StatusConflict, false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, ft := matchServer(t, tc.uis...)
+			rec := postInput(s, "dev1", tc.body)
+			if rec.Code != tc.status {
+				t.Fatalf("status = %d after %d looks; want %d: %s", rec.Code, ft.inspects, tc.status, rec.Body.String())
+			}
+			if tc.minLooks == 0 && ft.inspects != 1 || ft.inspects < tc.minLooks {
+				t.Fatalf("inspects = %d; want %d", ft.inspects, max(tc.minLooks, 1))
+			}
+			switch {
+			case tc.status == http.StatusConflict:
+				var body ErrorResponse
+				_ = json.Unmarshal(rec.Body.Bytes(), &body)
+				if body.Code != ErrCodeAmbiguous || len(body.Candidates) != 2 || len(ft.taps) != 0 {
+					t.Fatalf("body %+v taps %v; want ambiguous with both icons and no tap", body, ft.taps)
+				}
+			case tc.tap:
+				if len(ft.taps) != 1 || ft.taps[0] != [2]int{540, 2100} {
+					t.Fatalf("taps = %v; want one on the Send button at 540,2100", ft.taps)
+				}
+			default:
+				var resp InputResponse
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				if resp.Matched == nil || resp.Matched.Text != "Send" || len(ft.taps) != 0 {
+					t.Fatalf("response %s taps %v; want the Send button and no tap", rec.Body.String(), ft.taps)
+				}
+			}
+		})
+	}
+}
+
+// One node found by its content-desc is the answer on the dump it is found
+// in, polling or not: on Flutter and React Native it is the only node that
+// will ever carry the label, so looking again would only add a dump.
+func TestAOneDescOnlyNodeAnswersOnTheFirstLook(t *testing.T) {
+	outgoing := sendIconsScreen("Send")
+	for _, body := range []string{
+		`{"action":"wait","match":{"text":"Send","waitMs":2000}}`,
+		`{"action":"tap","match":{"text":"Send"}}`,
+	} {
+		s, ft := matchServer(t, outgoing, outgoing, sendButtonScreen())
+		rec := postInput(s, "dev1", body)
+		var resp InputResponse
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		if rec.Code != http.StatusOK || ft.inspects != 1 || resp.Matched == nil || resp.Matched.Desc != "Send" {
+			t.Fatalf("%s: status %d after %d looks, matched %+v; want the icon on the first look", body, rec.Code, ft.inspects, resp.Matched)
+		}
+	}
+}
+
 func TestAWaitOfMsIsBounded(t *testing.T) {
 	s, _ := matchServer(t, signInScreen())
 	if rec := postInput(s, "dev1", `{"action":"wait","ms":999999}`); rec.Code != http.StatusBadRequest {

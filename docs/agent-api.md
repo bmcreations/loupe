@@ -165,14 +165,27 @@ pulses where it last acted for 20 seconds more, then fades.
 
 A node has to satisfy every field given. Flutter and React Native put a
 control's label in `desc` on Android and leave its `text` empty, while iOS
-reports the same label as `text`. So when no node's `text` matches, `text` is
-tried against the `desc` of nodes with no `text`, and `text=Send` finds the
-button on both platforms. A node whose `text` matched always wins: a TextView
-reading "Search" is picked over an icon whose `desc` is "Search", and a node
-with text "Archive" and `desc` "Delete" never matches `text=Delete`. The
-fallback is decided per dump, so a `waitMs` or a scroll `find` can stop on a
-`desc` before a node with that `text` appears. `desc` stays a match on
-`desc` alone.
+reports the same label as `text`. So when no node a tap can reach has matching
+`text`, `text` is tried against the `desc` of nodes with no `text`, and
+`text=Send` finds the button on both platforms. A node whose `text` matched
+always wins, with or without `contains`: a TextView reading "Search" is picked
+over an icon whose `desc` is "Search", and a node with text "Archive" and
+`desc` "Delete" never matches `text=Delete`. `desc` stays a match on `desc`
+alone.
+
+The fallback is decided on each dump, which matters to the calls that dump
+more than once:
+
+- A tap with `waitMs`, or a `wait` with a match, answers with a single node
+  found by its `desc` on the dump that finds it, even when a node with that
+  `text` would have appeared on a later one. Several found that way don't end
+  it: it keeps looking, as it does for no match, because the screen on its
+  way out can carry the label on icons. If the time runs out first, it answers
+  409 `ambiguous` with them, as a single look does.
+- A scroll `find` falls back only to nodes centred in the list it scrolls.
+  Until the row scrolls into view no node has its `text`, and a toolbar icon
+  carrying the label as its `desc` would otherwise stop the scroll before the
+  first stroke.
 
 Other body fields:
 

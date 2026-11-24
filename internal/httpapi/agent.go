@@ -846,7 +846,10 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 const matchPollEvery = 50 * time.Millisecond
 
 // resolveMatch finds the node m names on t's screen, dumping the hierarchy
-// again until m.WaitMs runs out while nothing matches. It writes the error
+// again until m.WaitMs runs out while nothing matches, or while the only
+// matches are several nodes whose content-desc holds m.Text: a later dump
+// may hold the node with that text, as the screen on its way out gives way.
+// Once the time is up it answers as one look would. It writes the error
 // response itself: 404 noMatch, 409 ambiguous with the candidates, or what
 // /api/ui would answer for the dump. When the match acts on the node and t
 // took input within settleAfter, or the node was missing from an earlier
@@ -880,6 +883,14 @@ func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.T
 	polled := false
 	var settleBy, changed time.Time
 	var prevSig string
+	miss := func(err error, found []*target.Node) {
+		s.traceAgent(r, t.ID(), "match", err)
+		status, code := http.StatusNotFound, ErrCodeNoMatch
+		if errors.Is(err, target.ErrAmbiguousMatch) {
+			status, code = http.StatusConflict, ErrCodeAmbiguous
+		}
+		writeJSON(w, status, ErrorResponse{Error: err.Error(), Code: code, Candidates: leaves(found)})
+	}
 	for {
 		ui, err := insp.Inspect(ctx)
 		if err != nil {
@@ -894,7 +905,10 @@ func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.T
 			writeJSON(w, status, ErrorResponse{Error: err.Error()})
 			return nil, false
 		}
-		n, found, err := target.Pick(ui.Root, m)
+		n, found, inDesc, err := target.PickVia(ui.Root, m)
+		// A node seen while settling may drop out of one dump mid-animation,
+		// so it keeps its chance until settleBy even past a short waitMs.
+		last := time.Now().Add(matchPollEvery).After(deadline) && (settleBy.IsZero() || time.Now().After(settleBy))
 		switch {
 		case err == nil && !gate && polled && !acts:
 			s.inputs.touch(t.ID(), time.Now())
@@ -922,26 +936,18 @@ func (s *Server) resolveMatch(w http.ResponseWriter, r *http.Request, t target.T
 			continue
 		case err == nil:
 			return n, true
-		case errors.Is(err, target.ErrAmbiguousMatch):
-			s.traceAgent(r, t.ID(), "match", err)
-			writeJSON(w, http.StatusConflict, ErrorResponse{
-				Error: err.Error(), Code: ErrCodeAmbiguous, Candidates: leaves(found),
-			})
+		case errors.Is(err, target.ErrAmbiguousMatch) && (!inDesc || last):
+			miss(err, found)
 			return nil, false
 		}
-		// A node seen while settling may drop out of one dump mid-animation,
-		// so it keeps its chance until settleBy even past a short waitMs.
-		if time.Now().Add(matchPollEvery).After(deadline) && (settleBy.IsZero() || time.Now().After(settleBy)) {
-			s.traceAgent(r, t.ID(), "match", err)
-			writeJSON(w, http.StatusNotFound, ErrorResponse{
-				Error: err.Error(), Code: ErrCodeNoMatch, Candidates: leaves(found),
-			})
+		if last {
+			miss(err, found)
 			return nil, false
 		}
 		polled = true
 		select {
 		case <-ctx.Done():
-			writeJSON(w, http.StatusNotFound, ErrorResponse{Error: err.Error(), Code: ErrCodeNoMatch})
+			miss(err, found)
 			return nil, false
 		case <-time.After(matchPollEvery):
 		}

@@ -13,10 +13,10 @@ type Match struct {
 	// ID is a resource-id on Android or an accessibility identifier on iOS.
 	// A bare Android name ("send") matches any package's ":id/send".
 	ID string `json:"id,omitempty"`
-	// Text is the node's text. When no node's text matches, it is tried
-	// against the content-desc of nodes that have no text: Flutter and React
-	// Native put a control's label there on Android, where iOS reports it as
-	// text.
+	// Text is the node's text. When no node a tap can reach has matching
+	// text, it is tried against the content-desc of nodes that have no text:
+	// Flutter and React Native put a control's label there on Android, where
+	// iOS reports it as text.
 	Text string `json:"text,omitempty"`
 	Desc string `json:"desc,omitempty"`
 	// Contains matches Text and Desc as case-insensitive substrings instead
@@ -74,18 +74,27 @@ func (m Match) String() string {
 // match with the bounds of one already found is the same target and is
 // dropped rather than making the match ambiguous.
 //
-// Text is read from content-desc only when no node matches on its text, so a
-// selector that found a node by its text finds the same one whatever icons
-// on the screen carry that label as a description.
+// Text is read from content-desc only when no node a tap can reach matches
+// on its text, so a selector that found a node by its text finds the same
+// one whatever icons on the screen carry that label as a description.
 func FindNodes(root *Node, m Match) []*Node {
+	found, _ := FindNodesVia(root, m)
+	return found
+}
+
+// FindNodesVia is FindNodes, and reports whether the nodes it found matched
+// Text with their content-desc. A caller that polls across dumps, or looks in
+// one part of the screen, can then weigh those below a node that has the
+// text, which a later dump or another part may still show.
+func FindNodesVia(root *Node, m Match) (found []*Node, textInDesc bool) {
 	if root == nil || m.Empty() {
-		return nil
+		return nil, false
 	}
-	out := m.find(root, false)
-	if len(out) == 0 && m.Text != "" {
-		out = m.find(root, true)
+	if found = m.find(root, false); len(found) > 0 || m.Text == "" {
+		return found, false
 	}
-	return out
+	found = m.find(root, true)
+	return found, len(found) > 0
 }
 
 // find walks root for m. With textInDesc, Text is compared with the
@@ -110,19 +119,25 @@ func (m Match) find(root *Node, textInDesc bool) []*Node {
 
 // Pick resolves m against root to the one node it names.
 func Pick(root *Node, m Match) (*Node, []*Node, error) {
-	found := FindNodes(root, m)
+	n, found, _, err := PickVia(root, m)
+	return n, found, err
+}
+
+// PickVia is Pick, and reports textInDesc as FindNodesVia does.
+func PickVia(root *Node, m Match) (n *Node, found []*Node, textInDesc bool, err error) {
+	found, textInDesc = FindNodesVia(root, m)
 	switch {
 	case len(found) == 0:
-		return nil, nil, fmt.Errorf("%w: %s", ErrNoMatch, m)
+		return nil, nil, false, fmt.Errorf("%w: %s", ErrNoMatch, m)
 	case m.Index != nil:
 		if *m.Index < 0 || *m.Index >= len(found) {
-			return nil, found, fmt.Errorf("%w: %s; %d match", ErrNoMatch, m, len(found))
+			return nil, found, textInDesc, fmt.Errorf("%w: %s; %d match", ErrNoMatch, m, len(found))
 		}
-		return found[*m.Index], found, nil
+		return found[*m.Index], found, textInDesc, nil
 	case len(found) > 1:
-		return nil, found, fmt.Errorf("%w: %s matches %d nodes; pass index", ErrAmbiguousMatch, m, len(found))
+		return nil, found, textInDesc, fmt.Errorf("%w: %s matches %d nodes; pass index", ErrAmbiguousMatch, m, len(found))
 	}
-	return found[0], found, nil
+	return found[0], found, textInDesc, nil
 }
 
 func (m Match) matches(n *Node, textInDesc bool) bool {

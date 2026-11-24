@@ -103,6 +103,30 @@ func TestTextPrefersATextNodeOverADescOnlyNode(t *testing.T) {
 	}
 }
 
+// contains widens what each pass accepts, not when the second one runs: the
+// icon whose desc holds "sear" stays out while a text node holds it.
+func TestContainsTextPrefersATextNodeOverADescOnlyNode(t *testing.T) {
+	n, found, err := Pick(labelTree(), Match{Text: "sear", Contains: true})
+	if err != nil || n.Class != "TextView" || len(found) != 1 {
+		t.Fatalf("picked %+v of %d, %v; want the TextView alone", n, len(found), err)
+	}
+}
+
+func TestFindNodesViaSaysWhichPassFoundThem(t *testing.T) {
+	if found, inDesc := FindNodesVia(labelTree(), Match{Text: "Search"}); len(found) != 1 || inDesc {
+		t.Fatalf("text=Search: %d found, inDesc %v; want the TextView by its text", len(found), inDesc)
+	}
+	if found, inDesc := FindNodesVia(labelTree(), Match{Text: "Send"}); len(found) != 1 || !inDesc {
+		t.Fatalf("text=Send: %d found, inDesc %v; want the button by its desc", len(found), inDesc)
+	}
+	if found, inDesc := FindNodesVia(labelTree(), Match{Desc: "Send"}); len(found) != 1 || inDesc {
+		t.Fatalf("desc=Send: %d found, inDesc %v; a desc= match is not the fallback", len(found), inDesc)
+	}
+	if found, inDesc := FindNodesVia(labelTree(), Match{Text: "Nothing"}); len(found) != 0 || inDesc {
+		t.Fatalf("text=Nothing: %d found, inDesc %v; want none", len(found), inDesc)
+	}
+}
+
 func TestTextDoesNotFallBackToTheDescOfANodeWithText(t *testing.T) {
 	if _, _, err := Pick(labelTree(), Match{Text: "Delete"}); !errors.Is(err, ErrNoMatch) {
 		t.Fatalf("text=Delete gave %v, want ErrNoMatch: the node reads Archive", err)
