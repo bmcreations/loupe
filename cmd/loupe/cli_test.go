@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -235,4 +236,71 @@ func TestResolveCLICommand(t *testing.T) {
 			t.Errorf("%v: got %q %q %v, want %q %q %v", tc.args, cmd.name, strings.Join(rest, " "), ok, tc.wantName, tc.wantRest, tc.wantOK)
 		}
 	}
+}
+
+// TestExtCallExitsOneOnAnErrorStatus: call_extension returns a 4xx or 5xx as
+// an answer, not a tool error, so a script checks `ext call`'s exit status.
+// It is 1 from 400 up, loupe's own 404 and 502 included, and the answer stays
+// on stdout.
+func TestExtCallExitsOneOnAnErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/ext/fake/ok":
+			io.WriteString(w, `{"ok":true}`)
+		case "/api/ext/fake/moved":
+			w.Header().Set("Location", "/api/ext/fake/ok")
+			w.WriteHeader(http.StatusFound)
+		case "/api/ext/fake/missing":
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":"no such build"}`)
+		case "/api/ext/nosuch/x":
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":"no extension nosuch"}`)
+		case "/api/ext/down/x":
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, `{"error":"extension down is not answering"}`)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("LOUPE_URL", srv.URL)
+	t.Setenv("LOUPE_TOKEN", "tok")
+	t.Setenv("LOUPE_AGENT", "")
+	t.Setenv("LOUPE_SESSION", "")
+
+	cmd, _ := findCLICommand("ext call")
+	for _, tc := range []struct {
+		args     []string
+		wantCode int
+		wantOut  string
+	}{
+		{[]string{"fake", "ok"}, 0, `{"ok":true}`},
+		{[]string{"fake", "moved"}, 0, "location: /api/ext/fake/ok"},
+		{[]string{"fake", "missing"}, 1, `{"error":"no such build"}`},
+		{[]string{"nosuch", "x"}, 1, `{"error":"no extension nosuch"}`},
+		{[]string{"down", "x"}, 1, "status: 502 Bad Gateway"},
+	} {
+		code, out := captureStdout(t, func() int { return runCLI(cmd, tc.args) })
+		if code != tc.wantCode || !strings.Contains(out, tc.wantOut) {
+			t.Errorf("ext call %v: exit %d stdout %q, want exit %d with %q", tc.args, code, out, tc.wantCode, tc.wantOut)
+		}
+	}
+}
+
+func captureStdout(t *testing.T, f func() int) (int, string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	code := f()
+	os.Stdout = old
+	w.Close()
+	b, _ := io.ReadAll(r)
+	r.Close()
+	return code, string(b)
 }

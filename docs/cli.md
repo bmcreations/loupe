@@ -78,6 +78,10 @@ boot-status avd:Pixel_10` reports on a boot still running.
 `ext list` and `ext call` are two-word commands. `loupe ext call slipway
 builds/run -method POST -body '{"ref":"main"}'` calls `/api/ext/slipway/builds/run`
 with the CLI's token and prints the extension's status, content type and body.
+The answer is on stdout whatever the status. `ext call` exits 1 when the
+status is 400 or more, which includes loupe's own 401 for a bad token, 404 for
+a name that isn't registered and 502 for an extension that isn't answering. A
+redirect exits 0.
 
 `screenshot` writes the PNG to `-o`, or to stdout when stdout is a pipe. On
 a terminal without `-o` it refuses rather than print binary.

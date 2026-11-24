@@ -188,6 +188,24 @@ func TestCallExtensionStopsReadingPastTheCut(t *testing.T) {
 	}
 }
 
+// The CLI's exit status reads the status back off the answer.
+func TestExtensionAnswerStatusReadsTheFirstLine(t *testing.T) {
+	for _, tc := range []struct {
+		answer string
+		want   int
+		ok     bool
+	}{
+		{formatExtensionAnswer(404, http.Header{"Content-Type": {"application/json"}}, []byte(`{"error":"no extension x"}`)), 404, true},
+		{formatExtensionAnswer(302, http.Header{"Location": {"/api/claims"}}, nil), 302, true},
+		{formatExtensionAnswer(200, http.Header{}, []byte("status: 500")), 200, true},
+		{`bad extension name "X": lowercase letters, digits and dashes, 1-32 characters`, 0, false},
+	} {
+		if got, ok := ExtensionAnswerStatus(tc.answer); got != tc.want || ok != tc.ok {
+			t.Errorf("%q: got %d %v, want %d %v", tc.answer, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestFormatExtensionAnswerCutsALargeBodyAndHidesBinary(t *testing.T) {
 	big := []byte(strings.Repeat("a", maxExtensionBody+1))
 	out := formatExtensionAnswer(200, http.Header{"Content-Type": {"text/plain"}, "Content-Length": {"65546"}}, big)

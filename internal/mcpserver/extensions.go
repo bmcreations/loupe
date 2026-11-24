@@ -119,6 +119,18 @@ func addExtensionTools(s *mcp.Server, c *Client) {
 	})
 }
 
+// ExtensionAnswerStatus reads the status back off call_extension's answer,
+// from the first line formatExtensionAnswer writes. The tool returns a 4xx or
+// 5xx as an answer, not a tool error, so the CLI reads it here to set its exit
+// status.
+func ExtensionAnswerStatus(answer string) (int, bool) {
+	var status int
+	if _, err := fmt.Sscanf(answer, "status: %d", &status); err != nil {
+		return 0, false
+	}
+	return status, true
+}
+
 // formatExtensionAnswer renders an answer whose body was read to at most
 // maxExtensionBody+1 bytes; a longer b means the rest was left unread.
 func formatExtensionAnswer(status int, h http.Header, b []byte) string {
