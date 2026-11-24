@@ -338,8 +338,13 @@ func cutSimLog(t *testing.T, byWindow map[string]string) {
 	t.Helper()
 	old := simLogStart
 	simLogStart = func(ctx context.Context, udid string, args []string) (io.ReadCloser, error) {
-		style := args[2]
-		lines, ok := byWindow[style+" "+args[len(args)-1]]
+		style, w := args[2], ""
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--last" {
+				w = args[i+1]
+			}
+		}
+		lines, ok := byWindow[style+" "+w]
 		if !ok {
 			return &killedLog{ctx: ctx}, nil
 		}
