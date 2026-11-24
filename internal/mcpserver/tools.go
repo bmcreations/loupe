@@ -85,7 +85,7 @@ type tapIn struct {
 	Targeted
 	X        *int   `json:"x,omitempty" jsonschema:"device pixels, as /api/ui's center reports them; leave out when naming a node"`
 	Y        *int   `json:"y,omitempty" jsonschema:"device pixels"`
-	Text     string `json:"text,omitempty" jsonschema:"tap the node with this text (a button's label on Android and iOS)"`
+	Text     string `json:"text,omitempty" jsonschema:"tap the node with this text (a button's label on Android and iOS); when no node a tap can reach has this text, a node with no text whose desc is this, as Flutter and React Native label controls on Android"`
 	ID       string `json:"id,omitempty" jsonschema:"tap the node with this resource-id or accessibility identifier; a bare Android name matches any package"`
 	Desc     string `json:"desc,omitempty" jsonschema:"tap the node with this content description, often an icon button's only label"`
 	Contains bool   `json:"contains,omitempty" jsonschema:"match text and desc as case-insensitive substrings"`
@@ -152,7 +152,7 @@ type scrollIn struct {
 	Targeted
 	Direction string        `json:"direction" jsonschema:"up, down, left or right: the way you want to go, as a person says it; down shows what is below"`
 	Until     string        `json:"until,omitempty" jsonschema:"edge: keep scrolling until the list stops moving, which takes you to its top, bottom or end in one call"`
-	Find      *target.Match `json:"find,omitempty" jsonschema:"keep scrolling until this node (by id, text or desc) is on screen, and answer with it; a 404 noMatch means the list ended first"`
+	Find      *target.Match `json:"find,omitempty" jsonschema:"keep scrolling until this node (by id, text or desc) is on screen, and answer with it; text falls back to desc only for nodes inside the list; a 404 noMatch means the list ended first"`
 	X         int           `json:"x,omitempty" jsonschema:"a point inside the list to scroll, device pixels; omit for the largest scrollable on screen"`
 	Y         int           `json:"y,omitempty" jsonschema:"device pixels"`
 	Max       int           `json:"max,omitempty" jsonschema:"at most this many strokes, up to 30; default 1, or 20 with until or find"`
