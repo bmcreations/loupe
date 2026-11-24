@@ -25,9 +25,12 @@ func (t *ADBTarget) touchInput(ctx context.Context, args ...string) error {
 		return fmt.Errorf("device %s is in state %q", t.info.Serial, t.info.State)
 	}
 	// Device time to the millisecond, the form `logcat -v epoch -T` takes.
+	// Only the main buffer: InputDispatcher is native and logs there, and
+	// logcat's default reads main and system, which on the Seeker (Android
+	// 16, both 16 MiB rings full) took 1.47s against 0.77s for main alone.
 	script := `s=$(date +%s.%N); s=${s%??????}; input ` + strings.Join(args, " ") +
 		`; r=$?; echo ` + touchLogMarker +
-		`; logcat -d -v epoch -T "$s" -s InputDispatcher:E; exit $r`
+		`; logcat -b main -d -v epoch -T "$s" -s InputDispatcher:E; exit $r`
 	out, err := t.adb.Shell(ctx, t.info.Serial, script)
 	head, log, _ := strings.Cut(out, touchLogMarker)
 	if err != nil {
