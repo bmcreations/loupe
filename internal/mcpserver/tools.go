@@ -326,7 +326,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "logcat",
-		Description: "Recent log lines, optionally narrowed to one app's process, a tag and a text: logcat's threadtime format on Android, the unified log's compact style on an iOS simulator. package is an Android package or an iOS bundle ID. At most one of package and foreground. lines counts the lines tag and text keep. In Expo Go or another host app, the process is the host's, so narrow to the app's lines with tag or text.",
+		Description: "Recent log lines, optionally narrowed to one app's process, a tag and a text: logcat's threadtime format on Android, the unified log's compact style on an iOS simulator. package is an Android package or an iOS bundle ID. At most one of package and foreground. lines counts the lines tag and text keep. In Expo Go or another host app, the process is the host's, so narrow to the app's lines with tag or text. A filtered dump reads only as far back as fits in 15 s, so an empty answer means nothing matched in what it read, not in the whole log.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in logcatIn) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"target": {in.Target}}
 		if in.Lines > 0 {
