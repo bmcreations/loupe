@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"context"
@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/bmcreations/loupe/internal/target"
 )
 
 // testRevylKey is lower case so that it also passes for an error code: a
@@ -178,7 +180,7 @@ func (l *traceLog) wait(t *testing.T, n int) []map[string]any {
 type restRig struct {
 	in   *revylInput
 	clk  *fixedClock
-	rest *RevylREST
+	rest *REST
 	log  *traceLog
 	key  atomic.Value // string
 }
@@ -187,9 +189,9 @@ func restGestures(t *testing.T, f *fakeRevyl, baseURL, platform string, screenW,
 	t.Helper()
 	g := &restRig{log: &traceLog{}}
 	g.key.Store(testRevylKey)
-	g.rest = &RevylREST{BaseURL: baseURL, UserAgent: "loupe/test", Timeout: 5 * time.Second,
+	g.rest = &REST{BaseURL: baseURL, UserAgent: "loupe/test", Timeout: 5 * time.Second,
 		Key: func() string { return g.key.Load().(string) }}
-	g.in = newRevylInput(f.cli, g.rest, RevylSession{SessionID: testSession, WorkflowRunID: testRunID,
+	g.in = newRevylInput(f.cli, g.rest, Session{SessionID: testSession, WorkflowRunID: testRunID,
 		Platform: platform, ScreenWidth: screenW, ScreenHeight: screenH}, g.log.record)
 	t.Cleanup(g.in.close)
 	// The input looks for its worker socket as it opens; let that settle
@@ -200,7 +202,7 @@ func restGestures(t *testing.T, f *fakeRevyl, baseURL, platform string, screenW,
 	return g
 }
 
-func (g *restRig) tap(t *testing.T, m Meta, x, y int32) {
+func (g *restRig) tap(t *testing.T, m target.Meta, x, y int32) {
 	t.Helper()
 	press(t, g.in, m, g.clk, 10*time.Millisecond, [2]int32{x, y})
 }
@@ -256,16 +258,16 @@ func TestRevylRESTGesturesInAndroidPixels(t *testing.T) {
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 
 	press(t, g.in, m, g.clk, 80*time.Millisecond, [2]int32{270, 600}, [2]int32{272, 601})
 	press(t, g.in, m, g.clk, 300*time.Millisecond, [2]int32{100, 1000}, [2]int32{100, 700}, [2]int32{100, 200})
 	press(t, g.in, m, g.clk, 900*time.Millisecond, [2]int32{50, 60})
-	for _, k := range []int32{KeycodeHome, KeycodeBack, keycodeEnter, keycodeDel} {
-		if err := g.in.key(Key{Action: KeyDown, Keycode: k}); err != nil {
+	for _, k := range []int32{target.KeycodeHome, target.KeycodeBack, keycodeEnter, keycodeDel} {
+		if err := g.in.key(target.Key{Action: target.KeyDown, Keycode: k}); err != nil {
 			t.Fatalf("key %d: %v", k, err)
 		}
-		_ = g.in.key(Key{Action: KeyUp, Keycode: k})
+		_ = g.in.key(target.Key{Action: target.KeyUp, Keycode: k})
 	}
 	if err := g.in.text("hello wörld"); err != nil {
 		t.Fatal(err)
@@ -311,16 +313,16 @@ func TestRevylRESTGesturesInIOSPoints(t *testing.T) {
 	p := newFakeProxy(t)
 	// iPhone 16 Pro: 393x852 points, streamed at its 1179x2556 pixels (3x).
 	g := restGestures(t, f, p.srv.URL, "ios", 393, 852)
-	m := Meta{Width: 1179, Height: 2556}
+	m := target.Meta{Width: 1179, Height: 2556}
 
 	press(t, g.in, m, g.clk, 50*time.Millisecond, [2]int32{589, 1278})
 	press(t, g.in, m, g.clk, 200*time.Millisecond, [2]int32{589, 2400}, [2]int32{589, 1200})
 	press(t, g.in, m, g.clk, 700*time.Millisecond, [2]int32{30, 30})
-	if err := g.in.key(Key{Action: KeyDown, Keycode: KeycodeBack}); !errors.Is(err, ErrNoControl) {
+	if err := g.in.key(target.Key{Action: target.KeyDown, Keycode: target.KeycodeBack}); !errors.Is(err, target.ErrNoControl) {
 		t.Fatalf("iOS back = %v, want ErrNoControl", err)
 	}
-	for _, k := range []int32{KeycodeHome, keycodeEnter} {
-		if err := g.in.key(Key{Action: KeyDown, Keycode: k}); err != nil {
+	for _, k := range []int32{target.KeycodeHome, keycodeEnter} {
+		if err := g.in.key(target.Key{Action: target.KeyDown, Keycode: k}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -328,7 +330,7 @@ func TestRevylRESTGesturesInIOSPoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The stream turned to landscape: the point space turns with it.
-	g.tap(t, Meta{Width: 2556, Height: 1179}, 2556-1, 1179-1)
+	g.tap(t, target.Meta{Width: 2556, Height: 1179}, 2556-1, 1179-1)
 
 	n := func(v float64) any { return v }
 	checkBodies(t, p.waitFor(7), []any{
@@ -350,7 +352,7 @@ func TestRevylRESTKeepsOrderUnderABurst(t *testing.T) {
 	p := newFakeProxy(t)
 	p.set(nil, func(string, *http.Request) { time.Sleep(15 * time.Millisecond) })
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 
 	start := time.Now()
 	const n = 20
@@ -393,7 +395,7 @@ func TestRevylTextJoinsAndIsNeverDropped(t *testing.T) {
 		}
 	})
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 
 	// The first tap is in flight and held, so what follows waits.
 	g.tap(t, m, 5, 5)
@@ -405,7 +407,7 @@ func TestRevylTextJoinsAndIsNeverDropped(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := g.in.key(Key{Action: KeyDown, Keycode: keycodeEnter}); err != nil {
+	if err := g.in.key(target.Key{Action: target.KeyDown, Keycode: keycodeEnter}); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []string{"wo", "rld"} {
@@ -417,9 +419,9 @@ func TestRevylTextJoinsAndIsNeverDropped(t *testing.T) {
 	queued := 3
 	var full error
 	for full == nil {
-		full = g.in.touch(Touch{Action: TouchDown, PointerID: 1, X: 7, Y: 7}, m)
+		full = g.in.touch(target.Touch{Action: target.TouchDown, PointerID: 1, X: 7, Y: 7}, m)
 		if full == nil {
-			full = g.in.touch(Touch{Action: TouchUp, PointerID: 1, X: 7, Y: 7}, m)
+			full = g.in.touch(target.Touch{Action: target.TouchUp, PointerID: 1, X: 7, Y: 7}, m)
 		}
 		if full == nil {
 			queued++
@@ -474,7 +476,7 @@ func closedURL(t *testing.T) string {
 }
 
 func TestRevylRESTFallsBackToTheCLI(t *testing.T) {
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 
 	t.Run("a 5xx worker_gone tap goes through the CLI once", func(t *testing.T) {
 		f := newFakeRevyl(t)
@@ -607,7 +609,7 @@ func TestRevylRESTFallsBackToTheCLI(t *testing.T) {
 		if rec := g.log.wait(t, 1)[0]; rec["via"] != "cli" || rec["rest"] != "no key" {
 			t.Fatalf("trace %v", rec)
 		}
-		in := newRevylInput(f.cli, g.rest, RevylSession{SessionID: testSession, Platform: "android", ScreenWidth: 1080, ScreenHeight: 2400}, nil)
+		in := newRevylInput(f.cli, g.rest, Session{SessionID: testSession, Platform: "android", ScreenWidth: 1080, ScreenHeight: 2400}, nil)
 		t.Cleanup(in.close)
 		g.key.Store(testRevylKey)
 		press(t, in, m, g.clk, 10*time.Millisecond, [2]int32{20, 20})
@@ -619,7 +621,7 @@ func TestRevylRESTFallsBackToTheCLI(t *testing.T) {
 }
 
 func TestRevylRESTDoesNotResend(t *testing.T) {
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 	for _, tc := range []struct {
 		name  string
 		reply func(string) (int, string)
@@ -723,7 +725,7 @@ func TestRevylRESTFallsBackOnWorkerGone(t *testing.T) {
 }
 
 func TestRevylRESTKeepsTheKeyOut(t *testing.T) {
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	var step atomic.Int32
@@ -826,21 +828,21 @@ func TestRevylTargetSendsInputOverREST(t *testing.T) {
 	p := newFakeProxy(t)
 	f.respond("device-info", "device-info", w.srv.URL+"/whep/endpoint")
 	log := &traceLog{}
-	tgt := &RevylTarget{
-		CLI: f.cli, Session: RevylSession{SessionID: testSession, Platform: "android"},
-		REST:     &RevylREST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
+	tgt := &Target{
+		CLI: f.cli, Session: Session{SessionID: testSession, Platform: "android"},
+		REST:     &REST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
 		Trace:    log.record,
 		settings: loopbackSettings(), poll: 20 * time.Millisecond,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	st, err := tgt.Open(ctx, DefaultOptions())
+	st, err := tgt.Open(ctx, target.DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	_ = st.Touch(Touch{Action: TouchDown, PointerID: 1, X: 180, Y: 101, Pressure: 1})
-	_ = st.Touch(Touch{Action: TouchUp, PointerID: 1, X: 180, Y: 101})
+	_ = st.Touch(target.Touch{Action: target.TouchDown, PointerID: 1, X: 180, Y: 101, Pressure: 1})
+	_ = st.Touch(target.Touch{Action: target.TouchUp, PointerID: 1, X: 180, Y: 101})
 	// The run ID comes from `device info`, which Open read.
 	r := p.waitFor(1)[0]
 	if r.path != "/api/v1/execution/device-proxy/"+testRunID+"/tap" {
@@ -873,7 +875,7 @@ func TestRevylAgentInputWaitsForRevylsAnswer(t *testing.T) {
 	})
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
 	// The stream is half the screen's size.
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	ctx := context.Background()
 
 	tapped := make(chan error, 1)
@@ -902,13 +904,13 @@ func TestRevylAgentInputWaitsForRevylsAnswer(t *testing.T) {
 	if err := g.in.agentText(ctx, "hello"); err != nil {
 		t.Fatalf("TypeText = %v", err)
 	}
-	for _, k := range []int{KeycodeHome, KeycodeBack, keycodeEnter, keycodeDel} {
+	for _, k := range []int{target.KeycodeHome, target.KeycodeBack, keycodeEnter, keycodeDel} {
 		if err := g.in.agentKey(ctx, k); err != nil {
 			t.Fatalf("PressKey(%d) = %v", k, err)
 		}
 	}
-	err := g.in.agentKey(ctx, KeycodePower)
-	if !errors.Is(err, ErrNoControl) || !strings.Contains(err.Error(), "26") {
+	err := g.in.agentKey(ctx, target.KeycodePower)
+	if !errors.Is(err, target.ErrNoControl) || !strings.Contains(err.Error(), "26") {
 		t.Fatalf("PressKey(power) = %v, want ErrNoControl naming the keycode", err)
 	}
 	tap := [2]any{"tap", map[string]any{"x": float64(540), "y": float64(1200)}}
@@ -930,7 +932,7 @@ func TestRevylAgentTapOnA3xIOSStreamIsInPoints(t *testing.T) {
 	p := newFakeProxy(t)
 	// iPhone 16 Pro: 393x852 points, streamed at its 1179x2556 pixels.
 	g := restGestures(t, f, p.srv.URL, "ios", 393, 852)
-	m := Meta{Width: 1179, Height: 2556}
+	m := target.Meta{Width: 1179, Height: 2556}
 	ctx := context.Background()
 	if err := g.in.agentTap(ctx, 589, 1278, m); err != nil {
 		t.Fatal(err)
@@ -938,10 +940,10 @@ func TestRevylAgentTapOnA3xIOSStreamIsInPoints(t *testing.T) {
 	if err := g.in.agentSwipe(ctx, 589, 2400, 589, 1200, m); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.in.agentKey(ctx, KeycodeBack); !errors.Is(err, ErrNoControl) {
+	if err := g.in.agentKey(ctx, target.KeycodeBack); !errors.Is(err, target.ErrNoControl) {
 		t.Fatalf("iOS back = %v, want ErrNoControl (back is Android's)", err)
 	}
-	if err := g.in.agentKey(ctx, KeycodeHome); err != nil {
+	if err := g.in.agentKey(ctx, target.KeycodeHome); err != nil {
 		t.Fatal(err)
 	}
 	checkBodies(t, p.waitFor(3), []any{
@@ -991,12 +993,12 @@ func TestRevylAgentTextNeedsATapAndKeepsItsOwnJob(t *testing.T) {
 		}
 	})
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 	ctx := context.Background()
 
 	err := g.in.agentText(ctx, "x")
-	if !errors.Is(err, ErrRevylNeedsTap) {
-		t.Fatalf("text before any tap = %v, want ErrRevylNeedsTap", err)
+	if !errors.Is(err, ErrNeedsTap) {
+		t.Fatalf("text before any tap = %v, want ErrNeedsTap", err)
 	}
 	if c := p.requests(); len(c) != 0 {
 		t.Fatalf("text before a tap sent %d requests", len(c))
@@ -1045,7 +1047,7 @@ func TestRevylAgentTextKeepsTheTextOutOfItsError(t *testing.T) {
 		return 0, ""
 	}, nil)
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 	ctx := context.Background()
 	if err := g.in.agentTap(ctx, 10, 10, m); err != nil {
 		t.Fatal(err)
@@ -1074,7 +1076,7 @@ func TestRevylAgentInputHonoursTheQueueLimit(t *testing.T) {
 		}
 	})
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 	ctx := context.Background()
 	g.tap(t, m, 5, 5)
 	<-p.got
@@ -1086,7 +1088,7 @@ func TestRevylAgentInputHonoursTheQueueLimit(t *testing.T) {
 		"tap":   func() error { return g.in.agentTap(ctx, 1, 1, m) },
 		"swipe": func() error { return g.in.agentSwipe(ctx, 1, 1, 500, 500, m) },
 		"text":  func() error { return g.in.agentText(ctx, "x") },
-		"key":   func() error { return g.in.agentKey(ctx, KeycodeHome) },
+		"key":   func() error { return g.in.agentKey(ctx, target.KeycodeHome) },
 	} {
 		done := make(chan error, 1)
 		go func() { done <- call() }()
@@ -1119,12 +1121,12 @@ func TestRevylAgentInputThatTimesOutIsNotSentLater(t *testing.T) {
 		}
 	})
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 	g.tap(t, m, 5, 5)
 	<-p.got
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	err := g.in.agentKey(ctx, KeycodeHome)
+	err := g.in.agentKey(ctx, target.KeycodeHome)
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "not sent") {
 		t.Fatalf("PressKey past its deadline = %v, want a deadline error saying it was not sent", err)
 	}
@@ -1146,22 +1148,22 @@ func TestRevylAgentInputEndsWithTheStream(t *testing.T) {
 		}
 	})
 	g := restGestures(t, f, p.srv.URL, "android", 1080, 2400)
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 	g.tap(t, m, 5, 5)
 	<-p.got
 	done := make(chan error, 1)
-	go func() { done <- g.in.agentKey(context.Background(), KeycodeHome) }()
+	go func() { done <- g.in.agentKey(context.Background(), target.KeycodeHome) }()
 	waitRevylQueued(t, g.in, 1)
 	g.in.close()
 	select {
 	case err := <-done:
-		if !errors.Is(err, ErrNoSession) {
+		if !errors.Is(err, target.ErrNoSession) {
 			t.Fatalf("PressKey across a close = %v, want ErrNoSession", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("PressKey still waiting after the stream closed")
 	}
-	if err := g.in.agentKey(context.Background(), KeycodeHome); !errors.Is(err, ErrNoSession) {
+	if err := g.in.agentKey(context.Background(), target.KeycodeHome); !errors.Is(err, target.ErrNoSession) {
 		t.Fatalf("PressKey on a closed stream = %v, want ErrNoSession", err)
 	}
 }
@@ -1173,13 +1175,13 @@ func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	f.respond("device-info", "device-info", w.srv.URL+"/whep/endpoint")
-	tgt := &RevylTarget{
-		CLI: f.cli, Session: RevylSession{SessionID: testSession, Platform: "android"},
-		REST:     &RevylREST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
+	tgt := &Target{
+		CLI: f.cli, Session: Session{SessionID: testSession, Platform: "android"},
+		REST:     &REST{BaseURL: p.srv.URL, UserAgent: "loupe/test", Key: func() string { return testRevylKey }},
 		settings: loopbackSettings(), poll: 20 * time.Millisecond,
 	}
-	var act Actuator = tgt
-	var sizer ScreenSizer = tgt
+	var act target.Actuator = tgt
+	var sizer target.ScreenSizer = tgt
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -1189,13 +1191,13 @@ func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
 			"Tap":      act.Tap(ctx, 1, 1),
 			"Swipe":    act.Swipe(ctx, 1, 1, 2, 2, 300),
 			"TypeText": act.TypeText(ctx, "x"),
-			"PressKey": act.PressKey(ctx, KeycodeHome),
+			"PressKey": act.PressKey(ctx, target.KeycodeHome),
 		} {
-			if !errors.Is(err, ErrNoSession) || !strings.Contains(err.Error(), "viewer") {
+			if !errors.Is(err, target.ErrNoSession) || !strings.Contains(err.Error(), "viewer") {
 				t.Fatalf("%s %s = %v, want ErrNoSession saying to open a viewer", name, when, err)
 			}
 		}
-		if _, _, err := sizer.ScreenSize(ctx); !errors.Is(err, ErrNoSession) {
+		if _, _, err := sizer.ScreenSize(ctx); !errors.Is(err, target.ErrNoSession) {
 			t.Fatalf("ScreenSize %s = %v, want ErrNoSession", when, err)
 		}
 	}
@@ -1204,7 +1206,7 @@ func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
 		t.Fatalf("%d proxy requests with no stream", n)
 	}
 
-	st, err := tgt.Open(ctx, DefaultOptions())
+	st, err := tgt.Open(ctx, target.DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1222,7 +1224,7 @@ func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
 	if err := act.Swipe(ctx, 0, 200, 0, 0, 300); err != nil {
 		t.Fatalf("Swipe = %v", err)
 	}
-	if err := act.PressKey(ctx, KeycodeBack); err != nil {
+	if err := act.PressKey(ctx, target.KeycodeBack); err != nil {
 		t.Fatalf("PressKey = %v", err)
 	}
 	checkBodies(t, p.waitFor(4), []any{
@@ -1237,7 +1239,7 @@ func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
 	// session, so the second gets its own.
 	w2 := newFakeWHEP(t)
 	f.respond("device-info", "device-info", w2.srv.URL+"/whep/endpoint")
-	st2, err := tgt.Open(ctx, DefaultOptions())
+	st2, err := tgt.Open(ctx, target.DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1250,7 +1252,7 @@ func TestRevylTargetTakesAgentInputThroughItsStream(t *testing.T) {
 	if got := tgt.liveStream(); got != st {
 		t.Fatalf("live stream after closing the newest is %p, want the first %p", got, st)
 	}
-	if err := act.PressKey(ctx, KeycodeHome); err != nil {
+	if err := act.PressKey(ctx, target.KeycodeHome); err != nil {
 		t.Fatalf("PressKey through the first stream = %v", err)
 	}
 	if err := st.Close(); err != nil {

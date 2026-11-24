@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"os"
@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 )
 
-// PrivateRevylCLI is where loupe puts a revyl CLI it downloads itself, next
+// PrivateCLI is where loupe puts a revyl CLI it downloads itself, next
 // to its android CLI. It needs no admin rights to write.
-func PrivateRevylCLI() string {
+func PrivateCLI() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return ""
@@ -16,10 +16,10 @@ func PrivateRevylCLI() string {
 	return filepath.Join(dir, "loupe", "bin", "revyl")
 }
 
-// RevylWorkDir is the directory revyl runs in, so it neither reads a
+// WorkDir is the directory revyl runs in, so it neither reads a
 // project's .revyl/config.yaml from wherever loupe was started nor caches
 // sessions there.
-func RevylWorkDir() string {
+func WorkDir() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return ""
@@ -27,12 +27,12 @@ func RevylWorkDir() string {
 	return filepath.Join(dir, "loupe", "revyl")
 }
 
-// FindRevylCLI finds the revyl CLI: the explicit path, then where Revyl's
+// FindCLI finds the revyl CLI: the explicit path, then where Revyl's
 // install script puts it (~/.revyl/bin, scripts/install.sh), the two
 // usual bin directories, PATH, and loupe's own download. launchd's PATH
 // reaches none of the others, so PATH comes after them. It returns "" when
 // there is none.
-func FindRevylCLI(explicit string) string {
+func FindCLI(explicit string) string {
 	cands := []string{explicit}
 	if home, err := os.UserHomeDir(); err == nil {
 		cands = append(cands, filepath.Join(home, ".revyl", "bin", "revyl"))
@@ -41,7 +41,7 @@ func FindRevylCLI(explicit string) string {
 	if p, err := exec.LookPath("revyl"); err == nil {
 		cands = append(cands, p)
 	}
-	cands = append(cands, PrivateRevylCLI())
+	cands = append(cands, PrivateCLI())
 	for _, c := range cands {
 		if c == "" {
 			continue

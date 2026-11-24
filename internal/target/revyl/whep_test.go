@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"bytes"
@@ -18,6 +18,8 @@ import (
 	"github.com/pion/webrtc/v4/pkg/media"
 
 	"github.com/bmcreations/loupe/internal/h264"
+
+	"github.com/bmcreations/loupe/internal/target"
 )
 
 // clipAUs splits testdata/whep/clip-360x202.h264 into access units, each in
@@ -248,7 +250,7 @@ func TestWHEPReceivesDecodableFramesAtSPSSize(t *testing.T) {
 	// The P-frames sent before the PLI are dropped: the first frame out is
 	// the parameter sets, then the IDR, then the clip in order. The last
 	// one arrives although nothing follows it.
-	var got []Frame
+	var got []target.Frame
 	timeout := time.After(10 * time.Second)
 	for len(got) < 1+len(f.aus) {
 		select {

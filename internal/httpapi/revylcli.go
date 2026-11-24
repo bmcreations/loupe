@@ -37,7 +37,7 @@ var revylCLISums = map[string]string{
 // RevylInstaller downloads the pinned revyl CLI into loupe's own bin
 // directory. It needs no admin rights and no Homebrew.
 type RevylInstaller struct {
-	// PrivatePath is where the binary goes (target.PrivateRevylCLI).
+	// PrivatePath is where the binary goes (revyl.PrivateCLI).
 	PrivatePath string
 	// OS and Arch pick the asset; only darwin is published for here.
 	OS, Arch string

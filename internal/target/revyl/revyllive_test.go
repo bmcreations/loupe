@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/bmcreations/loupe/internal/target"
 )
 
 // testWSToken stands in for the token Revyl puts in worker_ws_url.
@@ -241,14 +243,14 @@ func checkFrames(t *testing.T, got []map[string]any, want [][3]any) {
 	}
 }
 
-func liveTouch(t *testing.T, in *revylInput, m Meta) func(TouchAction, int32, int32) {
-	return func(a TouchAction, x, y int32) {
+func liveTouch(t *testing.T, in *revylInput, m target.Meta) func(target.TouchAction, int32, int32) {
+	return func(a target.TouchAction, x, y int32) {
 		t.Helper()
 		var p float32 = 1
-		if a == TouchUp {
+		if a == target.TouchUp {
 			p = 0
 		}
-		if err := in.touch(Touch{Action: a, PointerID: 1, X: x, Y: y, Pressure: p}, m); err != nil {
+		if err := in.touch(target.Touch{Action: a, PointerID: 1, X: x, Y: y, Pressure: p}, m); err != nil {
 			t.Fatalf("touch %d at %d,%d: %v", a, x, y, err)
 		}
 	}
@@ -258,7 +260,7 @@ func liveTouch(t *testing.T, in *revylInput, m Meta) func(TouchAction, int32, in
 // moves, each move before the lift. A tap goes the same way and is still
 // where typing goes.
 func TestRevylLiveTouchReachesTheDeviceBeforeTheLift(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200} // half the screen's size
+	m := target.Meta{Width: 540, Height: 1200} // half the screen's size
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -266,17 +268,17 @@ func TestRevylLiveTouchReachesTheDeviceBeforeTheLift(t *testing.T) {
 	w.waitSocket()
 	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 100, 1000)
+	touch(target.TouchDown, 100, 1000)
 	w.waitFrames(1)
-	touch(TouchMove, 100, 900)
+	touch(target.TouchMove, 100, 900)
 	w.waitFrames(2)
-	touch(TouchMove, 100, 500)
+	touch(target.TouchMove, 100, 500)
 	w.waitFrames(3)
-	touch(TouchUp, 100, 500)
+	touch(target.TouchUp, 100, 500)
 	w.waitFrames(4)
 
-	touch(TouchDown, 270, 600)
-	touch(TouchUp, 270, 600)
+	touch(target.TouchDown, 270, 600)
+	touch(target.TouchUp, 270, 600)
 	got := w.waitFrames(6)
 	checkFrames(t, got, [][3]any{
 		{"MANUAL_TOUCH_DOWN", 200, 2000},
@@ -346,7 +348,7 @@ func TestRevylLiveTouchReachesTheDeviceBeforeTheLift(t *testing.T) {
 // the newest point, frames are at least a frame apart, and the last one is
 // where the finger lifted.
 func TestRevylLiveJoinsMoves(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -354,16 +356,16 @@ func TestRevylLiveJoinsMoves(t *testing.T) {
 	w.waitSocket()
 	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 100, 1100)
+	touch(target.TouchDown, 100, 1100)
 	w.waitFrames(1)
 	t0 := time.Now()
 	const n = 100
 	for i := 1; i <= n; i++ {
-		touch(TouchMove, 100, int32(1100-5*i))
+		touch(target.TouchMove, 100, int32(1100-5*i))
 		time.Sleep(time.Millisecond)
 	}
 	took := time.Since(t0)
-	touch(TouchUp, 100, 600)
+	touch(target.TouchUp, 100, 600)
 	w.until("the lift", func() bool {
 		fr := w.got()
 		a, _, _ := liveFrame(fr[len(fr)-1])
@@ -419,7 +421,7 @@ func TestRevylLiveFallsBackWhenTheSocketCannotOpen(t *testing.T) {
 			func(_, upgrades int) bool { return upgrades >= 1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := Meta{Width: 540, Height: 1200}
+			m := target.Meta{Width: 540, Height: 1200}
 			f := newFakeRevyl(t)
 			p := newFakeProxy(t)
 			w := newFakeWorker(t, p)
@@ -429,10 +431,10 @@ func TestRevylLiveFallsBackWhenTheSocketCannotOpen(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 			touch := liveTouch(t, g.in, m)
 
-			touch(TouchDown, 100, 1000)
-			touch(TouchMove, 100, 900)
-			touch(TouchMove, 100, 500)
-			touch(TouchUp, 100, 500)
+			touch(target.TouchDown, 100, 1000)
+			touch(target.TouchMove, 100, 900)
+			touch(target.TouchMove, 100, 500)
+			touch(target.TouchUp, 100, 500)
 			checkBodies(t, p.waitFor(1), []any{
 				[2]any{"drag", map[string]any{"start_x": float64(200), "start_y": float64(2000), "end_x": float64(200), "end_y": float64(1000)}},
 			})
@@ -459,7 +461,7 @@ func TestRevylLiveFallsBackWhenTheSocketCannotOpen(t *testing.T) {
 // press that has nothing left to move is not resent, since its down may
 // have landed.
 func TestRevylLiveFallsBackMidGesture(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	t.Run("drag", func(t *testing.T) {
 		f := newFakeRevyl(t)
 		p := newFakeProxy(t)
@@ -469,12 +471,12 @@ func TestRevylLiveFallsBackMidGesture(t *testing.T) {
 		w.waitSocket()
 		touch := liveTouch(t, g.in, m)
 
-		touch(TouchDown, 100, 1000)
-		touch(TouchMove, 100, 900)
+		touch(target.TouchDown, 100, 1000)
+		touch(target.TouchMove, 100, 900)
 		<-w.closed
-		touch(TouchMove, 100, 700)
-		touch(TouchMove, 100, 500)
-		touch(TouchUp, 100, 500)
+		touch(target.TouchMove, 100, 700)
+		touch(target.TouchMove, 100, 500)
+		touch(target.TouchUp, 100, 500)
 		checkBodies(t, p.waitFor(1), []any{
 			[2]any{"drag", map[string]any{"start_x": float64(200), "start_y": float64(1800), "end_x": float64(200), "end_y": float64(1000)}},
 		})
@@ -495,12 +497,12 @@ func TestRevylLiveFallsBackMidGesture(t *testing.T) {
 		w.waitSocket()
 		touch := liveTouch(t, g.in, m)
 
-		touch(TouchDown, 100, 1000)
-		touch(TouchMove, 100, 900)
+		touch(target.TouchDown, 100, 1000)
+		touch(target.TouchMove, 100, 900)
 		<-w.closed
-		touch(TouchMove, 100, 700)
-		touch(TouchMove, 100, 500)
-		touch(TouchUp, 100, 500)
+		touch(target.TouchMove, 100, 700)
+		touch(target.TouchMove, 100, 500)
+		touch(target.TouchUp, 100, 500)
 		checkBodies(t, p.waitFor(1), []any{
 			[2]any{"drag", map[string]any{"start_x": float64(200), "start_y": float64(1800), "end_x": float64(200), "end_y": float64(1000)}},
 		})
@@ -515,16 +517,16 @@ func TestRevylLiveFallsBackMidGesture(t *testing.T) {
 		w.waitSocket()
 		touch := liveTouch(t, g.in, m)
 
-		touch(TouchDown, 270, 600)
+		touch(target.TouchDown, 270, 600)
 		<-w.closed
-		touch(TouchUp, 270, 600)
+		touch(target.TouchUp, 270, 600)
 		rec := g.log.wait(t, 1)[0]
 		if rec["via"] != "ws" || rec["error"] == nil {
 			t.Fatalf("trace %v, want the failed tap via ws with an error", rec)
 		}
 		// A later tap goes over the proxy, and only that one.
-		touch(TouchDown, 300, 700)
-		touch(TouchUp, 300, 700)
+		touch(target.TouchDown, 300, 700)
+		touch(target.TouchUp, 300, 700)
 		checkBodies(t, p.waitFor(1), []any{[2]any{"tap", map[string]any{"x": float64(600), "y": float64(1400)}}})
 		time.Sleep(50 * time.Millisecond)
 		if r := p.requests(); len(r) != 1 {
@@ -536,7 +538,7 @@ func TestRevylLiveFallsBackMidGesture(t *testing.T) {
 // An agent's gesture waits for a press in progress to lift, so the two
 // never interleave on the device.
 func TestRevylLiveKeepsAgentInputOutOfAPress(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -544,16 +546,16 @@ func TestRevylLiveKeepsAgentInputOutOfAPress(t *testing.T) {
 	w.waitSocket()
 	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 100, 1000)
-	touch(TouchMove, 100, 900)
+	touch(target.TouchDown, 100, 1000)
+	touch(target.TouchMove, 100, 900)
 	tapped := make(chan error, 1)
 	go func() { tapped <- g.in.agentTap(context.Background(), 270, 600, m) }()
 	time.Sleep(100 * time.Millisecond)
 	if r := p.requests(); len(r) != 0 {
 		t.Fatalf("agent tap sent while the finger was down: %v", r)
 	}
-	touch(TouchMove, 100, 500)
-	touch(TouchUp, 100, 500)
+	touch(target.TouchMove, 100, 500)
+	touch(target.TouchUp, 100, 500)
 	if err := <-tapped; err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +585,7 @@ func TestRevylLiveSocketClosesWithTheStream(t *testing.T) {
 // so an agent's gesture behind it still goes: with the socket up, and
 // with the socket failed partway while the finger was down.
 func TestRevylLiveLetsGoOfAQuietPress(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	for _, failed := range []bool{false, true} {
 		name := "socket up"
 		if failed {
@@ -601,7 +603,7 @@ func TestRevylLiveLetsGoOfAQuietPress(t *testing.T) {
 			w.waitSocket()
 			touch := liveTouch(t, g.in, m)
 
-			touch(TouchDown, 100, 1000)
+			touch(target.TouchDown, 100, 1000)
 			if failed {
 				<-w.closed
 				w.until("the client to see the close", func() bool {
@@ -610,7 +612,7 @@ func TestRevylLiveLetsGoOfAQuietPress(t *testing.T) {
 					dead, _ := g.in.live.isDead()
 					return dead
 				})
-				touch(TouchMove, 100, 900) // its write fails
+				touch(target.TouchMove, 100, 900) // its write fails
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -625,7 +627,7 @@ func TestRevylLiveLetsGoOfAQuietPress(t *testing.T) {
 // An iOS press goes live too, in points: the size worker-connection
 // reports, which on a live iPhone was 402x874 for its 1206x2622 stream.
 func TestRevylLiveTouchOnIOSIsInPoints(t *testing.T) {
-	m := Meta{Width: 1206, Height: 2622}
+	m := target.Meta{Width: 1206, Height: 2622}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -634,11 +636,11 @@ func TestRevylLiveTouchOnIOSIsInPoints(t *testing.T) {
 	w.waitSocket()
 	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 903, 1311)
+	touch(target.TouchDown, 903, 1311)
 	w.waitFrames(1)
-	touch(TouchMove, 603, 1311)
+	touch(target.TouchMove, 603, 1311)
 	w.waitFrames(2)
-	touch(TouchUp, 603, 1311)
+	touch(target.TouchUp, 603, 1311)
 	checkFrames(t, w.waitFrames(3), [][3]any{
 		{"MANUAL_TOUCH_DOWN", 301, 437},
 		{"MANUAL_TOUCH_MOVE", 201, 437},
@@ -660,15 +662,15 @@ func TestRevylLiveMapsWithTheWorkersSize(t *testing.T) {
 		platform         string
 		screenW, screenH int // the session's size
 		devW, devH       int // the worker's; 0 leaves it out
-		m                Meta
+		m                target.Meta
 		down, move       [2]int32
 		want             [3][2]int // down, move, up
 	}{
-		{"android", "android", 1080, 2400, 720, 1600, Meta{Width: 540, Height: 1200},
+		{"android", "android", 1080, 2400, 720, 1600, target.Meta{Width: 540, Height: 1200},
 			[2]int32{270, 900}, [2]int32{270, 600}, [3][2]int{{360, 1200}, {360, 800}, {360, 800}}},
-		{"ios", "ios", 393, 852, 402, 874, Meta{Width: 1206, Height: 2622},
+		{"ios", "ios", 393, 852, 402, 874, target.Meta{Width: 1206, Height: 2622},
 			[2]int32{603, 1311}, [2]int32{603, 1749}, [3][2]int{{201, 437}, {201, 583}, {201, 583}}},
-		{"none reported", "android", 1080, 2400, 0, 0, Meta{Width: 540, Height: 1200},
+		{"none reported", "android", 1080, 2400, 0, 0, target.Meta{Width: 540, Height: 1200},
 			[2]int32{270, 900}, [2]int32{270, 600}, [3][2]int{{540, 1800}, {540, 1200}, {540, 1200}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -680,11 +682,11 @@ func TestRevylLiveMapsWithTheWorkersSize(t *testing.T) {
 			w.waitSocket()
 			touch := liveTouch(t, g.in, tc.m)
 
-			touch(TouchDown, tc.down[0], tc.down[1])
+			touch(target.TouchDown, tc.down[0], tc.down[1])
 			w.waitFrames(1)
-			touch(TouchMove, tc.move[0], tc.move[1])
+			touch(target.TouchMove, tc.move[0], tc.move[1])
 			w.waitFrames(2)
-			touch(TouchUp, tc.move[0], tc.move[1])
+			touch(target.TouchUp, tc.move[0], tc.move[1])
 			checkFrames(t, w.waitFrames(3), [][3]any{
 				{"MANUAL_TOUCH_DOWN", tc.want[0][0], tc.want[0][1]},
 				{"MANUAL_TOUCH_MOVE", tc.want[1][0], tc.want[1][1]},
@@ -706,11 +708,11 @@ func TestRevylLiveKeepsOffAStreamOfAnotherShape(t *testing.T) {
 	g := restGestures(t, f, p.srv.URL, "ios", 402, 874)
 	w.waitSocket()
 
-	touch := liveTouch(t, g.in, Meta{Width: 1206, Height: 2400})
-	touch(TouchDown, 603, 2000)
+	touch := liveTouch(t, g.in, target.Meta{Width: 1206, Height: 2400})
+	touch(target.TouchDown, 603, 2000)
 	time.Sleep(100 * time.Millisecond) // a live press has sent its down by now
-	touch(TouchMove, 603, 1500)
-	touch(TouchUp, 603, 1000)
+	touch(target.TouchMove, 603, 1500)
+	touch(target.TouchUp, 603, 1000)
 	checkBodies(t, p.waitFor(1), []any{
 		[2]any{"drag", map[string]any{"start_x": float64(201), "start_y": float64(728), "end_x": float64(201), "end_y": float64(364)}},
 	})
@@ -722,9 +724,9 @@ func TestRevylLiveKeepsOffAStreamOfAnotherShape(t *testing.T) {
 		t.Fatalf("trace %v, want the drag via rest and why it was not live", rec)
 	}
 
-	touch = liveTouch(t, g.in, Meta{Width: 2622, Height: 1206})
-	touch(TouchDown, 1311, 603)
-	touch(TouchUp, 1311, 603)
+	touch = liveTouch(t, g.in, target.Meta{Width: 2622, Height: 1206})
+	touch(target.TouchDown, 1311, 603)
+	touch(target.TouchUp, 1311, 603)
 	checkFrames(t, w.waitFrames(2), [][3]any{{"MANUAL_TOUCH_DOWN", 437, 201}, {"MANUAL_TOUCH_UP", 437, 201}})
 }
 
@@ -766,7 +768,7 @@ func waitSize(t *testing.T, l *traceLog, size string) map[string]any {
 // starts after it is mapped onto that size, turned with the stream as
 // before, and the trace says the size changed.
 func TestRevylLiveFollowsTheSocketsSize(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -774,17 +776,17 @@ func TestRevylLiveFollowsTheSocketsSize(t *testing.T) {
 	w.waitSocket()
 	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 270, 600)
-	touch(TouchUp, 270, 600)
+	touch(target.TouchDown, 270, 600)
+	touch(target.TouchUp, 270, 600)
 	w.waitFrames(2)
 	w.push(`{"type": "elements", "elements": [], "device_width": 720, "device_height": 1600}`)
 	rec := waitSize(t, g.log, "720x1600")
-	touch(TouchDown, 270, 600)
-	touch(TouchUp, 270, 600)
+	touch(target.TouchDown, 270, 600)
+	touch(target.TouchUp, 270, 600)
 	w.waitFrames(4)
-	touch = liveTouch(t, g.in, Meta{Width: 1200, Height: 540}) // turned to landscape
-	touch(TouchDown, 600, 270)
-	touch(TouchUp, 600, 270)
+	touch = liveTouch(t, g.in, target.Meta{Width: 1200, Height: 540}) // turned to landscape
+	touch(target.TouchDown, 600, 270)
+	touch(target.TouchUp, 600, 270)
 	checkFrames(t, w.waitFrames(6), [][3]any{
 		{"MANUAL_TOUCH_DOWN", 540, 1200}, {"MANUAL_TOUCH_UP", 540, 1200},
 		{"MANUAL_TOUCH_DOWN", 360, 800}, {"MANUAL_TOUCH_UP", 360, 800},
@@ -808,7 +810,7 @@ func TestRevylLiveFollowsTheSocketsSize(t *testing.T) {
 // as worker-connection's is: a DEVICE_INIT_STATUS with another size, then
 // one nested under device_dimensions, each moves the next press.
 func TestRevylLiveFollowsTheSocketsSizeOnIOS(t *testing.T) {
-	m := Meta{Width: 1206, Height: 2622}
+	m := target.Meta{Width: 1206, Height: 2622}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -817,18 +819,18 @@ func TestRevylLiveFollowsTheSocketsSizeOnIOS(t *testing.T) {
 	w.waitSocket()
 	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 603, 1311)
-	touch(TouchUp, 603, 1311)
+	touch(target.TouchDown, 603, 1311)
+	touch(target.TouchUp, 603, 1311)
 	w.waitFrames(2)
 	w.push(`{"event_type": "DEVICE_INIT_STATUS", "status": "initialized", "manual_input_ready": true, "device_width": 440, "device_height": 956}`)
 	waitSize(t, g.log, "440x956")
-	touch(TouchDown, 603, 1311)
-	touch(TouchUp, 603, 1311)
+	touch(target.TouchDown, 603, 1311)
+	touch(target.TouchUp, 603, 1311)
 	w.waitFrames(4)
 	w.push(`{"type": "elements", "device_dimensions": {"width": 402, "height": 874}}`)
 	waitSize(t, g.log, "402x874")
-	touch(TouchDown, 603, 1311)
-	touch(TouchUp, 603, 1311)
+	touch(target.TouchDown, 603, 1311)
+	touch(target.TouchUp, 603, 1311)
 	checkFrames(t, w.waitFrames(6), [][3]any{
 		{"MANUAL_TOUCH_DOWN", 201, 437}, {"MANUAL_TOUCH_UP", 201, 437},
 		{"MANUAL_TOUCH_DOWN", 220, 478}, {"MANUAL_TOUCH_UP", 220, 478},
@@ -843,7 +845,7 @@ func TestRevylLiveFollowsTheSocketsSizeOnIOS(t *testing.T) {
 // it started with, so its moves and lift land where its down did. The
 // next press takes the new size.
 func TestRevylLiveKeepsAPressOnItsSize(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -851,16 +853,16 @@ func TestRevylLiveKeepsAPressOnItsSize(t *testing.T) {
 	w.waitSocket()
 	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 100, 1000)
+	touch(target.TouchDown, 100, 1000)
 	w.waitFrames(1)
 	w.push(`{"type": "elements", "device_width": 720, "device_height": 1600}`)
 	waitSize(t, g.log, "720x1600")
-	touch(TouchMove, 100, 500)
+	touch(target.TouchMove, 100, 500)
 	w.waitFrames(2)
-	touch(TouchUp, 100, 500)
+	touch(target.TouchUp, 100, 500)
 	w.waitFrames(3)
-	touch(TouchDown, 270, 600)
-	touch(TouchUp, 270, 600)
+	touch(target.TouchDown, 270, 600)
+	touch(target.TouchUp, 270, 600)
 	checkFrames(t, w.waitFrames(5), [][3]any{
 		{"MANUAL_TOUCH_DOWN", 200, 2000},
 		{"MANUAL_TOUCH_MOVE", 200, 1000},
@@ -874,7 +876,7 @@ func TestRevylLiveKeepsAPressOnItsSize(t *testing.T) {
 // had, the rest of that frame still counts, and the socket keeps taking
 // touches and later sizes.
 func TestRevylLiveIgnoresASizeItCannotRead(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -905,8 +907,8 @@ func TestRevylLiveIgnoresASizeItCannotRead(t *testing.T) {
 		defer g.in.lmu.Unlock()
 		return g.in.live != nil && g.in.live.usable()
 	})
-	touch(TouchDown, 270, 600)
-	touch(TouchUp, 270, 600)
+	touch(target.TouchDown, 270, 600)
+	touch(target.TouchUp, 270, 600)
 	w.waitFrames(2)
 	if rec := g.log.wait(t, 1)[0]; rec["via"] != "ws" || rec["ack"] != nil || rec["error"] != nil {
 		t.Fatalf("trace %v, want a tap via ws that was acked", rec)
@@ -916,8 +918,8 @@ func TestRevylLiveIgnoresASizeItCannotRead(t *testing.T) {
 	}
 	w.push(`{"type": "elements", "device_width": 720, "device_height": 1600}`)
 	waitSize(t, g.log, "720x1600")
-	touch(TouchDown, 270, 600)
-	touch(TouchUp, 270, 600)
+	touch(target.TouchDown, 270, 600)
+	touch(target.TouchUp, 270, 600)
 	checkFrames(t, w.waitFrames(4), [][3]any{
 		{"MANUAL_TOUCH_DOWN", 540, 1200}, {"MANUAL_TOUCH_UP", 540, 1200},
 		{"MANUAL_TOUCH_DOWN", 360, 800}, {"MANUAL_TOUCH_UP", 360, 800},
@@ -931,7 +933,7 @@ func TestRevylLiveIgnoresASizeItCannotRead(t *testing.T) {
 // is the screen in pixels: touches stay on points, and the trace says the
 // frame was ignored. A size that is no whole multiple still moves them.
 func TestRevylLiveKeepsPointsOverPixelsOnIOS(t *testing.T) {
-	m := Meta{Width: 1206, Height: 2622}
+	m := target.Meta{Width: 1206, Height: 2622}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -943,13 +945,13 @@ func TestRevylLiveKeepsPointsOverPixelsOnIOS(t *testing.T) {
 	w.push(`{"type": "elements", "device_width": 1206, "device_height": 2622}`)
 	w.push(`{"type": "elements", "deviceDimensions": {"width": 1748, "height": 804}}`)
 	rec := waitSize(t, g.log, "1748x804")
-	touch(TouchDown, 603, 1311)
-	touch(TouchUp, 603, 1311)
+	touch(target.TouchDown, 603, 1311)
+	touch(target.TouchUp, 603, 1311)
 	w.waitFrames(2)
 	w.push(`{"type": "elements", "device_width": 440, "device_height": 956}`)
 	waitSize(t, g.log, "440x956")
-	touch(TouchDown, 603, 1311)
-	touch(TouchUp, 603, 1311)
+	touch(target.TouchDown, 603, 1311)
+	touch(target.TouchUp, 603, 1311)
 	checkFrames(t, w.waitFrames(4), [][3]any{
 		{"MANUAL_TOUCH_DOWN", 201, 437}, {"MANUAL_TOUCH_UP", 201, 437},
 		{"MANUAL_TOUCH_DOWN", 220, 478}, {"MANUAL_TOUCH_UP", 220, 478},
@@ -969,7 +971,7 @@ func TestRevylLiveKeepsPointsOverPixelsOnIOS(t *testing.T) {
 
 // Android sizes are pixels on both sides, so a 2x size is followed.
 func TestRevylLiveFollowsADoubledSizeOnAndroid(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -981,8 +983,8 @@ func TestRevylLiveFollowsADoubledSizeOnAndroid(t *testing.T) {
 	if rec := waitSize(t, g.log, "540x1200"); rec == nil || rec["ignored"] != nil {
 		t.Fatalf("size record %v, want 540x1200 followed", rec)
 	}
-	touch(TouchDown, 270, 600)
-	touch(TouchUp, 270, 600)
+	touch(target.TouchDown, 270, 600)
+	touch(target.TouchUp, 270, 600)
 	checkFrames(t, w.waitFrames(2), [][3]any{
 		{"MANUAL_TOUCH_DOWN", 270, 600}, {"MANUAL_TOUCH_UP", 270, 600},
 	})
@@ -992,7 +994,7 @@ func TestRevylLiveFollowsADoubledSizeOnAndroid(t *testing.T) {
 // reports keeps its press off the socket, until the socket reports a size
 // of the stream's shape. The next press then goes live, on that size.
 func TestRevylLiveGoesLiveOnceTheSizeFitsTheStream(t *testing.T) {
-	m := Meta{Width: 1206, Height: 2400}
+	m := target.Meta{Width: 1206, Height: 2400}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -1001,19 +1003,19 @@ func TestRevylLiveGoesLiveOnceTheSizeFitsTheStream(t *testing.T) {
 	w.waitSocket()
 	touch := liveTouch(t, g.in, m)
 
-	touch(TouchDown, 603, 2000)
-	touch(TouchUp, 603, 2000)
+	touch(target.TouchDown, 603, 2000)
+	touch(target.TouchUp, 603, 2000)
 	checkBodies(t, p.waitFor(1), []any{[2]any{"tap", map[string]any{"x": float64(201), "y": float64(728)}}})
 	if fr := w.got(); len(fr) != 0 {
 		t.Fatalf("frames sent for a stream of another shape: %v", fr)
 	}
 	w.push(`{"type": "elements", "deviceDimensions": {"width": 402, "height": 800}}`)
 	waitSize(t, g.log, "402x800")
-	touch(TouchDown, 603, 2000)
+	touch(target.TouchDown, 603, 2000)
 	w.waitFrames(1)
-	touch(TouchMove, 603, 1000)
+	touch(target.TouchMove, 603, 1000)
 	w.waitFrames(2)
-	touch(TouchUp, 603, 1000)
+	touch(target.TouchUp, 603, 1000)
 	checkFrames(t, w.waitFrames(3), [][3]any{
 		{"MANUAL_TOUCH_DOWN", 201, 667},
 		{"MANUAL_TOUCH_MOVE", 201, 333},
@@ -1028,7 +1030,7 @@ func TestRevylLiveGoesLiveOnceTheSizeFitsTheStream(t *testing.T) {
 // ping gets a pong with its id, string or number, as Revyl's viewer sends,
 // and the socket still takes touches after.
 func TestRevylLiveAnswersTheWorkersPings(t *testing.T) {
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 	f := newFakeRevyl(t)
 	p := newFakeProxy(t)
 	w := newFakeWorker(t, p)
@@ -1043,8 +1045,8 @@ func TestRevylLiveAnswersTheWorkersPings(t *testing.T) {
 		}
 	}
 	touch := liveTouch(t, g.in, m)
-	touch(TouchDown, 270, 600)
-	touch(TouchUp, 270, 600)
+	touch(target.TouchDown, 270, 600)
+	touch(target.TouchUp, 270, 600)
 	checkFrames(t, w.waitFrames(4)[2:], [][3]any{{"MANUAL_TOUCH_DOWN", 540, 1200}, {"MANUAL_TOUCH_UP", 540, 1200}})
 }
 

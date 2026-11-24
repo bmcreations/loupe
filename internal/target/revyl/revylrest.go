@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"bytes"
@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-// RevylREST sends gestures to a Revyl session over the backend's
+// REST sends gestures to a Revyl session over the backend's
 // device-proxy endpoint, the one revyl-cli's own device commands use
 // (internal/mcp/device_session.go:3547 proxyWorkerRequestForSession):
 //
@@ -32,9 +32,9 @@ import (
 // (commit 381c4fcf): a tap took a median of 500 to 640 ms on one kept-alive
 // HTTPS connection, against 860 to 1100 ms for one `revyl device tap`.
 //
-// One RevylREST serves every session, so its connections are shared and
+// One REST serves every session, so its connections are shared and
 // kept alive between gestures.
-type RevylREST struct {
+type REST struct {
 	// BaseURL is the backend, e.g. https://backend.revyl.ai.
 	BaseURL string
 	// UserAgent is sent as is. It names loupe and its version: a request
@@ -55,10 +55,10 @@ type RevylREST struct {
 // revylBackendURL is the CLI's DefaultBaseURL (internal/api/client.go:71).
 const revylBackendURL = "https://backend.revyl.ai"
 
-// NewRevylREST returns the client loupe uses, reading the key as the CLI
+// NewREST returns the client loupe uses, reading the key as the CLI
 // does. version goes into the User-Agent.
-func NewRevylREST(version string) *RevylREST {
-	return &RevylREST{
+func NewREST(version string) *REST {
+	return &REST{
 		BaseURL:   revylBackendURL,
 		UserAgent: "loupe/" + version,
 		Timeout:   10 * time.Second,
@@ -99,7 +99,7 @@ func revylAPIKey(path string) string {
 	return strings.TrimSpace(c.APIKey)
 }
 
-func (r *RevylREST) httpClient() *http.Client {
+func (r *REST) httpClient() *http.Client {
 	r.once.Do(func() {
 		tr := http.DefaultTransport.(*http.Transport).Clone()
 		// Several sessions can each have a request in flight; keep a
@@ -110,7 +110,7 @@ func (r *RevylREST) httpClient() *http.Client {
 	return r.client
 }
 
-func (r *RevylREST) key() string {
+func (r *REST) key() string {
 	if r == nil || r.Key == nil {
 		return ""
 	}
@@ -163,7 +163,7 @@ func (e *revylRESTError) fallback() bool {
 }
 
 // do sends one action. body is marshalled as JSON; nil sends none.
-func (r *RevylREST) do(ctx context.Context, key, runID, action string, body any) (revylRESTResult, error) {
+func (r *REST) do(ctx context.Context, key, runID, action string, body any) (revylRESTResult, error) {
 	fail := func(status int, wrote bool, msg string) (revylRESTResult, error) {
 		return revylRESTResult{}, &revylRESTError{action: action, status: status, wrote: wrote, msg: revylRedact(msg, key)}
 	}
@@ -244,7 +244,7 @@ func (r *RevylREST) do(ctx context.Context, key, runID, action string, body any)
 // The endpoint is not documented; its shape was read from a live account
 // on 2026-11-19. The URL carries a token: it is never logged or put in an
 // error, and the error holds no URL, key or run id.
-func (r *RevylREST) workerSocket(ctx context.Context, key, runID string) (revylWorkerSocket, error) {
+func (r *REST) workerSocket(ctx context.Context, key, runID string) (revylWorkerSocket, error) {
 	fail := func(msg string) (revylWorkerSocket, error) {
 		msg = strings.ReplaceAll(revylRedact(msg, key), runID, "<run>")
 		return revylWorkerSocket{}, errors.New("revyl worker-connection: " + msg)

@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"bytes"
@@ -19,6 +19,8 @@ import (
 	"github.com/pion/webrtc/v4"
 
 	"github.com/bmcreations/loupe/internal/h264"
+
+	"github.com/bmcreations/loupe/internal/target"
 )
 
 // WHEPConfig says where a WHEP (RFC 9725) endpoint is and how to reach it.
@@ -57,7 +59,7 @@ type whepReceiver struct {
 	pc       *webrtc.PeerConnection
 	resource string // the session URL from Location, for the DELETE
 
-	frames chan Frame
+	frames chan target.Frame
 	done   chan struct{} // closed when the receiver starts shutting down
 	closed chan struct{} // closed after frames is closed
 	ready  chan struct{} // closed when the first Config frame is out
@@ -66,7 +68,7 @@ type whepReceiver struct {
 	wg     sync.WaitGroup
 
 	mu       sync.Mutex
-	meta     Meta
+	meta     target.Meta
 	err      error
 	shutdown bool
 	ssrc     uint32
@@ -147,11 +149,11 @@ func dialWHEP(ctx context.Context, cfg WHEPConfig) (*whepReceiver, error) {
 	r := &whepReceiver{
 		cfg:    cfg,
 		pc:     pc,
-		frames: make(chan Frame, 64),
+		frames: make(chan target.Frame, 64),
 		done:   make(chan struct{}),
 		closed: make(chan struct{}),
 		ready:  make(chan struct{}),
-		meta:   Meta{Codec: "h264", Name: cfg.Name},
+		meta:   target.Meta{Codec: "h264", Name: cfg.Name},
 	}
 	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
 		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
@@ -375,7 +377,7 @@ func (r *whepReceiver) read(tr *webrtc.TrackRemote) {
 				r.mu.Unlock()
 			}
 			cfg := append(append(append([]byte{0, 0, 0, 1}, sps...), 0, 0, 0, 1), pps...)
-			if !r.send(Frame{PTS: pts, Config: true, Data: cfg, Captured: time.Now()}) {
+			if !r.send(target.Frame{PTS: pts, Config: true, Data: cfg, Captured: time.Now()}) {
 				return
 			}
 			r.ready1.Do(func() { close(r.ready) })
@@ -386,7 +388,7 @@ func (r *whepReceiver) read(tr *webrtc.TrackRemote) {
 		needKey = false
 		ws.sent++
 		t0 := time.Now()
-		r.send(Frame{PTS: pts, Key: key, Data: pic, Captured: t0})
+		r.send(target.Frame{PTS: pts, Key: key, Data: pic, Captured: t0})
 		ws.blocked(time.Since(t0))
 	}
 
@@ -587,7 +589,7 @@ func (o *reorder) drain(out func(*rtp.Packet, bool), lost bool) {
 
 // send hands a frame to the consumer, or drops it if the receiver is
 // shutting down. It reports whether the frame went out.
-func (r *whepReceiver) send(f Frame) bool {
+func (r *whepReceiver) send(f target.Frame) bool {
 	select {
 	case r.frames <- f:
 		return true
@@ -614,13 +616,13 @@ func (r *whepReceiver) finish(err error) {
 	})
 }
 
-func (r *whepReceiver) Meta() Meta {
+func (r *whepReceiver) Meta() target.Meta {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.meta
 }
 
-func (r *whepReceiver) Frames() <-chan Frame { return r.frames }
+func (r *whepReceiver) Frames() <-chan target.Frame { return r.frames }
 
 // RequestKeyframe sends an RTCP picture-loss indication. Before the track
 // has arrived there is nothing to address it to, and it does nothing.
