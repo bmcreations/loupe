@@ -793,14 +793,16 @@ Each row has `id`, `kind`, `time`, `process`, `bundleID` (empty for a daemon),
 `version`, `build`, `pid` and `summary` (`EXC_CRASH (SIGABRT), Abort trap: 6`).
 
 `GET /api/crashes/<id>?target=<id>` returns one report as `text/plain`. An id
-that belongs to another target, or does not exist, is 404. On iOS the id is a
-UUID.
+that belongs to another target, or does not exist, is 404. An iOS report's id
+is a UUID, an Android one's is its dropbox tag and millis
+(`data_app_crash-1795524584382`), and a JS or Dart error's is its kind and
+epoch micros (`jsError-1795524584382140`).
 
 | Platform | Reports | `kind` |
 |---|---|---|
-| iOS simulator | Host crash reports for that simulator. Works on a shut-down simulator. | `crash` |
+| iOS simulator | Host crash reports for that simulator. Works on a shut-down simulator. JS and Dart errors from its log while it is booted. | `crash`, `jsError`, `dartError` |
 | Physical iPhone | Copied off the device and cached under `~/Library/Caches/loupe/ios-crashes/<udid>`. Analytics, Jetsam and spindump files are skipped. | `crash` |
-| Android | The device's dropbox: app and system crashes, native crashes and ANRs. | `crash`, `nativeCrash`, `anr` |
+| Android | The device's dropbox: app and system crashes, native crashes and ANRs. JS and Dart errors from its log. | `crash`, `nativeCrash`, `anr`, `jsError`, `dartError` |
 
 A report appears well after the crash, tens of seconds on a simulator.
 SIGKILL leaves none. On Android, `time` is the entry's epoch time, `bundleID`
@@ -808,6 +810,36 @@ is the package, and `build` and `version` are its versionCode and versionName.
 A call resumes a paused emulator. Dropbox lives under `/data`, so without
 `emulatorKeepState` a boot from `loupe-warm` discards every report since it
 was saved. Synthetic answers 501.
+
+#### JS and Dart errors
+
+A `jsError` or `dartError` row is an error the app reported and lived
+through: a React Native dev build's redbox, or a Dart exception in Flutter.
+Neither ends the process, so neither writes a crash report. loupe finds them
+in the device log when the call is made, by what each runtime prints for one:
+
+| `kind` | What matches |
+|---|---|
+| `jsError` | An error-level message that is one Error as React Native's console prints it, `[Error: message]` or `[TypeError: message]`: ReactNativeJS at `E` on Android, `com.facebook.react.log` `javascript` at Error or Fault on iOS. React Native's ExceptionsManager logs this line when it reports an uncaught Error and shows the redbox. |
+| `dartError` | Flutter's `[ERROR:flutter/...] Unhandled Exception: ...`, the framework's `══╡ EXCEPTION CAUGHT BY ... ╞═` block up to its closing line, or `Another exception was thrown: ...`, which the framework prints in its place for each error after the first. |
+
+`console.warn`, React's `Warning: ...` messages, and any other text logged at
+error level are not listed. An app's own `console.error(err)` with an Error
+object prints the same line as an uncaught error, and is listed the same way.
+
+`summary` is the error's first line, such as `Error: message` or
+`Unhandled Exception: Bad state: message`. `version` and `build` are empty.
+`bundleID` stays after the app quits: on Android it is the package that owns
+the line's uid, and on a simulator it is read from the app's `Info.plist`. On
+Android, `process` is empty once that process has exited. The report is the
+error's lines as the log printed them, with the Dart stack where Flutter
+logged one. React Native logs no stack on this line.
+
+The rows last only as long as the log does. Android reads the main buffer,
+which held the last 22 minutes on an API 37 emulator running two apps (256
+KiB), and `logcat -c` empties it. A
+simulator reads the last hour, or from `since`, and a read that takes over
+10 s fails the call; pass a later `since`.
 
 ## Device settings and presets
 

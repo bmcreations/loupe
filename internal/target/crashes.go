@@ -30,7 +30,9 @@ type CrashQuery struct {
 type CrashReport struct {
 	// ID is what Crash takes: on a simulator the report's incident id, a
 	// UUID, and on Android the dropbox tag and the entry's epoch millis,
-	// "data_app_crash-1792722095531".
+	// "data_app_crash-1792722095531". An error read from the log, a
+	// jsError or dartError, is its kind and the unix micros of its first
+	// line, "jsError-1795524584382140".
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
 	// Time is when the process crashed, which was 22s and 36s before
@@ -55,5 +57,8 @@ var ErrCrashNotFound = errors.New("no such crash report")
 var crashIDRE = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
 
 // ValidCrashID reports whether s is shaped like a crash id: a simulator's
-// incident id, or an Android dropbox entry's tag and millis.
-func ValidCrashID(s string) bool { return crashIDRE.MatchString(s) || DropboxIDRE.MatchString(s) }
+// incident id, an Android dropbox entry's tag and millis, or a log error's
+// kind and micros.
+func ValidCrashID(s string) bool {
+	return crashIDRE.MatchString(s) || DropboxIDRE.MatchString(s) || LogErrorIDRE.MatchString(s)
+}

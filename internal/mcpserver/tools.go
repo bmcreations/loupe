@@ -359,7 +359,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "crashes",
-		Description: "The target's crash reports, newest first, one summary row each: a simulator's or a physical iPhone's .ips reports, or an Android device's dropbox crashes, native crashes and ANRs. A simulator report can take 40s after the crash to appear.",
+		Description: "The target's crash reports, newest first, one summary row each: a simulator's or a physical iPhone's .ips reports, or an Android device's dropbox crashes, native crashes and ANRs. A simulator report can take 40s after the crash to appear. On a booted simulator and on Android, rows of kind jsError and dartError are errors the app lived through, found in the device log: a React Native redbox or an uncaught JS error, and a Dart exception Flutter reported. The process is still running after one; they last as long as the device log keeps them.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in crashesIn) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"target": {in.Target}}
 		if in.Limit > 0 {
@@ -373,7 +373,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "crash",
-		Description: "One crash report as written. On a simulator an .ips: a JSON header line, then the JSON body with the exception, the termination reason and every thread's backtrace. On Android the dropbox entry: a header line, then the process, package and stack trace or ANR traces.",
+		Description: "One crash report as written. On a simulator an .ips: a JSON header line, then the JSON body with the exception, the termination reason and every thread's backtrace. On Android the dropbox entry: a header line, then the process, package and stack trace or ANR traces. A jsError or dartError is its lines as the device log printed them, with the Dart stack where Flutter logged one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in crashIn) (*mcp.CallToolResult, any, error) {
 		b, _, err := c.do(ctx, http.MethodGet, "/api/crashes/"+url.PathEscape(in.ID), url.Values{"target": {in.Target}}, "", nil)
 		if err != nil {

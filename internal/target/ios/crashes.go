@@ -201,13 +201,30 @@ func firstLine(path string) []byte {
 	return sc.Bytes()
 }
 
-// Crashes lists the simulator's crash reports. They are files on the Mac,
-// so a shut-down simulator's are listed without booting it.
+// simCrashDir is where Simulator reads its reports. A var so tests can
+// stand in for the Mac's.
+var simCrashDir = DiagnosticReportsDir
+
+// Crashes lists the simulator's crash reports, with the JS and Dart errors
+// in its log when it is booted. The reports are files on the Mac, so a
+// shut-down simulator's are listed without booting it.
 func (s *Simulator) Crashes(ctx context.Context, q target.CrashQuery) ([]target.CrashReport, error) {
-	return listCrashes(ctx, DiagnosticReportsDir(), simCoalition(s.UDID()), q)
+	list, err := listCrashes(ctx, simCrashDir(), simCoalition(s.UDID()), q)
+	if err != nil {
+		return nil, err
+	}
+	logged, err := s.logErrorReports(ctx, q.Since)
+	if err != nil {
+		return nil, err
+	}
+	return target.MergeCrashReports(list, logged, q), nil
 }
 
-// Crash returns one of the simulator's crash reports as macOS wrote it.
-func (s *Simulator) Crash(_ context.Context, id string) ([]byte, error) {
-	return readCrash(DiagnosticReportsDir(), simCoalition(s.UDID()), id)
+// Crash returns one of the simulator's crash reports as macOS wrote it, or
+// a log error's entries as log printed them.
+func (s *Simulator) Crash(ctx context.Context, id string) ([]byte, error) {
+	if at, ok := target.LogErrorTime(id); ok {
+		return s.logErrorText(ctx, id, at)
+	}
+	return readCrash(simCrashDir(), simCoalition(s.UDID()), id)
 }

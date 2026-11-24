@@ -1,0 +1,12 @@
+--------- beginning of main
+         1795527001.002892 10233  4551  7251 E ReactNativeJS: sample-js: test error string
+         1795527011.236862 10233  4551  7251 E ReactNativeJS: [Error: sample-js: test crash from the Crash button]
+         1795527032.711993 10236  5994  5994 I flutter : sample-dart: sent message (5 chars)
+         1795527034.063098 10236  5994  5994 E flutter : [ERROR:flutter/runtime/dart_vm_initializer.cc(40)] Unhandled Exception: Bad state: sample-dart: test crash from the Crash button
+         1795527034.063098 10236  5994  5994 E flutter : #0      _Header.build.<anonymous closure>.<anonymous closure> (package:sample/main.dart:166:21)
+         1795527034.063098 10236  5994  5994 E flutter : #1      new Future.<anonymous closure> (dart:async/future.dart:260:40)
+         1795527034.063098 10236  5994  5994 E flutter : #2      Timer._createTimer.<anonymous closure> (dart:async-patch/timer_patch.dart:18:15)
+         1795527034.063098 10236  5994  5994 E flutter : #3      _Timer._runTimers (dart:isolate-patch/timer_impl.dart:423:19)
+         1795527034.063098 10236  5994  5994 E flutter : #4      _Timer._handleMessage (dart:isolate-patch/timer_impl.dart:454:5)
+         1795527034.063098 10236  5994  5994 E flutter : #5      _RawReceivePort._handleMessage (dart:isolate-patch/isolate_patch.dart:192:12)
+         1795527034.063098 10236  5994  5994 E flutter : 
