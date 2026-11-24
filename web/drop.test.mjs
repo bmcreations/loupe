@@ -18,6 +18,11 @@ test('an apk installs on Android and is refused on a simulator', () => {
   assert.equal(route(f('app-debug.apk'), 'sim:X'), null);
 });
 
+test('an App Bundle installs on Android, which builds APKs from it, and is refused on a simulator', () => {
+  assert.equal(route(f('app-release.AAB'), 'avd:Pixel_10'), 'install');
+  assert.equal(route(f('app-debug.aab'), 'sim:X'), null);
+});
+
 test('anything else, or a target with no library, is refused before upload', () => {
   assert.equal(route(f('notes.txt', 'text/plain'), 'sim:X'), null);
   assert.equal(route(f('a.png', 'image/png'), 'synthetic'), null);

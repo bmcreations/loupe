@@ -111,8 +111,13 @@ func TestVersionDowngradeRefusedAfterDowngradeSaysUninstall(t *testing.T) {
 }
 
 func TestOtherRefusalsHaveNoHint(t *testing.T) {
-	if h := installHint("INSTALL_FAILED_TEST_ONLY", false); h != "" {
+	if h := installHint("INSTALL_FAILED_TEST_ONLY", false, false); h != "" {
 		t.Errorf("hint = %q", h)
+	}
+	// An APK with no signature was built unsigned on purpose; only a bundle's
+	// APKs, which bundletool signs, point at the debug keystore.
+	if h := installHint("INSTALL_PARSE_FAILED_NO_CERTIFICATES", false, false); h != "" {
+		t.Errorf("hint for an unsigned APK = %q", h)
 	}
 }
 

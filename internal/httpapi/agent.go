@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1360,6 +1361,14 @@ const installTimeout = 5 * time.Minute
 // rather than a minute of adb telling the same thing less clearly.
 var zipMagic = []byte("PK\x03\x04")
 
+// ErrCodeNoBundletool is /api/install's 501 for an .aab on a Mac without
+// bundletool; ErrCodeNoJava, for bundletool as a jar with no Java to run it.
+// The error says what to install either way.
+const (
+	ErrCodeNoBundletool = "noBundletool"
+	ErrCodeNoJava       = "noJava"
+)
+
 // InstallResponse is what POST /api/install answers, on success (200) and
 // when the package manager refused the APK (422). Output is adb's own text
 // either way. Code is the INSTALL_FAILED_* reason, which is what a caller
@@ -1377,6 +1386,9 @@ type InstallResponse struct {
 	// gave one; PackageError then says why.
 	Package      string `json:"package,omitempty"`
 	PackageError string `json:"packageError,omitempty"`
+	// Splits names the APKs bundletool built for the device when the upload
+	// was an App Bundle (.aab), base first. Absent for an APK upload.
+	Splits []string `json:"splits,omitempty"`
 	// Hint says what to do next when the refusal has a known way past it,
 	// which Output and Reason, being adb's own text, do not.
 	Hint string `json:"hint,omitempty"`
@@ -1480,12 +1492,27 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		s.installIOS(w, r, t, appInst, ctx, apks[0], body.n, began)
 		return
 	}
+	// An .aab is a zip like an APK, so staging let it through, and adb would
+	// take it for an APK and fail on its manifest. bundletool builds the APKs
+	// this device takes from it, and those install like any base and splits.
+	var splits []string
+	if slices.ContainsFunc(apks, android.IsBundle) {
+		if apks, ok = s.bundleAPKs(w, r, t, ctx, apks, dir, body.n, began); !ok {
+			return
+		}
+		for _, p := range apks {
+			splits = append(splits, filepath.Base(p))
+		}
+	}
 	opts := target.InstallOptions{AllowTest: r.URL.Query().Get("allowTest") == "1", Downgrade: downgrade}
 	res, err := inst.Install(ctx, apks, opts)
-	resp := InstallResponse{Target: t.ID(), Bytes: body.n, TookMs: time.Since(began).Milliseconds()}
+	resp := InstallResponse{Target: t.ID(), Bytes: body.n, TookMs: time.Since(began).Milliseconds(), Splits: splits}
 	rec := map[string]any{
 		"kind": "agent", "target": t.ID(), "action": "install",
 		"ua": r.UserAgent(), "bytes": body.n, "apks": len(apks), "tookMs": resp.TookMs,
+	}
+	if splits != nil {
+		rec["bundle"] = true
 	}
 	if opts.AllowTest {
 		rec["allowTest"] = true
@@ -1510,7 +1537,7 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		rec["outcome"], rec["code"] = "refused", refused.Code
 		s.trace.Record(rec)
 		resp.Output, resp.Code, resp.Reason = refused.Output, refused.Code, refused.Reason
-		resp.Hint = installHint(refused.Code, opts.Downgrade)
+		resp.Hint = installHint(refused.Code, opts.Downgrade, splits != nil)
 		writeJSON(w, http.StatusUnprocessableEntity, resp)
 	default:
 		rec["outcome"], rec["err"] = "error", err.Error()
@@ -1519,10 +1546,77 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// bundleAPKs turns a staged App Bundle into the APKs bundletool builds for
+// t. When it cannot, it writes the response itself and returns false: a 400
+// for a bundle sent with other files, a 501 for a target or a Mac that cannot
+// build APKs from one, a 422 for a bundle bundletool refuses, and a 502 for
+// the device or adb failing on the way.
+func (s *Server) bundleAPKs(w http.ResponseWriter, r *http.Request, t target.Target, ctx context.Context,
+	staged []string, dir string, n int64, began time.Time) ([]string, bool) {
+	rec := map[string]any{
+		"kind": "agent", "target": t.ID(), "action": "install",
+		"ua": r.UserAgent(), "bytes": n, "bundle": true,
+	}
+	fail := func(status int, outcome string, v any) ([]string, bool) {
+		rec["outcome"], rec["tookMs"] = outcome, time.Since(began).Milliseconds()
+		s.trace.Record(rec)
+		writeJSON(w, status, v)
+		return nil, false
+	}
+	if len(staged) != 1 {
+		return fail(http.StatusBadRequest, "bundleWithParts", ErrorResponse{
+			Error: fmt.Sprintf("an .aab is a whole app and is installed alone, but this upload has %d files: send the .aab by itself, or the APKs without it", len(staged)),
+		})
+	}
+	bi, ok := t.(target.BundleInstaller)
+	if !ok {
+		return fail(http.StatusNotImplemented, "bundleUnsupported", ErrorResponse{
+			Error: fmt.Sprintf("target %q cannot install an .aab: send the APKs built from it", t.ID()),
+			Code:  ErrCodeUnsupported,
+		})
+	}
+	find := s.bundletool
+	if find == nil {
+		find = func() ([]string, error) { return nil, android.ErrNoBundletool }
+	}
+	bundletool, err := find()
+	if err != nil {
+		code := ErrCodeNoBundletool
+		if errors.Is(err, android.ErrNoJava) {
+			code = ErrCodeNoJava
+		}
+		return fail(http.StatusNotImplemented, code, ErrorResponse{Error: err.Error(), Code: code})
+	}
+	// bundletool reads a bundle under any name; .aab is for whoever reads
+	// its errors.
+	aab := strings.TrimSuffix(staged[0], ".apk") + ".aab"
+	if err := os.Rename(staged[0], aab); err != nil {
+		return fail(http.StatusInternalServerError, "error", ErrorResponse{Error: err.Error()})
+	}
+	apks, err := bi.BundleAPKs(ctx, bundletool, aab, dir)
+	if refused, isRefused := target.IsInstallRefused(err); isRefused {
+		rec["code"] = refused.Code
+		return fail(http.StatusUnprocessableEntity, "refused", InstallResponse{
+			Target: t.ID(), Bytes: n, TookMs: time.Since(began).Milliseconds(),
+			Output: refused.Output, Code: refused.Code, Reason: refused.Reason,
+		})
+	}
+	if err != nil {
+		rec["err"] = err.Error()
+		return fail(http.StatusBadGateway, "error", ErrorResponse{Error: err.Error()})
+	}
+	return apks, true
+}
+
 // installHint names the way past a refusal that has one. A lower versionCode
 // is the case that sent callers to raw adb: -d fixes it for a debuggable app
-// and nothing but an uninstall fixes it for any other.
-func installHint(code string, downgrade bool) string {
+// and nothing but an uninstall fixes it for any other. APKs bundletool built
+// from a bundle are signed with the debug keystore, and are unsigned when
+// there is none.
+func installHint(code string, downgrade, bundle bool) string {
+	if bundle && code == "INSTALL_PARSE_FAILED_NO_CERTIFICATES" {
+		return "bundletool signs the APKs it builds from an .aab with ~/.android/debug.keystore and leaves them unsigned when that file is missing. If it is, build any app once with a Gradle debug build to create it, then install again"
+	}
 	if code != "INSTALL_FAILED_VERSION_DOWNGRADE" {
 		return ""
 	}

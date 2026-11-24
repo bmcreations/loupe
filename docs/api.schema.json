@@ -3552,6 +3552,12 @@
         "reason": {
           "type": "string"
         },
+        "splits": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "target": {
           "type": "string"
         },

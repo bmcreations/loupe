@@ -241,9 +241,11 @@ func TestExecOutStreamClosedEarlyIsNotAnError(t *testing.T) {
 // 501. Install is Android's alone; a simulator has a log, synthetic none.
 func TestInstallAndLogcatCapabilities(t *testing.T) {
 	var (
-		_ target.Installer = (*Device)(nil)
-		_ target.Logcatter = (*Device)(nil)
-		_ target.Logcatter = (*ios.Simulator)(nil)
+		_ target.Installer       = (*Device)(nil)
+		_ target.BundleInstaller = (*Device)(nil)
+		_ target.BundleInstaller = (*Emulator)(nil)
+		_ target.Logcatter       = (*Device)(nil)
+		_ target.Logcatter       = (*ios.Simulator)(nil)
 	)
 	for name, tgt := range map[string]target.Target{
 		"synthetic": &target.Synthetic{},

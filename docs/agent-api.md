@@ -340,6 +340,22 @@ Up to 64 file parts, any field name. **Splits are the normal case**: anything
 built from an App Bundle is a base plus config splits, and the base alone is
 refused with `INSTALL_FAILED_MISSING_SPLIT`.
 
+**An App Bundle (`.aab`)**, as `flutter build appbundle` and EAS build by
+default, goes as the whole body or as the only file part. loupe knows it by
+the `BundleConfig.pb` at its root, not by its name. bundletool reads the
+device's spec over adb, builds the APKs that spec takes, and those install as
+a base and splits would; `splits` in the response names them, base first.
+This needs bundletool on the Mac running loupe: `brew install bundletool`, or
+`-bundletool` pointing at a bundletool script or `bundletool-all.jar` (a jar
+also needs a Java runtime). It is looked up on each install, so installing it
+needs no restart.
+
+bundletool signs what it builds with `~/.android/debug.keystore`, the key
+Gradle debug builds create, not with the bundle's own key. Without that file
+the APKs go unsigned and the package manager refuses them with
+`INSTALL_PARSE_FAILED_NO_CERTIFICATES`; the 422 `hint` says so. A release
+`.aab` installs debug-signed too.
+
 | Param | Effect |
 |---|---|
 | `allowTest=1` | Allows `android:testOnly` APKs, which is what Android Studio's Run produces. Without it: `INSTALL_FAILED_TEST_ONLY`. |
@@ -349,9 +365,12 @@ refused with `INSTALL_FAILED_MISSING_SPLIT`.
 
 | Status | Meaning |
 |---|---|
-| 400 | A part is not a zip (the error names it). |
+| 400 | A part is not a zip (the error names it), or an `.aab` came with other files. |
 | 413 | Upload over 1 GiB. |
 | 422 | The package manager refused. The response has adb's output and the `INSTALL_FAILED_*` code split out. `INSTALL_FAILED_VERSION_DOWNGRADE` adds a `hint`: retry with `downgrade=1` (debuggable app) or uninstall first. |
+| 422 | `code: "BUNDLETOOL_FAILED"`: bundletool would not build APKs from the `.aab`. `reason` is its error line and `output` all it printed. |
+| 501 | `code: "noBundletool"`: an `.aab`, and no bundletool on this Mac. `code: "noJava"`: bundletool is a jar and no Java runtime was found. The error says what to install. |
+| 502 | adb or the device failed, including bundletool reading the device's spec. |
 
 Any `Failure [...]` line fails the install whatever adb's exit status, and so
 does a zero exit with no `Success` line.
