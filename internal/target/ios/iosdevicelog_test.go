@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +99,67 @@ func TestPhoneLogByPIDKeepsContinuationLines(t *testing.T) {
 	}
 	if lc.PID != 56 {
 		t.Errorf("PID %d", lc.PID)
+	}
+}
+
+func TestParseSyslog(t *testing.T) {
+	for _, c := range []struct {
+		line string
+		tags []string
+		msg  string
+		cont bool
+	}{
+		{"Oct 22 20:20:38 bmc-iphone wifid(WiFiPolicy)[56] <Notice>: scan done", []string{"WiFiPolicy"}, "scan done", false},
+		{"Oct 22 20:20:38 bmc-iphone Settings[812] <Error>: tapped", []string{"Settings"}, "tapped", false},
+		{"Oct  2 08:00:00 bmc-iphone Expo Go(React)[4211] <Notice>: sent", []string{"React"}, "sent", false},
+		{"    \"FLAGS\" = 5;", nil, "    \"FLAGS\" = 5;", true},
+	} {
+		got := parseSyslog([]byte(c.line))
+		if !reflect.DeepEqual(got.Tags, c.tags) || string(got.Message) != c.msg || got.Continues != c.cont {
+			t.Errorf("parseSyslog(%q) = %q %q %v; want %q %q %v", c.line, got.Tags, got.Message, got.Continues, c.tags, c.msg, c.cont)
+		}
+	}
+}
+
+func TestPhoneLogByTagAndText(t *testing.T) {
+	for _, c := range []struct {
+		q    target.LogcatQuery
+		want string
+	}{
+		{target.LogcatQuery{Tag: "wifipolicy", Lines: 500}, "Oct 22 20:20:38 bmc-iphone wifid(WiFiPolicy)[56] <Notice>: scan done\n"},
+		{target.LogcatQuery{Tag: "wifid", Lines: 500}, "Oct 22 20:20:39 bmc-iphone wifid[56] <Notice>: event {\n    \"FLAGS\" = 5;\n}\n"},
+		// lines counts what the filter kept.
+		{target.LogcatQuery{Tag: "Settings", Lines: 1}, "Oct 22 20:20:40 bmc-iphone Settings[812] <Notice>: path C:\\x\n"},
+		{target.LogcatQuery{Text: "TAPPED …", Lines: 500}, "Oct 22 20:20:38 bmc-iphone Settings[812] <Error>: tapped …\n"},
+		// Text is in a line after the entry's first, which keeps the whole entry.
+		{target.LogcatQuery{Text: "FLAGS", Lines: 500}, "Oct 22 20:20:39 bmc-iphone wifid[56] <Notice>: event {\n    \"FLAGS\" = 5;\n}\n"},
+	} {
+		fakeSyslog(t, func(c net.Conn) { c.Write([]byte(syslogSample)); c.Close() })
+		lc, err := testPhone().Logcat(context.Background(), c.q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := readLog(t, lc); got != c.want {
+			t.Errorf("%+v: got %q; want %q", c.q, got, c.want)
+		}
+	}
+}
+
+func TestPhoneLogFollowFilters(t *testing.T) {
+	fakeSyslog(t, func(c net.Conn) {
+		c.Write([]byte("Oct 22 20:20:38 p a(Flutter)[1] <Notice>: one\n\x00" +
+			"Oct 22 20:20:39 p a[1] <Notice>: two\n\x00" +
+			"Oct 22 20:20:40 p a(Flutter)[1] <Notice>: three\n\x00"))
+		c.Close()
+	})
+	lc, err := testPhone().Logcat(context.Background(), target.LogcatQuery{Follow: true, Tag: "flutter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(lc)
+	lc.Close()
+	if want := "Oct 22 20:20:38 p a(Flutter)[1] <Notice>: one\nOct 22 20:20:40 p a(Flutter)[1] <Notice>: three\n"; string(got) != want {
+		t.Errorf("got %q; want %q", got, want)
 	}
 }
 

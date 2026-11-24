@@ -14,7 +14,8 @@ the focused pane.
 
 - The note is optional.
 - "Watch while I reproduce it" keeps the flag open until the person presses
-  Stop.
+  Stop. If `DELETE /api/flags` removes it first, Stop clears the pill and
+  says the flag was deleted.
 - The card says whether any agent is listening. Its "Send to" menu, on every
   flag and interrupt, starts on the session holding the target and lists the
   listening sessions, "Every agent", and the T3 Code threads below.
@@ -54,6 +55,12 @@ Reading:
 - `GET /api/flags` lists flags without UI trees. `?after=<rev>&waitMs=`
   long-polls for the next change; `?id=` reads one in full. The server keeps 32.
 - `GET /api/flags/shot?id=&which=start|end` is the PNG.
+
+Clearing: `DELETE /api/flags?id=` removes one flag and `DELETE /api/flags?target=`
+every flag on a target ([agent-api.md](agent-api.md)). An interrupt the agent it
+stops has not read is not deleted: the call answers 409 `code: "unreadInterrupt"` with the
+flag's `id` and deletes nothing, including a target's other flags. Read it
+first.
 
 `GET /api/flags/listeners?target=` is who would hear a flag raised now:
 
@@ -195,5 +202,7 @@ one on a ⇧⌘-drag, or from "Stop agent & flag" on the driving banner.
 - Reading mid-interrupt lifts nothing, so the agent decides from the device as
   the person left it whether its plan still applies.
 - A newer interrupt on the target replaces the older one.
+- `DELETE /api/flags` refuses an interrupt until it is read (409
+  `code: "unreadInterrupt"`), so deleting it is no way around reading it.
 - A read carrying `X-Loupe-Viewer` is a person's app, such as the Mac app
   following a delivery, and lifts nothing.

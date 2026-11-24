@@ -2,7 +2,8 @@
 //
 // A photo or a video goes to POST /api/media, which puts it in the device's
 // photo library: Pictures or Movies plus a media scan on Android, `simctl
-// addmedia` on a simulator. An .apk goes to POST /api/install. Nothing can be
+// addmedia` on a simulator. An .apk or an .aab goes to POST /api/install,
+// which builds APKs from an .aab with bundletool. Nothing can be
 // dropped into an app on the device itself: neither adb nor the simulator's
 // HID carries a drag, so the library is where a dropped file can land.
 //
@@ -18,12 +19,12 @@ import { showToast } from './toast.js';
 const MEDIA_EXT = /\.(png|jpe?g|gif|webp|heic|heif|mp4|m4v|mov)$/i;
 
 // route(file, targetId) -> 'media', 'install' or null. A file's type is often
-// empty for .heic and .apk on macOS, so the extension decides as well.
+// empty for .heic, .apk and .aab on macOS, so the extension decides as well.
 export function route(file, targetId) {
   if (!file || !offered(targetId)) return null;
   const name = String(file.name || '');
   const type = String(file.type || '');
-  if (/\.apk$/i.test(name) || type === 'application/vnd.android.package-archive') {
+  if (/\.(apk|aab)$/i.test(name) || type === 'application/vnd.android.package-archive') {
     return android(targetId) ? 'install' : null;
   }
   if (/^(image|video)\//.test(type) || MEDIA_EXT.test(name)) return 'media';

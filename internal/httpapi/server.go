@@ -127,6 +127,9 @@ type Server struct {
 	// aapt2 reads an uploaded APK's package name. Empty when the SDK has no
 	// build-tools, which leaves ?package= as the only source.
 	aapt2 string
+	// bundletool finds the command that turns an uploaded .aab into APKs,
+	// on each such install. Nil means there is none.
+	bundletool func() ([]string, error)
 
 	// peers is the registry of servers this one merges targets from. Nil
 	// answers /api/servers 404.
@@ -158,6 +161,11 @@ type Server struct {
 // SetAAPT2 gives /api/install the aapt2 binary it reads package names with.
 // Empty leaves the name to ?package=.
 func (s *Server) SetAAPT2(path string) { s.aapt2 = path }
+
+// SetBundletool gives /api/install the lookup it runs when the upload is an
+// App Bundle. It runs per install, so bundletool installed while loupe runs
+// is found without a restart.
+func (s *Server) SetBundletool(find func() ([]string, error)) { s.bundletool = find }
 
 // KeepAwake attaches the keeper that holds off idle sleep while loupe is in use.
 func (s *Server) KeepAwake(k *awake.Keeper) { s.awake = k }
@@ -327,7 +335,7 @@ var routes = []route{
 	{"/api/presets/apply", []string{http.MethodPost}, (*Server).handlePresetApply, ""},
 	{"/api/clipboard", []string{http.MethodGet, http.MethodPost}, (*Server).handleClipboard, ""},
 	{"/api/clipboard/shared", []string{http.MethodGet, http.MethodPost}, (*Server).handleSharedClipboard, ""},
-	{"/api/flags", []string{http.MethodGet, http.MethodPost}, (*Server).handleFlags, ""},
+	{"/api/flags", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleFlags, ""},
 	{"/api/flags/end", []string{http.MethodPost}, (*Server).handleFlagEnd, ""},
 	{"/api/flags/listeners", []string{http.MethodGet}, (*Server).handleFlagListeners, ""},
 	{"/api/flags/destinations", []string{http.MethodGet}, (*Server).handleFlagDestinations, ""},

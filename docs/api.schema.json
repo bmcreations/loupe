@@ -15,6 +15,12 @@
     "DELETE /api/extensions": {
       "$ref": "#/$defs/httpapi.OKResponse"
     },
+    "DELETE /api/flags": {
+      "$ref": "#/$defs/httpapi.DeleteFlagsResponse"
+    },
+    "DELETE /api/flags 409": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
     "DELETE /api/install 200": {
       "$ref": "#/$defs/httpapi.UninstallResponse"
     },
@@ -946,6 +952,17 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "httpapi.DeleteFlagsResponse": {
+      "properties": {
+        "deleted": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "deleted"
       ],
       "type": "object"
     },
@@ -3551,6 +3568,12 @@
         },
         "reason": {
           "type": "string"
+        },
+        "splits": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "target": {
           "type": "string"

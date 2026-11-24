@@ -87,7 +87,7 @@ type tapIn struct {
 	Targeted
 	X        *int   `json:"x,omitempty" jsonschema:"device pixels, as /api/ui's center reports them; leave out when naming a node"`
 	Y        *int   `json:"y,omitempty" jsonschema:"device pixels"`
-	Text     string `json:"text,omitempty" jsonschema:"tap the node with this text (a button's label on Android and iOS)"`
+	Text     string `json:"text,omitempty" jsonschema:"tap the node with this text (a button's label on Android and iOS); when no node a tap can reach has this text, a node with no text whose desc is this, as Flutter and React Native label controls on Android"`
 	ID       string `json:"id,omitempty" jsonschema:"tap the node with this resource-id or accessibility identifier; a bare Android name matches any package"`
 	Desc     string `json:"desc,omitempty" jsonschema:"tap the node with this content description, often an icon button's only label"`
 	Contains bool   `json:"contains,omitempty" jsonschema:"match text and desc as case-insensitive substrings"`
@@ -154,7 +154,7 @@ type scrollIn struct {
 	Targeted
 	Direction string        `json:"direction" jsonschema:"up, down, left or right: the way you want to go, as a person says it; down shows what is below"`
 	Until     string        `json:"until,omitempty" jsonschema:"edge: keep scrolling until the list stops moving, which takes you to its top, bottom or end in one call"`
-	Find      *target.Match `json:"find,omitempty" jsonschema:"keep scrolling until this node (by id, text or desc) is on screen, and answer with it; a 404 noMatch means the list ended first"`
+	Find      *target.Match `json:"find,omitempty" jsonschema:"keep scrolling until this node (by id, text or desc) is on screen, and answer with it; text falls back to desc only for nodes inside the list; a 404 noMatch means the list ended first"`
 	X         int           `json:"x,omitempty" jsonschema:"a point inside the list to scroll, device pixels; omit for the largest scrollable on screen"`
 	Y         int           `json:"y,omitempty" jsonschema:"device pixels"`
 	Max       int           `json:"max,omitempty" jsonschema:"at most this many strokes, up to 30; default 1, or 20 with until or find"`
@@ -199,6 +199,8 @@ type logcatIn struct {
 	Package    string `json:"package,omitempty" jsonschema:"only this app's process"`
 	Foreground bool   `json:"foreground,omitempty" jsonschema:"only the app in front"`
 	Format     string `json:"format,omitempty" jsonschema:"simulators only: ndjson for one JSON object per line; text by default"`
+	Tag        string `json:"tag,omitempty" jsonschema:"only entries with this tag, ignoring case: the logcat tag on Android (ReactNativeJS, flutter); on an iOS simulator the subsystem, subsystem:category, or with no subsystem the sender image (Flutter, or the process for its own messages); on an iPhone the sender, or the process"`
+	Text       string `json:"text,omitempty" jsonschema:"only entries whose message holds this text on any of its lines, ignoring case"`
 }
 
 type crashesIn struct {
@@ -219,7 +221,7 @@ type applyPresetIn struct {
 
 type installIn struct {
 	Targeted
-	Paths     []string `json:"paths" jsonschema:"APK files on the Mac running loupe mcp: one APK, or a base and its splits"`
+	Paths     []string `json:"paths" jsonschema:"files on the Mac running loupe mcp: one APK, a base and its splits, or one .aab"`
 	AllowTest bool     `json:"allowTest,omitempty" jsonschema:"allow an APK marked testOnly, as Android Studio's Run builds are"`
 	Launch    bool     `json:"launch,omitempty" jsonschema:"open the app once it is installed"`
 	Downgrade bool     `json:"downgrade,omitempty" jsonschema:"allow a lower versionCode than the installed one (adb install -d). Works only for a debuggable app; a 422 hint says to uninstall first otherwise"`
@@ -324,7 +326,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "logcat",
-		Description: "Recent log lines, optionally narrowed to one app's process: logcat's threadtime format on Android, the unified log's compact style on an iOS simulator. package is an Android package or an iOS bundle ID. At most one of package and foreground.",
+		Description: "Recent log lines, optionally narrowed to one app's process, a tag and a text: logcat's threadtime format on Android, the unified log's compact style on an iOS simulator. package is an Android package or an iOS bundle ID. At most one of package and foreground. lines counts the lines tag and text keep. In Expo Go or another host app, the process is the host's, so narrow to the app's lines with tag or text.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in logcatIn) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"target": {in.Target}}
 		if in.Lines > 0 {
@@ -341,6 +343,12 @@ func addTools(s *mcp.Server, c *Client) {
 		}
 		if in.Format != "" {
 			q.Set("format", in.Format)
+		}
+		if in.Tag != "" {
+			q.Set("tag", in.Tag)
+		}
+		if in.Text != "" {
+			q.Set("text", in.Text)
 		}
 		b, _, err := c.do(ctx, http.MethodGet, "/api/logcat", q, "", nil)
 		if err != nil {
@@ -376,7 +384,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "install",
-		Description: "Android only: install APKs read from this Mac's disk, where loupe mcp runs, not the agent's. Pass a base and its splits together for an App Bundle build. A lower versionCode than the installed one is refused (INSTALL_FAILED_VERSION_DOWNGRADE): retry with downgrade for a debuggable app, or uninstall first. With launch, opening the app is claimed and arbitrated like the input tools.",
+		Description: "Android only: install APKs read from this Mac's disk, where loupe mcp runs, not the agent's. Pass a base and its splits together, or an .aab alone, which loupe turns into the APKs the device takes with bundletool. A lower versionCode than the installed one is refused (INSTALL_FAILED_VERSION_DOWNGRADE): retry with downgrade for a debuggable app, or uninstall first. With launch, opening the app is claimed and arbitrated like the input tools.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in installIn) (*mcp.CallToolResult, any, error) {
 		if len(in.Paths) == 0 {
 			return errResult(fmt.Errorf("paths: at least one APK")), nil, nil

@@ -207,6 +207,25 @@ test('a failed Stop keeps the pill so it can be tried again', async () => {
   assert.match(s.toast.textContent, /boom/);
 });
 
+// DELETE /api/flags can remove a watch while it runs. Its end is then a 404
+// for good, so keeping the pill would leave a Stop that can never work.
+test('a Stop answered 404 drops the pill: the flag is gone', async () => {
+  let n = 0;
+  const s = setup({ post: async () => (n++ === 0 ? jsonResponse(201, { id: 9, watching: true }) : jsonResponse(404, { error: 'no flag 9' })) });
+  s.flag.run();
+  s.q('input').checked = true;
+  s.q('.flagSend').dispatch('click');
+  await tick();
+  s.q('.flagStop').dispatch('click');
+  await tick();
+  assert.equal(s.q('.flagPill').hidden, true);
+  assert.equal(s.flag.watching(), false);
+  assert.match(s.toast.textContent, /deleted/);
+  s.flag.onTargetSwitch();
+  await tick();
+  assert.equal(s.calls.length, 2, 'a target switch does not try to end it again');
+});
+
 test('a drag does nothing while flag mode is off', () => {
   const s = setup();
   s.drag(100, 100, 200, 300);

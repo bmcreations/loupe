@@ -209,6 +209,15 @@ func (e *Emulator) Install(ctx context.Context, apks []string, opts target.Insta
 	return in.Install(ctx, apks, opts)
 }
 
+func (e *Emulator) BundleAPKs(ctx context.Context, bundletool []string, aab, dir string) ([]string, error) {
+	in, done, err := e.running()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	return in.BundleAPKs(ctx, bundletool, aab, dir)
+}
+
 func (e *Emulator) Crashes(ctx context.Context, q target.CrashQuery) ([]target.CrashReport, error) {
 	in, done, err := e.running()
 	if err != nil {

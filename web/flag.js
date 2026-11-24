@@ -271,6 +271,13 @@ export function mount(layer, deps) {
         method: 'POST',
         headers: deps.headers ? deps.headers() : {},
       });
+      if (res.status === 404) {
+        // Deleted, or pushed out by newer flags: no end can reach it now.
+        watchId = null;
+        pill.hidden = true;
+        showToast(deps.toast, 'Watch ended: the flag was deleted');
+        return;
+      }
       if (!res.ok) throw new Error(await errorText(res));
       watchId = null;
       pill.hidden = true;

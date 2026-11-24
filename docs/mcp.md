@@ -27,7 +27,11 @@ Any other MCP client takes the same command, `~/.local/bin/loupe mcp`, with
 `targets`, `ui`, `screenshot` (returns an image, not JSON), `point`, `tap`,
 `swipe`, `scroll`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`,
 `logcat`, `crashes`, `crash`, `install`, `uninstall`, `camera`, `drop`, `boot`, `boot_status`,
-`release`, `flags`, `flag`, `submit_feedback`, `list_extensions` and `call_extension`. `install` takes `downgrade` as
+`release`, `flags`, `flag`, `submit_feedback`, `list_extensions` and `call_extension`. `logcat` takes `tag` and
+`text` as `/api/logcat` does
+([agent-api.md](agent-api.md#get-apilogcattargetid)): in Expo Go, where
+`package` narrows only to Expo Go, `tag: "ReactNativeJS"` narrows to the
+app. `install` takes `downgrade` as
 `/api/install` does, and `uninstall` takes `package`; both are Android only. `boot` takes `wait` as `/api/devices/boot` does
 (`10m`, or `0` to return at once), and `boot_status` reports on a boot still
 running; it reads only and claims nothing.

@@ -18,6 +18,17 @@ type Installer interface {
 	Install(ctx context.Context, apks []string, opts InstallOptions) (*InstallResult, error)
 }
 
+// BundleInstaller is an Installer that can also take an Android App Bundle
+// (.aab), which adb cannot install: it has bundletool build the APKs its
+// device needs, and those then go to Install.
+type BundleInstaller interface {
+	// BundleAPKs runs bundletool (the command that starts it, such as a
+	// wrapper script or java -jar and the jar) on the bundle at aab and
+	// returns the APKs it built for this device, under dir, base first.
+	// bundletool refusing the bundle is an *InstallError.
+	BundleAPKs(ctx context.Context, bundletool []string, aab, dir string) ([]string, error)
+}
+
 // InstallOptions are the adb install flags a caller may ask for.
 type InstallOptions struct {
 	// AllowTest passes -t. Android Studio's Run marks the APK it builds

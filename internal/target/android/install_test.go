@@ -160,6 +160,12 @@ func TestLogcatArgs(t *testing.T) {
 		{"since", target.LogcatQuery{Since: since, Lines: 10}, 0, "logcat -v threadtime -d -T 1790607053.042"},
 		{"follow", target.LogcatQuery{Follow: true, Lines: 20}, 0, "logcat -v threadtime -T 20"},
 		{"follow since", target.LogcatQuery{Follow: true, Since: since}, 7, "logcat -v threadtime -T 1790607053.042 --pid=7"},
+		// The last lines of the buffer may hold no match, so a filtered dump
+		// reads all of it and is trimmed after the filter.
+		{"tail filtered", target.LogcatQuery{Lines: 500, Tag: "flutter"}, 0, "logcat -v threadtime -d"},
+		{"tail text", target.LogcatQuery{Lines: 5, Text: "x"}, 9, "logcat -v threadtime -d --pid=9"},
+		{"since filtered", target.LogcatQuery{Since: since, Lines: 10, Tag: "a"}, 0, "logcat -v threadtime -d -T 1790607053.042"},
+		{"follow filtered", target.LogcatQuery{Follow: true, Lines: 20, Tag: "a"}, 0, "logcat -v threadtime -T 20"},
 	}
 	for _, c := range cases {
 		if got := strings.Join(logcatArgs(c.q, c.pid), " "); got != c.want {
@@ -241,9 +247,11 @@ func TestExecOutStreamClosedEarlyIsNotAnError(t *testing.T) {
 // 501. Install is Android's alone; a simulator has a log, synthetic none.
 func TestInstallAndLogcatCapabilities(t *testing.T) {
 	var (
-		_ target.Installer = (*Device)(nil)
-		_ target.Logcatter = (*Device)(nil)
-		_ target.Logcatter = (*ios.Simulator)(nil)
+		_ target.Installer       = (*Device)(nil)
+		_ target.BundleInstaller = (*Device)(nil)
+		_ target.BundleInstaller = (*Emulator)(nil)
+		_ target.Logcatter       = (*Device)(nil)
+		_ target.Logcatter       = (*ios.Simulator)(nil)
 	)
 	for name, tgt := range map[string]target.Target{
 		"synthetic": &target.Synthetic{},

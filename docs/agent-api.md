@@ -41,7 +41,7 @@ Common refusals on routes that change a device:
 | `POST /api/input` | Tap, swipe, text, keys, buttons, launch, open URL, wait |
 | `POST /api/sequence` | Several input steps in one request |
 | `POST /api/drop` | Paste an image into a simulator text field |
-| `POST /api/install` | Install an APK or split set, or an iOS app |
+| `POST /api/install` | Install an APK, a split set or an App Bundle (`.aab`), or an iOS app |
 | `DELETE /api/install` | Uninstall an Android app |
 | `POST /api/media` | Add a photo or video to the device library |
 | `POST`, `DELETE /api/camera` | Feed the back camera an image, or an AVD one of the Mac's cameras |
@@ -60,6 +60,7 @@ Common refusals on routes that change a device:
 | `GET /api/lan` | Addresses on the local network, and the key to check there |
 | `GET /api/version` | The running server's version |
 | `GET`, `POST /api/feedback` | An agent's report on loupe itself |
+| `DELETE /api/flags` | Delete one flag by `?id=`, or every flag on a `?target=` |
 | `GET`, `POST`, `DELETE /api/overlays` | Images and boxes over the video |
 | `GET`, `POST /api/extensions` | Extension registry and proxy |
 | `GET`, `POST`, `DELETE /api/claims` | Claims |
@@ -159,11 +160,35 @@ pulses where it last acted for 20 seconds more, then fades.
 | `match` field | Meaning |
 |---|---|
 | `id` | Resource id on Android, accessibility identifier on iOS. A bare Android name (`send`) matches any package's `:id/send`. |
-| `text` | The node's text. On a simulator a button's label is its `text`. |
+| `text` | The node's text, or the label of a node that has no text (see below). On a simulator a button's label is its `text`. |
 | `desc` | The content description. |
 | `contains` | `true` makes `text` and `desc` case-insensitive substring matches. Otherwise they match exactly. |
 
-A node has to satisfy every field given. Other body fields:
+A node has to satisfy every field given. Flutter and React Native put a
+control's label in `desc` on Android and leave its `text` empty, while iOS
+reports the same label as `text`. So when no node a tap can reach has matching
+`text`, `text` is tried against the `desc` of nodes with no `text`, and
+`text=Send` finds the button on both platforms. A node whose `text` matched
+always wins, with or without `contains`: a TextView reading "Search" is picked
+over an icon whose `desc` is "Search", and a node with text "Archive" and
+`desc` "Delete" never matches `text=Delete`. `desc` stays a match on `desc`
+alone.
+
+The fallback is decided on each dump, which matters to the calls that dump
+more than once:
+
+- A tap with `waitMs`, or a `wait` with a match, answers with a single node
+  found by its `desc` on the dump that finds it, even when a node with that
+  `text` would have appeared on a later one. Several found that way don't end
+  it: it keeps looking, as it does for no match, because the screen on its
+  way out can carry the label on icons. If the time runs out first, it answers
+  409 `ambiguous` with them, as a single look does.
+- A scroll `find` falls back only to nodes centred in the list it scrolls.
+  Until the row scrolls into view no node has its `text`, and a toolbar icon
+  carrying the label as its `desc` would otherwise stop the scroll before the
+  first stroke.
+
+Other body fields:
 
 | Field | Effect |
 |---|---|
@@ -329,8 +354,8 @@ a `tap` event there. The image is never traced.
 
 ### `POST /api/install?target=<id>`
 
-Installs the request body as an APK. A `multipart/form-data` body installs a
-base and its splits together:
+Installs the request body as an APK, or as the APKs built from an App Bundle
+(below). A `multipart/form-data` body installs a base and its splits together:
 
 ```sh
 curl -F apk=@base.apk -F apk=@split.apk "$URL/api/install?target=$ID"
@@ -339,6 +364,22 @@ curl -F apk=@base.apk -F apk=@split.apk "$URL/api/install?target=$ID"
 Up to 64 file parts, any field name. **Splits are the normal case**: anything
 built from an App Bundle is a base plus config splits, and the base alone is
 refused with `INSTALL_FAILED_MISSING_SPLIT`.
+
+**An App Bundle (`.aab`)**, as `flutter build appbundle` and EAS build by
+default, goes as the whole body or as the only file part. loupe knows it by
+the `BundleConfig.pb` at its root, not by its name. bundletool reads the
+device's spec over adb, builds the APKs that spec takes, and those install as
+a base and splits would; `splits` in the response names them, base first.
+This needs bundletool on the Mac running loupe: `brew install bundletool`, or
+`-bundletool` pointing at a bundletool script or `bundletool-all.jar` (a jar
+also needs a Java runtime). It is looked up on each install, so installing it
+needs no restart.
+
+bundletool signs what it builds with `~/.android/debug.keystore`, the key
+Gradle debug builds create, not with the bundle's own key. Without that file
+it builds unsigned APKs, which no device installs, so loupe stops there with
+a 501 `noDebugKeystore` and nothing reaches the device. A release `.aab`
+installs debug-signed too.
 
 | Param | Effect |
 |---|---|
@@ -349,9 +390,12 @@ refused with `INSTALL_FAILED_MISSING_SPLIT`.
 
 | Status | Meaning |
 |---|---|
-| 400 | A part is not a zip (the error names it). |
+| 400 | A part is not a zip (the error names it), or an `.aab` came with other files. |
 | 413 | Upload over 1 GiB. |
 | 422 | The package manager refused. The response has adb's output and the `INSTALL_FAILED_*` code split out. `INSTALL_FAILED_VERSION_DOWNGRADE` adds a `hint`: retry with `downgrade=1` (debuggable app) or uninstall first. |
+| 422 | `code: "BUNDLETOOL_FAILED"`: bundletool refused the `.aab` itself: a config or manifest it cannot parse, an entry path it rejects, an entry whose compressed data ends early. `reason` is its error line and `output` all it printed. |
+| 501 | `code: "noBundletool"`: an `.aab`, and no bundletool on this Mac. `code: "noJava"`: bundletool is a jar and no Java runtime was found. `code: "noDebugKeystore"`: no `~/.android/debug.keystore` to sign the APKs with. The error says what to install or create. |
+| 502 | adb or the device failed. For an `.aab`, also: no adb for bundletool to run, bundletool failing to read the device's spec, its JVM exiting before bundletool reported an error, a file error on this Mac while bundletool ran (a missing temp directory, a full disk), and `extract-apks` writing no APKs for the device or more than 64. The error says which. |
 
 Any `Failure [...]` line fails the install whatever adb's exit status, and so
 does a zero exit with no `Success` line.
@@ -666,6 +710,8 @@ Returns the device log as plain text.
 | `lines` | Last N lines. Default 500. |
 | `since` | Everything since a duration back from now (`5m`) or an RFC 3339 time, trimmed to `lines`. |
 | `pid`, `package`, `foreground=1` | At most one of these narrows the log to a process. `foreground` uses the foreground app. |
+| `tag` | Only entries with this tag. Exact, ignoring case. See the table below for what a tag is on each target. |
+| `text` | Only entries whose message holds this text on any of its lines, ignoring case. The header (time, pid, tag) is not searched. |
 | `follow=1` | Keeps the response open and flushes each read. |
 | `format=ndjson` | Simulators only. One JSON object per entry (`application/x-ndjson`). |
 
@@ -673,16 +719,65 @@ The pid used and the package, when there is one, come back in `X-Loupe-Pid`
 and `X-Loupe-Package`. A package with no process is 409. A follow fixes the pid
 when it opens, so it keeps reading the old process after an app restart.
 
+`tag` and `text` are for apps that share a process with their host. In Expo
+Go, `package` narrows the log to Expo Go, and `tag=ReactNativeJS` narrows it
+to the app's JavaScript. They combine with each other and with a process: an
+entry has to match all of them. Each is printable text up to 256 bytes. Loupe
+matches them on the Mac against what the device prints, so neither reaches
+the device's shell or the unified log's predicate.
+
+On an iOS simulator or iPhone an entry is kept or dropped whole. Its tag
+comes from its first line, and a `text` found on any of its lines, such as
+inside a multi-line dictionary, keeps all of them. Android prints each line
+of a multi-line message with a header of its own, so each line is matched
+alone there and `text` keeps only the lines that hold it: a match on the
+first line of a React Native error drops its `componentStack` lines.
+
+`lines` counts the lines kept, not the entries, so `lines=50&tag=flutter` is
+the last 50 lines of `flutter` entries. A compact entry over several lines
+counts each of them, and the cut can fall partway through the oldest one.
+
+| Target | `tag` matches | Example |
+|---|---|---|
+| Android | The logcat tag | `ReactNativeJS`, `flutter` |
+| iOS simulator | The subsystem or `subsystem:category`. An entry with no subsystem matches its sender's image, which compact prints in parentheses, or the process when the sender is the process's own binary and compact prints nothing there. | `com.facebook.react.log`, `com.facebook.react.log:javascript`, `Flutter`, `launchd_sim` |
+| Physical iPhone | The sender in parentheses, or the process when the line has none | `WiFiPolicy` in `wifid(WiFiPolicy)[56]` |
+
+In compact, a message from the process's own binary that starts with
+`[a:b]` or `(x)` reads as that tag. `format=ndjson` takes the tag from its
+own fields.
+
+A filtered dump only finds what it reads. On Android that is the whole ring
+buffer, which has to come back inside the 15 second dump limit or the dump is
+502. A device with large log buffers can miss it, and `since` or `package`
+narrows the read. On a simulator the dump widens its window from a minute to
+10 minutes to an hour until it has `lines` matching lines. It stops widening
+when the next window looks unable to finish inside the limit, or the limit
+cuts one, and answers with what the last finished window kept, which can be
+nothing. A rare tag with no `package` can take most of the limit.
+
+A follow with a filter starts from the last `lines` lines on Android and keeps
+those that match, so it can start with fewer. On a simulator a follow starts
+live either way.
+
 Per platform:
 
 | Target | Source | Limits |
 |---|---|---|
 | Android | `logcat -v threadtime` | `format=ndjson` is 422. |
-| iOS simulator | Unified log. `package` is a bundle ID. | `since` with `follow` is 422 `notSupported`. |
+| iOS simulator | Unified log at Default and Info, with errors and faults. `package` is a bundle ID. | No Debug lines. `since` with `follow` is 422 `notSupported`. |
 | Physical iPhone | The device's syslog relay, over USB or Wi-Fi | Text only. `format=ndjson`, `since`, `package` and `foreground` are 422 `notSupported`. A dump waits for the backlog to go quiet, up to 3 seconds. An unlisted phone is 502. |
 | Synthetic | | 501 |
 
 A shut-down AVD answers 502 "open it in the viewer to boot it".
+
+On a simulator, Info carries React Native's `console.log`. Debug is left out:
+the store keeps almost none of it, so it would mostly add to a follow. On one
+React Native dev build's pid over 20 seconds it took a follow from 1,788
+entries to 4,591, every added one from Apple's frameworks. An app's Info lines leave the store sooner than its
+Default lines, so a `since` hours back can miss them: a `console.log` line was
+still there after 15 minutes, but one from 7 hours earlier was gone while the
+app's Default lines from that minute were not.
 
 ### `GET /api/crashes?target=<id>`
 
@@ -922,6 +1017,35 @@ from `sending` to `sent` or `failed`:
 
 `GET /api/feedback` lists the kept reports, oldest first; `?id=` reads one.
 The server itself acts on nothing a report says.
+
+### `DELETE /api/flags?id=<n>`, `DELETE /api/flags?target=<id>`
+
+Removes flags from the server's list, which otherwise only a restart clears
+([flags.md](flags.md)). Give exactly one of:
+
+- `?id=` deletes that flag. An id the server does not hold, including one
+  already deleted, is 404 `no flag <n>; the server keeps the last 32`, as
+  `GET /api/flags?id=` answers.
+- `?target=` deletes every flag on that target. A target with no flags, or one
+  loupe does not know, deletes none and still answers 200, so clearing can be
+  repeated.
+
+Both, neither, or an `id` that is not a number is 400; nothing is deleted.
+
+An interrupt flag its agent has not read is 409 `code: "unreadInterrupt"`, with
+the flag in `id`, and nothing is deleted. Deleting it would lift the person's
+stop with nobody having read it. For `?target=`, one unread interrupt among the
+target's flags refuses the whole call, and the other flags stay too. Read the
+flag first with `GET /api/flags?id=`, as the agent it stops
+([flags.md](flags.md#interrupts)); the read lifts it only once the interrupt
+has ended. The delete then goes through.
+
+The body is `{"deleted": <count>}`. A watch still open is dropped without
+capturing its end screen.
+A long-poll on `GET /api/flags?waitMs=` is not woken by a delete and never
+returns a deleted flag. Files already written to disk for a flag sent to a
+program or T3 Code are not removed; they age out with the newest 32. The same
+token as every other `/api/*` route is required.
 
 ### `/api/overlays?target=<id>`
 

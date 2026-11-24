@@ -127,11 +127,19 @@ func (s *Server) handleScroll(w http.ResponseWriter, r *http.Request, t target.T
 		return
 	}
 	region := scrollRegion(ui, req.X, req.Y, hasPoint)
+	// A text= find that falls back to content-desc keeps only nodes in the
+	// list it scrolls. Until the row with that text scrolls into view, the
+	// text pass finds nothing, and a toolbar or nav icon carrying the label
+	// as its desc would otherwise end the scroll before the first stroke.
 	found := func(ui *target.UI) *target.Node {
 		if req.Find == nil {
 			return nil
 		}
-		if n := target.FindNodes(ui.Root, *req.Find); len(n) > 0 {
+		n, inDesc := target.FindNodesVia(ui.Root, *req.Find)
+		if inDesc {
+			n = slices.DeleteFunc(n, func(n *target.Node) bool { return !inRegion(n.Center, region) })
+		}
+		if len(n) > 0 {
 			return n[0].Leaf()
 		}
 		return nil
@@ -314,8 +322,7 @@ func scrollFingerprint(ui *target.UI, region [4]int) string {
 		if n == nil {
 			return
 		}
-		c := n.Center
-		if c[0] >= region[0] && c[0] < region[2] && c[1] >= region[1] && c[1] < region[3] {
+		if inRegion(n.Center, region) {
 			fmt.Fprintf(&b, "%s|%s|%s|%s|%s|%v\n", n.Class, n.ID, n.Text, n.Desc, n.Value, n.Bounds)
 		}
 		for _, ch := range n.Children {
@@ -324,4 +331,10 @@ func scrollFingerprint(ui *target.UI, region [4]int) string {
 	}
 	walk(ui.Root)
 	return b.String()
+}
+
+// inRegion reports whether point c is inside region, right and bottom edges
+// excluded.
+func inRegion(c [2]int, region [4]int) bool {
+	return c[0] >= region[0] && c[0] < region[2] && c[1] >= region[1] && c[1] < region[3]
 }

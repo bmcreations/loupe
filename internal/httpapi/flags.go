@@ -383,11 +383,16 @@ func (st *flagStore) bumpLocked(f *storedFlag) {
 	st.changed = make(chan struct{})
 }
 
-func (st *flagStore) add(f *storedFlag) {
+// add stores f. A non-nil gate makes f its target's interrupt under the same
+// lock, so no DELETE can remove f before the gate guards it.
+func (st *flagStore) add(f *storedFlag, gate *string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.next++
 	f.ID = st.next
+	if gate != nil {
+		st.interrupts[f.Target] = interruptGate{id: f.ID, gate: *gate}
+	}
 	f.Start.Screenshot = flagShotPath(f, 0)
 	if f.shots[0] == nil {
 		f.Start.Screenshot = ""
@@ -409,6 +414,34 @@ func (st *flagStore) get(id uint64) *storedFlag {
 		}
 	}
 	return nil
+}
+
+// removeLocked drops every flag drop reports true for, stopping the timers of
+// those still watching, and returns what it dropped. If any of them is an
+// interrupt its agent has yet to read, it drops nothing and returns that one
+// as unread instead: deleting it would lift the person's stop with nobody
+// having read it. It does not wake waiters: a delete revises no flag, so
+// nothing is newer than what a waiter has already seen. Called with mu held.
+func (st *flagStore) removeLocked(drop func(*storedFlag) bool) (gone []*storedFlag, unread *storedFlag) {
+	for _, f := range st.flags {
+		if g, ok := st.interrupts[f.Target]; ok && g.id == f.ID && drop(f) {
+			return nil, f
+		}
+	}
+	kept := st.flags[:0]
+	for _, f := range st.flags {
+		if !drop(f) {
+			kept = append(kept, f)
+			continue
+		}
+		if f.timer != nil {
+			f.timer.Stop()
+		}
+		gone = append(gone, f)
+	}
+	clear(st.flags[len(kept):])
+	st.flags = kept
+	return gone, nil
 }
 
 // list returns the flags revised after after, oldest first, without their
@@ -458,10 +491,70 @@ func flagShotPath(f *storedFlag, which int) string {
 	return fmt.Sprintf("/api/flags/shot?id=%d&which=%s", f.ID, name)
 }
 
-// handleFlags lists flags (GET) and takes a new one (POST).
+// DeleteFlagsResponse is DELETE /api/flags: how many flags it removed.
+type DeleteFlagsResponse struct {
+	Deleted int `json:"deleted"`
+}
+
+// deleteFlags removes one flag (?id=) or every flag on a target (?target=).
+// Exactly one is required. An unknown id is a 404, as reading it is; a target
+// with no flags deletes none and succeeds, so clearing is repeatable. An
+// interrupt its agent has not read is ErrCodeUnreadInterrupt, and then
+// nothing is deleted, not even a target's other flags.
+func (s *Server) deleteFlags(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	idv, targetID := q.Get("id"), q.Get("target")
+	if (idv == "") == (targetID == "") {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "give exactly one of ?id= (a flag) or ?target= (every flag on a target)"})
+		return
+	}
+	var drop func(*storedFlag) bool
+	var id uint64
+	if idv != "" {
+		var err error
+		if id, err = strconv.ParseUint(idv, 10, 64); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "id must be a flag id"})
+			return
+		}
+		drop = func(f *storedFlag) bool { return f.ID == id }
+	} else {
+		drop = func(f *storedFlag) bool { return f.Target == targetID }
+	}
+	s.flags.mu.Lock()
+	gone, unread := s.flags.removeLocked(drop)
+	s.flags.mu.Unlock()
+	if unread != nil {
+		writeJSON(w, http.StatusConflict, ErrorResponse{
+			Error: fmt.Sprintf("flag %d is an interrupt its agent has not read; nothing was deleted. The session it stops must read it with GET /api/flags?id=%d once it has ended; then delete it", unread.ID, unread.ID),
+			Code:  ErrCodeUnreadInterrupt,
+			ID:    strconv.FormatUint(unread.ID, 10),
+		})
+		return
+	}
+	if idv != "" && len(gone) == 0 {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("no flag %d; the server keeps the last %d", id, maxFlags)})
+		return
+	}
+	for _, f := range gone {
+		// A watching interrupt pinned the hold; its end would have released it.
+		if f.Watching && f.viewer != 0 {
+			if sess, ok := s.mgr.Session(f.Target); ok {
+				sess.UnpinHold()
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, DeleteFlagsResponse{Deleted: len(gone)})
+}
+
+// handleFlags lists flags (GET), takes a new one (POST) and deletes them
+// (DELETE).
 func (s *Server) handleFlags(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
 		s.listFlags(w, r)
+		return
+	case http.MethodDelete:
+		s.deleteFlags(w, r)
 		return
 	}
 	t, ok := s.agentTarget(w, r)
@@ -540,11 +633,10 @@ func (s *Server) handleFlags(w http.ResponseWriter, r *http.Request) {
 			f.session, f.startSeq = page.Session, page.Latest
 		}
 	}
-	s.flags.add(f)
 	if interrupt {
-		s.flags.mu.Lock()
-		s.flags.interrupts[f.Target] = interruptGate{id: f.ID, gate: gate}
-		s.flags.mu.Unlock()
+		s.flags.add(f, &gate)
+	} else {
+		s.flags.add(f, nil)
 	}
 	if f.Watching {
 		id := f.ID
@@ -554,7 +646,12 @@ func (s *Server) handleFlags(w http.ResponseWriter, r *http.Request) {
 	if !f.Watching {
 		s.deliverFlag(f.ID)
 	}
-	writeJSON(w, http.StatusOK, s.flagView(f.ID))
+	v := s.flagView(f.ID)
+	if v == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("flag %d was deleted as it was made", f.ID)})
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (s *Server) listFlags(w http.ResponseWriter, r *http.Request) {
@@ -717,7 +814,7 @@ func (s *Server) endFlag(ctx context.Context, r *http.Request, id uint64) (*Flag
 	}
 	if !f.Watching {
 		s.flags.mu.Unlock()
-		return s.flagView(id), 0, ""
+		return s.endedView(id)
 	}
 	// Claimed for this end while the capture runs without the lock.
 	f.Watching = false
@@ -776,7 +873,16 @@ func (s *Server) endFlag(ctx context.Context, r *http.Request, id uint64) (*Flag
 		s.traceAgent(r, targetID, "flagEnd", nil)
 	}
 	s.deliverFlag(id)
-	return s.flagView(id), 0, ""
+	return s.endedView(id)
+}
+
+// endedView is endFlag's answer: flag id, or a 404 when a DELETE removed it
+// while the end screen was captured without the lock.
+func (s *Server) endedView(id uint64) (*Flag, int, string) {
+	if v := s.flagView(id); v != nil {
+		return v, http.StatusOK, ""
+	}
+	return nil, http.StatusNotFound, fmt.Sprintf("flag %d was deleted while it ended", id)
 }
 
 // handleFlagShot serves a flag's screenshot: GET /api/flags/shot?id=&which=start|end.
