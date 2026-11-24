@@ -579,6 +579,32 @@
       ],
       "type": "object"
     },
+    "firebase.Model": {
+      "properties": {
+        "apis": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "codename": {
+          "type": "string"
+        },
+        "manufacturer": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "manufacturer",
+        "model",
+        "codename",
+        "apis"
+      ],
+      "type": "object"
+    },
     "httpapi.AVDProfile": {
       "properties": {
         "exists": {
@@ -4139,32 +4165,6 @@
       ],
       "type": "object"
     },
-    "httpapi.RemoteModel": {
-      "properties": {
-        "apis": {
-          "items": {
-            "type": "integer"
-          },
-          "type": "array"
-        },
-        "codename": {
-          "type": "string"
-        },
-        "manufacturer": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "manufacturer",
-        "model",
-        "codename",
-        "apis"
-      ],
-      "type": "object"
-    },
     "httpapi.RemoteModelsError": {
       "properties": {
         "apiDisabled": {
@@ -4183,7 +4183,7 @@
       "properties": {
         "models": {
           "items": {
-            "$ref": "#/$defs/httpapi.RemoteModel"
+            "$ref": "#/$defs/firebase.Model"
           },
           "type": "array"
         }

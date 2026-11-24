@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bmcreations/loupe/internal/target"
+	"github.com/bmcreations/loupe/internal/target/firebase"
 )
 
 func remoteFixture(t *testing.T, name string) []byte {
@@ -342,7 +343,7 @@ func TestRemoteRoutesRefuseBadInputAndListAccountAndModels(t *testing.T) {
 		t.Fatalf("%s: %v", rec.Body, err)
 	}
 	models := listed.Models
-	var pixel9 RemoteModel
+	var pixel9 firebase.Model
 	for _, m := range models {
 		if m.Model == "Pixel 9" {
 			pixel9 = m
@@ -353,19 +354,6 @@ func TestRemoteRoutesRefuseBadInputAndListAccountAndModels(t *testing.T) {
 	}
 	if last := models[len(models)-1]; last.Model != "Xiaomi 14" || last.Manufacturer != "Xiaomi" {
 		t.Errorf("last model = %+v", last)
-	}
-}
-
-func TestResolveClockRollsPastMidnight(t *testing.T) {
-	now := time.Date(2026, 11, 10, 23, 50, 0, 0, time.Local)
-	if got, want := resolveClock("12:05 AM", now), time.Date(2026, 11, 11, 0, 5, 0, 0, time.Local); !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if got, want := resolveClock("12:30 PM", time.Date(2026, 11, 10, 12, 20, 0, 0, time.Local)), time.Date(2026, 11, 10, 12, 30, 0, 0, time.Local); !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if !resolveClock("soon", now).IsZero() {
-		t.Error("unreadable clock should be zero")
 	}
 }
 
@@ -659,7 +647,7 @@ func TestARestartThatCannotReadTheProjectKeepsAMidReserveRow(t *testing.T) {
 }
 
 // blankExpiryList lists the reservation with no expiry, one column short of
-// what parseRemoteList reads.
+// what firebase.ParseList reads.
 const blankExpiryList = "Reservation    State   Expires   Manufacturer  Model    Codename  API Level\n" +
 	"21kulawh96ut3  ENDING            Google        Pixel 9  tokay     36\n"
 
