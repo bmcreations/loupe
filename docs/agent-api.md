@@ -684,10 +684,10 @@ Per platform:
 
 A shut-down AVD answers 502 "open it in the viewer to boot it".
 
-On a simulator, Info carries React Native's `console.log`. Debug is left out
-because the store doesn't keep it, so only a follow could show it. On a React
-Native dev build it took a follow from 1,788 entries to 4,591, every added one
-from Apple's frameworks. An app's Info lines leave the store sooner than its
+On a simulator, Info carries React Native's `console.log`. Debug is left out:
+the store keeps almost none of it, so it would mostly add to a follow. On one
+React Native dev build's pid over 20 seconds it took a follow from 1,788
+entries to 4,591, every added one from Apple's frameworks. An app's Info lines leave the store sooner than its
 Default lines, so a `since` hours back can miss them: a `console.log` line was
 still there after 15 minutes, but one from 7 hours earlier was gone while the
 app's Default lines from that minute were not.

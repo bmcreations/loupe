@@ -180,9 +180,9 @@ func pidForApp(list, bundle string) int {
 //
 // --info brings in the Info lines show and stream both leave out by
 // default; React Native logs console.log at Info. Debug stays out: the store
-// does not keep it, so a dump never has it, and on a React Native dev build
-// it took a follow from 1,788 entries to 4,591, every added one from Apple's
-// frameworks.
+// keeps almost none of it, so a dump would gain next to nothing, and on one
+// React Native dev build's pid over 20s it took a follow from 1,788 entries
+// to 4,591, every added one from Apple's frameworks.
 func simLogArgs(q target.LogcatQuery, pid int, window time.Duration) []string {
 	style := "compact"
 	if q.Format == LogFormatNDJSON {
