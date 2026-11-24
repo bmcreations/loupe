@@ -188,6 +188,145 @@ fi`)
 	}
 }
 
+// bundletool prints the same "[BT:…] Error:" line for every exception it
+// catches, its own and the JDK's, so the line alone does not say whose fault
+// it was. The exception chain under it does. These are bundletool 1.17.2's
+// answers, the stack frames cut.
+func TestBundleAPKsTellsABadBundleFromAHostFailure(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		out    string
+		refuse bool
+	}{
+		{"not a bundle", `[BT:1.17.2] Error: The archive doesn't seem to be an App Bundle, it is missing required file 'BundleConfig.pb'.
+com.android.tools.build.bundletool.model.exceptions.InvalidBundleException: The archive doesn't seem to be an App Bundle, it is missing required file 'BundleConfig.pb'.`, true},
+		{"entry named ..", `[BT:1.17.2] Error: Name '..' is not supported inside path.
+java.lang.IllegalArgumentException: Name '..' is not supported inside path.`, true},
+		// A corrupt manifest is the bundle's, though the JDK wraps it in an
+		// UncheckedIOException like a host I/O error.
+		{"corrupt manifest", `[BT:1.17.2] Error: com.google.protobuf.InvalidProtocolBufferException: Protocol message had invalid UTF-8.
+java.io.UncheckedIOException: com.google.protobuf.InvalidProtocolBufferException: Protocol message had invalid UTF-8.
+Caused by: com.google.protobuf.InvalidProtocolBufferException: Protocol message had invalid UTF-8.`, true},
+		{"temp dir missing", `[BT:1.17.2] Error: java.nio.file.NoSuchFileException: /tmp/gone/AutoValue_BuildApksCommand213534187188440284
+java.io.UncheckedIOException: java.nio.file.NoSuchFileException: /tmp/gone/AutoValue_BuildApksCommand213534187188440284
+Caused by: java.nio.file.NoSuchFileException: /tmp/gone/AutoValue_BuildApksCommand213534187188440284`, false},
+		{"disk full", `[BT:1.17.2] Error: No space left on device
+java.io.IOException: No space left on device`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			script := `if [ "$1" = build-apks ]; then
+  cat <<'EOF'
+` + c.out + `
+	at com.android.tools.build.bundletool.commands.BuildApksCommand.execute(BuildApksCommand.java:1)
+EOF
+  exit 1
+fi`
+			bt, _ := fakeBundletool(t, script)
+			adb, _ := fakeADB(t, `echo Success`)
+			tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+			dir := t.TempDir()
+
+			_, err := tgt.BundleAPKs(context.Background(), []string{bt}, filepath.Join(dir, "0.aab"), dir)
+			if err == nil {
+				t.Fatal("BundleAPKs succeeded")
+			}
+			first := strings.SplitN(c.out, "\n", 2)[0]
+			sentence := strings.TrimPrefix(first, "[BT:1.17.2] Error: ")
+			refused, ok := target.IsInstallRefused(err)
+			if ok != c.refuse {
+				t.Fatalf("err = %v; refusal = %v, want %v", err, ok, c.refuse)
+			}
+			if ok && refused.Reason != sentence {
+				t.Errorf("Reason = %q; want %q", refused.Reason, sentence)
+			}
+			if !ok && !strings.Contains(err.Error(), sentence) {
+				t.Errorf("err = %v; want bundletool's sentence in it", err)
+			}
+		})
+	}
+}
+
+// build-apks makes a directory under java.io.tmpdir and removes it only when
+// it exits on its own. A dropped request kills it, so java.io.tmpdir goes
+// under dir, which the handler removes however the request ends. It goes in
+// JAVA_TOOL_OPTIONS, which reaches the JVM behind a wrapper script too, after
+// whatever was set there already so that it wins.
+func TestBundleAPKsPutsJavasTempDirUnderDir(t *testing.T) {
+	for _, c := range []struct {
+		name, existing, sub string
+		quoted              bool
+	}{
+		{"nothing set", "", "", false},
+		{"options already set", "-Xmx2g", "", false},
+		{"dir with a space", "", "with space", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("JAVA_TOOL_OPTIONS", c.existing)
+			record := filepath.Join(t.TempDir(), "env")
+			bt, _ := fakeBundletool(t, `printf '%s\n' "$JAVA_TOOL_OPTIONS" >> '`+record+`'
+tmp=${JAVA_TOOL_OPTIONS##*-Djava.io.tmpdir=}
+tmp=${tmp#\"}
+tmp=${tmp%\"}
+[ -d "$tmp" ] && echo "$1 has it" >> '`+record+`'`)
+			adb, _ := fakeADB(t, `echo Success`)
+			tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+			dir := filepath.Join(t.TempDir(), c.sub)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := tgt.BundleAPKs(context.Background(), []string{bt}, filepath.Join(dir, "0.aab"), dir); err != nil {
+				t.Fatalf("BundleAPKs: %v", err)
+			}
+			tmp := filepath.Join(dir, "tmp")
+			opt := "-Djava.io.tmpdir=" + tmp
+			if c.quoted {
+				opt = `-Djava.io.tmpdir="` + tmp + `"`
+			}
+			want := strings.TrimSpace(c.existing + " " + opt)
+			b, err := os.ReadFile(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+			for i, step := range []string{"get-device-spec", "build-apks", "extract-apks"} {
+				if 2*i+1 >= len(lines) {
+					t.Fatalf("%s: no record: %q", step, lines)
+				}
+				if lines[2*i] != want {
+					t.Errorf("%s: JAVA_TOOL_OPTIONS = %q; want %q", step, lines[2*i], want)
+				}
+				if lines[2*i+1] != step+" has it" {
+					t.Errorf("%s: java.io.tmpdir did not exist when it ran: %q", step, lines)
+				}
+			}
+		})
+	}
+}
+
+// With no debug keystore, build-apks exits 0 having built APKs that no
+// device installs. That is the Mac's to fix, not the bundle's, so it stops
+// there with ErrNoDebugKeystore and nothing reaches the device.
+func TestBundleAPKsWithNoDebugKeystoreStopsBeforeTheDevice(t *testing.T) {
+	bt, argv := fakeBundletool(t, `if [ "$1" = build-apks ]; then
+  echo "WARNING: The APKs won't be signed and thus not installable unless you also pass a keystore via the flag --ks. See the command help for more information."
+fi`)
+	adb, _ := fakeADB(t, `echo Success`)
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	dir := t.TempDir()
+
+	_, err := tgt.BundleAPKs(context.Background(), []string{bt}, filepath.Join(dir, "0.aab"), dir)
+	if !errors.Is(err, ErrNoDebugKeystore) {
+		t.Fatalf("err = %v; want ErrNoDebugKeystore", err)
+	}
+	if _, ok := target.IsInstallRefused(err); ok {
+		t.Errorf("err = %v is a refusal of the bundle; want the Mac's", err)
+	}
+	if got := readArgv(t, argv); len(got) != 2 {
+		t.Errorf("bundletool ran %q; want it to stop after build-apks", got)
+	}
+}
+
 // Reading the device's spec failing is the device or adb, not the bundle, so
 // it is not an InstallError.
 func TestBundleAPKsDeviceSpecFailureIsNotARefusal(t *testing.T) {
@@ -261,6 +400,9 @@ func TestFindBundletool(t *testing.T) {
 		{"first place that exists", "", []string{missing, wrapper}, javas, wrapper, nil},
 		{"jar in a place", "", []string{jar}, javas, java + " -jar " + jar, nil},
 		{"jar with no java", "", []string{jar}, noJava, "", ErrNoJava},
+		// A jar nothing can run does not hide a wrapper further on.
+		{"jar with no java, then a wrapper", "", []string{jar, wrapper}, noJava, wrapper, nil},
+		{"explicit jar with no java", jar, []string{wrapper}, noJava, "", ErrNoJava},
 		{"none", "", []string{missing}, javas, "", ErrNoBundletool},
 		{"explicit that does not exist", missing, []string{wrapper}, javas, "", ErrNoBundletool},
 		{"script that is not executable", "", []string{notExec}, javas, "", ErrNoBundletool},
@@ -278,14 +420,16 @@ func TestFindBundletool(t *testing.T) {
 }
 
 // The macOS /usr/bin/java is a stub that fails when no JDK is registered, so
-// a java that resolves is not taken on trust: JAVA_HOME and the installs
-// launchd's PATH does not reach come first, and the stub never appears.
+// a java that resolves is not taken on trust: JAVA_HOME and the registered
+// JDK come first, a java on PATH counts only when it is not the stub, and
+// the stub never appears.
 func TestJavaCandidates(t *testing.T) {
 	t.Setenv("JAVA_HOME", "/jdk")
-	got := javaCandidates(func() string { return "/registered/jdk" })
-	if len(got) < 3 || got[0] != "/jdk/bin/java" || got[1] != "/registered/jdk/bin/java" {
-		t.Errorf("candidates = %q; want JAVA_HOME's java, then java_home's", got)
+	got := javaCandidates(func() string { return "/registered/jdk" }, func() string { return "/sdkman/java/bin/java" })
+	if len(got) < 4 || got[0] != "/jdk/bin/java" || got[1] != "/registered/jdk/bin/java" || got[2] != "/sdkman/java/bin/java" {
+		t.Errorf("candidates = %q; want JAVA_HOME's java, then java_home's, then PATH's", got)
 	}
+	got = javaCandidates(func() string { return "" }, func() string { return "/usr/bin/java" })
 	for _, p := range got {
 		if p == "/usr/bin/java" {
 			t.Errorf("candidates include the /usr/bin/java stub: %q", got)

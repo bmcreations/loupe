@@ -43,10 +43,19 @@ func IsBundle(path string) bool {
 // upload into APKs, so the package manager was never asked.
 const BundletoolCode = "BUNDLETOOL_FAILED"
 
-// btErrorRE is the sentence bundletool prints for an error it raised itself,
-// such as "[BT:1.17.2] Error: The archive doesn't seem to be an App Bundle".
-// A Java stack trace follows it, and JVM warnings come before it.
+// btErrorRE is the sentence bundletool prints for any exception it catches,
+// its own or the JDK's, such as "[BT:1.17.2] Error: The archive doesn't seem
+// to be an App Bundle". The stack trace follows it, and JVM warnings come
+// before it.
 var btErrorRE = regexp.MustCompile(`(?m)^\[BT:[^\]]*\] Error: (.+)$`)
+
+// btExceptionRE is a stack trace line naming an exception: the trace's first
+// line and each "Caused by:". Frames start with a tab and never match.
+var btExceptionRE = regexp.MustCompile(`(?m)^(?:Caused by: )?((?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*)(?::|$)`)
+
+// btUnsignedRE is the warning build-apks prints, before it exits 0, when it
+// found no keystore to sign the APKs with.
+var btUnsignedRE = regexp.MustCompile(`(?m)^WARNING: The APKs won't be signed`)
 
 // BundleAPKs turns the App Bundle at aab into the APKs this device takes,
 // the way Play would: bundletool reads the device's ABIs, density, locales
@@ -55,15 +64,17 @@ var btErrorRE = regexp.MustCompile(`(?m)^\[BT:[^\]]*\] Error: (.+)$`)
 // written under dir and returned base first, ready for Install.
 //
 // bundletool signs what it builds with ~/.android/debug.keystore, the key
-// Gradle debug builds use, not with the bundle's upload key; without that
-// file it leaves the APKs unsigned and the package manager refuses them with
-// INSTALL_PARSE_FAILED_NO_CERTIFICATES.
+// Gradle debug builds use, not with the bundle's upload key. Without that
+// file it builds unsigned APKs that no device installs, so BundleAPKs stops
+// there with ErrNoDebugKeystore.
 //
 // bundletool is the command that runs it: a wrapper script, or java -jar
 // and the jar. Every argument is a host path or this device's serial, passed
-// to exec, so nothing here reaches the device's shell. A bundle bundletool
-// will not build is an *InstallError with BundletoolCode; failing to read the
-// device's spec is not, since that is the device or adb.
+// to exec, so nothing here reaches the device's shell. Its JVM keeps its
+// temp files under dir. A bundle bundletool will not build is an
+// *InstallError with BundletoolCode; failing to read the device's spec is
+// not, since that is the device or adb, and neither is an I/O error on the
+// Mac while bundletool runs.
 func (t *Device) BundleAPKs(ctx context.Context, bundletool []string, aab, dir string) ([]string, error) {
 	if len(bundletool) == 0 {
 		return nil, ErrNoBundletool
@@ -77,8 +88,18 @@ func (t *Device) BundleAPKs(ctx context.Context, bundletool []string, aab, dir s
 	if err != nil {
 		return nil, fmt.Errorf("bundletool needs adb: %w", err)
 	}
+	// build-apks makes a directory under java.io.tmpdir and removes it only
+	// when it exits on its own; a dropped request kills it. Under dir, the
+	// caller's removing dir takes that directory too. The JVM fails if the
+	// directory is missing, so it is made first.
+	tmp := filepath.Join(dir, "tmp")
+	if err := os.MkdirAll(tmp, 0o700); err != nil {
+		return nil, fmt.Errorf("bundletool temp dir: %w", err)
+	}
+	env := append(os.Environ(), "JAVA_TOOL_OPTIONS="+javaToolOptions(os.Getenv("JAVA_TOOL_OPTIONS"), tmp))
 	run := func(args ...string) (string, error) {
 		cmd := exec.CommandContext(ctx, bundletool[0], append(bundletool[1:len(bundletool):len(bundletool)], args...)...)
+		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		return strings.TrimSpace(string(out)), err
 	}
@@ -88,8 +109,12 @@ func (t *Device) BundleAPKs(ctx context.Context, bundletool []string, aab, dir s
 		return nil, fmt.Errorf("bundletool get-device-spec: %w: %s", err, bundletoolMessage(out))
 	}
 	set := filepath.Join(dir, "bundle.apks")
-	if out, err := run("build-apks", "--bundle="+aab, "--output="+set, "--device-spec="+spec); err != nil {
+	out, err := run("build-apks", "--bundle="+aab, "--output="+set, "--device-spec="+spec)
+	if err != nil {
 		return nil, bundletoolFailed("build-apks", out, err)
+	}
+	if btUnsignedRE.MatchString(out) {
+		return nil, ErrNoDebugKeystore
 	}
 	outDir := filepath.Join(dir, "apks")
 	if out, err := run("extract-apks", "--apks="+set, "--device-spec="+spec, "--output-dir="+outDir); err != nil {
@@ -98,15 +123,44 @@ func (t *Device) BundleAPKs(ctx context.Context, bundletool []string, aab, dir s
 	return extractedAPKs(outDir)
 }
 
-// bundletoolFailed is a failed build-apks or extract-apks. bundletool's own
-// error line means it judged the bundle and refused it, which is the
-// upload's fault and so an InstallError; anything else, such as the JVM
-// dying, is not.
+// javaToolOptions is JAVA_TOOL_OPTIONS with java.io.tmpdir set to tmp,
+// after the options already there so that it wins over any tmpdir among
+// them. The JVM splits the variable at spaces, and quotes keep a path with
+// one whole.
+func javaToolOptions(existing, tmp string) string {
+	opt := "-Djava.io.tmpdir=" + tmp
+	if strings.ContainsAny(tmp, " \t\n") {
+		opt = `-Djava.io.tmpdir="` + tmp + `"`
+	}
+	return strings.TrimSpace(existing + " " + opt)
+}
+
+// bundletoolFailed is a failed build-apks or extract-apks. bundletool's
+// error line with a bundle exception under it means it judged the bundle
+// and refused it, which is the upload's fault and so an InstallError.
+// Anything else is not: an I/O error on the Mac, or the JVM dying before
+// bundletool started.
 func bundletoolFailed(step, out string, err error) error {
-	if m := btErrorRE.FindStringSubmatch(out); m != nil {
-		return &target.InstallError{Code: BundletoolCode, Reason: strings.TrimSpace(m[1]), Output: out}
+	if m := btErrorRE.FindStringSubmatchIndex(out); m != nil && !hostFault(out[m[1]:]) {
+		return &target.InstallError{Code: BundletoolCode, Reason: strings.TrimSpace(out[m[2]:m[3]]), Output: out}
 	}
 	return fmt.Errorf("bundletool %s: %w: %s", step, err, bundletoolMessage(out))
+}
+
+// hostFault reports whether the stack trace bundletool printed under its
+// error line is the Mac's fault rather than the bundle's: some exception in
+// its chain is the JDK's I/O, in java.io or java.nio, as a missing temp dir
+// (java.nio.file.NoSuchFileException) or a full disk (java.io.IOException)
+// is. java.io.UncheckedIOException alone does not count: the JDK wraps a
+// bundle's corrupt protobuf in one too, and then its cause is protobuf's.
+func hostFault(trace string) bool {
+	for _, m := range btExceptionRE.FindAllStringSubmatch(trace, -1) {
+		if c := m[1]; c != "java.io.UncheckedIOException" &&
+			(strings.HasPrefix(c, "java.io.") || strings.HasPrefix(c, "java.nio.")) {
+			return true
+		}
+	}
+	return false
 }
 
 // bundletoolMessage is the line of bundletool's output worth quoting: its
@@ -156,22 +210,27 @@ const maxBundleAPKs = 64
 // what to install, since that is all a caller can do about it.
 var ErrNoBundletool = errors.New("installing an .aab needs bundletool, which turns the bundle into the APKs this device takes, and none was found: install it with `brew install bundletool`, or start loupe with -bundletool set to a bundletool script or bundletool-all.jar")
 
-// ErrNoJava is FindBundletool finding bundletool as a jar with no Java
-// runtime to run it.
+// ErrNoJava is FindBundletool finding bundletool only as a jar, with no
+// Java runtime to run it.
 var ErrNoJava = errors.New("bundletool was found as a jar, but no Java runtime to run it: install one with `brew install openjdk`, or set JAVA_HOME for loupe")
 
+// ErrNoDebugKeystore is BundleAPKs finding that bundletool had no debug
+// keystore to sign with, so the APKs it built would be refused by any
+// device. Its text says how to make one.
+var ErrNoDebugKeystore = errors.New("bundletool found no ~/.android/debug.keystore to sign the APKs it builds from an .aab, and a device installs no unsigned APK: run any Gradle debug build once on the Mac running loupe to create that file, then install again")
+
 // FindBundletool is the command that runs bundletool: an explicit
-// -bundletool path, else bundletool on PATH, then Homebrew's two prefixes,
-// since launchd's PATH reaches neither. A path that is a jar runs through
-// java -jar. It is looked up on each install, so installing bundletool needs
-// no restart of loupe.
+// -bundletool path, else bundletool on PATH, then Homebrew's two prefixes
+// for a loupe started with a PATH that lacks them (launchd's plist puts both
+// first). A path that is a jar runs through java -jar. It is looked up on
+// each install, so installing bundletool needs no restart of loupe.
 func FindBundletool(explicit string) ([]string, error) {
 	var places []string
 	if p, err := exec.LookPath("bundletool"); err == nil {
 		places = append(places, p)
 	}
 	places = append(places, "/opt/homebrew/bin/bundletool", "/usr/local/bin/bundletool")
-	return findBundletool(explicit, places, func() []string { return javaCandidates(javaHome) })
+	return findBundletool(explicit, places, func() []string { return javaCandidates(javaHome, javaOnPath) })
 }
 
 // findBundletool is FindBundletool with its places and Java runtimes given.
@@ -181,6 +240,7 @@ func findBundletool(explicit string, places []string, javas func() []string) ([]
 	if explicit != "" {
 		places = []string{explicit}
 	}
+	missing := ErrNoBundletool
 	for _, p := range places {
 		fi, err := os.Stat(p)
 		if err != nil || !fi.Mode().IsRegular() {
@@ -194,20 +254,25 @@ func findBundletool(explicit string, places []string, javas func() []string) ([]
 					return []string{j, "-jar", p}, nil
 				}
 			}
-			return nil, ErrNoJava
+			// A wrapper further on may bring its own Java.
+			missing = ErrNoJava
+			continue
 		}
 		if fi.Mode()&0o111 != 0 {
 			return []string{p}, nil
 		}
 	}
-	return nil, ErrNoBundletool
+	return nil, missing
 }
 
+// stubJava is the java macOS ships, a stub that fails when no JDK is
+// registered. When one is, javaHome finds it.
+const stubJava = "/usr/bin/java"
+
 // javaCandidates are the Java runtimes to run a bundletool jar with, in
-// order: JAVA_HOME, the JDK macOS has registered, Homebrew's openjdk and
-// Android Studio's bundled runtime. /usr/bin/java is left out: it is a stub
-// that fails when no JDK is registered, and when one is, javaHome finds it.
-func javaCandidates(javaHome func() string) []string {
+// order: JAVA_HOME, the JDK macOS has registered, the java on PATH unless it
+// is the stub, Homebrew's openjdk and Android Studio's bundled runtime.
+func javaCandidates(javaHome, onPath func() string) []string {
 	var out []string
 	if h := os.Getenv("JAVA_HOME"); h != "" {
 		out = append(out, filepath.Join(h, "bin", "java"))
@@ -215,11 +280,27 @@ func javaCandidates(javaHome func() string) []string {
 	if h := javaHome(); h != "" {
 		out = append(out, filepath.Join(h, "bin", "java"))
 	}
+	if p := onPath(); p != "" && p != stubJava {
+		out = append(out, p)
+	}
 	return append(out,
 		"/opt/homebrew/opt/openjdk/bin/java",
 		"/usr/local/opt/openjdk/bin/java",
 		"/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java",
 	)
+}
+
+// javaOnPath is the java PATH finds, or "" when there is none or it is the
+// stub, through a symlink or not.
+func javaOnPath() string {
+	p, err := exec.LookPath("java")
+	if err != nil {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil && r == stubJava {
+		return ""
+	}
+	return p
 }
 
 // javaHome is the JDK /usr/libexec/java_home reports, or "" when it reports

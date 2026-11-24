@@ -209,16 +209,45 @@ func TestInstallAABBundletoolRefusalIs422(t *testing.T) {
 	}
 }
 
-func TestInstallAABDeviceFailureIs502(t *testing.T) {
-	f := &bundleTarget{androidTarget: androidTarget{id: "dev1"}, bundleErr: errors.New("bundletool get-device-spec: exit status 1: Device not found.")}
-	if w := serveInstall(t, f, fakeBundletool, "", aab(t)); w.Code != http.StatusBadGateway {
-		t.Errorf("status = %d: %s", w.Code, w.Body)
+// The device, adb or the Mac failing while bundletool runs is not the
+// bundle's fault, so it is a 502 rather than a 422 telling the caller to fix
+// their upload.
+func TestInstallAABDeviceOrHostFailureIs502(t *testing.T) {
+	for _, msg := range []string{
+		"bundletool get-device-spec: exit status 1: Device not found.",
+		"bundletool build-apks: exit status 1: java.nio.file.NoSuchFileException: /tmp/gone/AutoValue_BuildApksCommand1",
+	} {
+		f := &bundleTarget{androidTarget: androidTarget{id: "dev1"}, bundleErr: errors.New(msg)}
+		w := serveInstall(t, f, fakeBundletool, "", aab(t))
+		if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), msg[len(msg)-20:]) {
+			t.Errorf("%s: status = %d: %s", msg, w.Code, w.Body)
+		}
+		if f.gotAPKs != nil {
+			t.Errorf("%s: Install ran", msg)
+		}
 	}
 }
 
-// The APKs bundletool builds are signed with the debug keystore, and with
-// none they are unsigned, so that refusal after a bundle says which file is
-// missing.
+// With no debug keystore bundletool builds unsigned APKs, which is the
+// Mac's to fix: a 501 saying so, sent before anything reaches the device.
+func TestInstallAABWithNoDebugKeystoreIs501(t *testing.T) {
+	f := &bundleTarget{androidTarget: androidTarget{id: "dev1"}, bundleErr: android.ErrNoDebugKeystore}
+	w := serveInstall(t, f, fakeBundletool, "", aab(t))
+	if w.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d: %s", w.Code, w.Body)
+	}
+	var resp ErrorResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Code != ErrCodeNoDebugKeystore || !strings.Contains(resp.Error, "debug.keystore") {
+		t.Errorf("response = %+v; want code %s and an error naming debug.keystore", resp, ErrCodeNoDebugKeystore)
+	}
+	if f.gotAPKs != nil {
+		t.Error("Install ran with unsigned APKs")
+	}
+}
+
+// Should bundletool's warning ever change, unsigned APKs reach the package
+// manager, and its refusal after a bundle says which file is missing.
 func TestInstallAABUnsignedRefusalNamesTheDebugKeystore(t *testing.T) {
 	f := &bundleTarget{androidTarget: androidTarget{id: "dev1", installErr: &target.InstallError{
 		Code: "INSTALL_PARSE_FAILED_NO_CERTIFICATES", Output: "Failure [INSTALL_PARSE_FAILED_NO_CERTIFICATES]",

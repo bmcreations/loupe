@@ -1362,11 +1362,13 @@ const installTimeout = 5 * time.Minute
 var zipMagic = []byte("PK\x03\x04")
 
 // ErrCodeNoBundletool is /api/install's 501 for an .aab on a Mac without
-// bundletool; ErrCodeNoJava, for bundletool as a jar with no Java to run it.
-// The error says what to install either way.
+// bundletool; ErrCodeNoJava, for bundletool as a jar with no Java to run it;
+// ErrCodeNoDebugKeystore, for a Mac with no debug keystore to sign the APKs
+// bundletool builds. The error says what to install or create each time.
 const (
-	ErrCodeNoBundletool = "noBundletool"
-	ErrCodeNoJava       = "noJava"
+	ErrCodeNoBundletool    = "noBundletool"
+	ErrCodeNoJava          = "noJava"
+	ErrCodeNoDebugKeystore = "noDebugKeystore"
 )
 
 // InstallResponse is what POST /api/install answers, on success (200) and
@@ -1601,6 +1603,9 @@ func (s *Server) bundleAPKs(w http.ResponseWriter, r *http.Request, t target.Tar
 			Output: refused.Output, Code: refused.Code, Reason: refused.Reason,
 		})
 	}
+	if errors.Is(err, android.ErrNoDebugKeystore) {
+		return fail(http.StatusNotImplemented, ErrCodeNoDebugKeystore, ErrorResponse{Error: err.Error(), Code: ErrCodeNoDebugKeystore})
+	}
 	if err != nil {
 		rec["err"] = err.Error()
 		return fail(http.StatusBadGateway, "error", ErrorResponse{Error: err.Error()})
@@ -1611,8 +1616,9 @@ func (s *Server) bundleAPKs(w http.ResponseWriter, r *http.Request, t target.Tar
 // installHint names the way past a refusal that has one. A lower versionCode
 // is the case that sent callers to raw adb: -d fixes it for a debuggable app
 // and nothing but an uninstall fixes it for any other. APKs bundletool built
-// from a bundle are signed with the debug keystore, and are unsigned when
-// there is none.
+// from a bundle are signed with the debug keystore; BundleAPKs stops before
+// the device when there is none, so this hint is for a bundletool whose
+// warning it did not recognise.
 func installHint(code string, downgrade, bundle bool) string {
 	if bundle && code == "INSTALL_PARSE_FAILED_NO_CERTIFICATES" {
 		return "bundletool signs the APKs it builds from an .aab with ~/.android/debug.keystore and leaves them unsigned when that file is missing. If it is, build any app once with a Gradle debug build to create it, then install again"
