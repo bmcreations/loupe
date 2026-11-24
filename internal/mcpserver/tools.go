@@ -242,7 +242,7 @@ type dropIn struct {
 
 // addTools registers every tool in toolRoutes on s.
 func addTools(s *mcp.Server, c *Client) {
-	targetsDesc := "List every device loupe can stream or drive: Android devices and emulators, AVDs that are shut down, iOS simulators and phones. Each row has its id, state, and who holds it (claim, handsOff, drivenBy). Start here to pick a target."
+	targetsDesc := "List every device loupe can stream or drive: Android devices and emulators, AVDs that are shut down, iOS simulators and phones. Each row has its id, state, and who holds it (claim, handsOff, drivenBy). A call that names no target drives the one running device, so skip this when only one is running; otherwise start here to pick a target."
 	if c.defaultTarget != "" {
 		targetsDesc = "List every device loupe can stream or drive, with its id, state, and who holds it. This server already drives " + c.defaultTarget + " when a call names no target, so skip this and start with ui or sequence unless you need another device."
 	}
