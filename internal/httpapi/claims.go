@@ -47,6 +47,12 @@ const HeaderSession = "X-Loupe-Session"
 // session frees the device before anyone goes looking for why.
 const claimLease = 10 * time.Minute
 
+// claimLapsedFor is how long loupe remembers that a holder's claim lapsed.
+// It outlasts the lease several times over, so an agent that waits on a long
+// build or on a person still hears about it, and it is bounded so a holder
+// that never comes back leaves nothing behind.
+const claimLapsedFor = time.Hour
+
 // drivingShown matches the arbiter's agentShown: a target reads as driven for
 // this long after an agent's input went through.
 const drivingShown = 10 * time.Second
@@ -145,6 +151,9 @@ type waiter struct {
 	since, last    time.Time
 }
 
+// lapseKey is a target and the callerKey that held it.
+type lapseKey struct{ target, caller string }
+
 type refusalNote struct {
 	agent, code string
 	at          time.Time
@@ -163,6 +172,10 @@ type claimBook struct {
 	driving  map[string]driver
 	waiting  map[string]waiter
 	refused  map[string]refusalNote
+	// lapsed remembers who held a target whose claim ran out, until the
+	// holder claims it again or claimLapsedFor passes. Guarded by mu with
+	// claims.
+	lapsed map[lapseKey]time.Time
 	// path is the hands-off file and claimsPath the claims file. Empty
 	// keeps that one in memory only. They are apart so the hands-off file
 	// says only what the person marked, and nothing an agent did.
@@ -300,10 +313,29 @@ func (b *claimBook) live(id string) *claim {
 	}
 	if idle := b.now().Sub(c.seen); idle >= claimLease && c.holds == 0 {
 		delete(b.claims, id)
+		b.noteLapse(id, c.key())
 		b.trace(map[string]any{"action": "claimExpired", "target": id, "agent": c.agent, "session": c.session, "idleMs": idle.Milliseconds()})
 		return nil
 	}
 	return c
+}
+
+// noteLapse remembers that key's claim on id ran out, and forgets markers
+// past claimLapsedFor. Called with mu held.
+func (b *claimBook) noteLapse(id, key string) {
+	now := b.now()
+	for k, at := range b.lapsed {
+		if now.Sub(at) >= claimLapsedFor {
+			delete(b.lapsed, k)
+		}
+	}
+	if key == "" {
+		return
+	}
+	if b.lapsed == nil {
+		b.lapsed = map[lapseKey]time.Time{}
+	}
+	b.lapsed[lapseKey{id, key}] = now
 }
 
 func (b *claimBook) info(id string, c *claim) *ClaimInfo {
@@ -354,6 +386,7 @@ func (b *claimBook) take(id, agent, session, link string) (*ClaimInfo, *ClaimInf
 	}
 	c := &claim{agent: agent, session: session, link: link, since: now, seen: now}
 	b.claims[id] = c
+	delete(b.lapsed, lapseKey{id, key})
 	b.trace(map[string]any{"action": "claim", "target": id, "agent": agent, "session": session})
 	b.saveClaims()
 	return b.info(id, c), nil
@@ -473,7 +506,19 @@ func (b *claimBook) refusal(id, agent, session string) *ErrorResponse {
 		}
 	}
 	c := b.live(id)
-	if c == nil || c.key() == callerKey(agent, session) {
+	if c == nil {
+		// A lapsed holder is told until it claims again; see ErrCodeClaimLapsed.
+		key := callerKey(agent, session)
+		at, ok := b.lapsed[lapseKey{id, key}]
+		if !ok || b.now().Sub(at) >= claimLapsedFor {
+			return nil
+		}
+		return &ErrorResponse{
+			Error: fmt.Sprintf("your claim on %s lapsed after %s without a call; claim it again (POST /api/claims) before driving it", id, claimLease),
+			Code:  ErrCodeClaimLapsed,
+		}
+	}
+	if c.key() == callerKey(agent, session) {
 		return nil
 	}
 	who := c.agent

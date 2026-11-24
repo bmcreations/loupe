@@ -49,8 +49,8 @@ func decodeErr(t *testing.T, rec *httptest.ResponseRecorder) ErrorResponse {
 const tap = `{"action":"tap","x":1,"y":1}`
 
 func TestClaimCodesAreStable(t *testing.T) {
-	if ErrCodeClaimed != "claimedBy" || ErrCodeHandsOff != "handsOff" {
-		t.Fatalf("codes changed: %q %q", ErrCodeClaimed, ErrCodeHandsOff)
+	if ErrCodeClaimed != "claimedBy" || ErrCodeHandsOff != "handsOff" || ErrCodeClaimLapsed != "claimLapsed" {
+		t.Fatalf("codes changed: %q %q %q", ErrCodeClaimed, ErrCodeHandsOff, ErrCodeClaimLapsed)
 	}
 }
 
@@ -135,6 +135,106 @@ func TestAClaimLapsesAfterTheLeaseAndCallsRenewIt(t *testing.T) {
 	}
 	if got := s.claims.list(); len(got) != 0 {
 		t.Fatalf("lapsed claim still listed: %+v", got)
+	}
+}
+
+// A holder that stops calling for claimLease loses the claim. Its next input
+// must say so, in a code of its own, instead of passing through unclaimed.
+func TestALapsedHolderIsToldItsClaimLapsed(t *testing.T) {
+	s, now := claimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "sa"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+
+	*now = now.Add(claimLease)
+	rec := postInputAs(s, "dev1", tap, a)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("lapsed holder's tap = %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	if code := decodeErr(t, rec).Code; code != "claimLapsed" {
+		t.Fatalf("code = %q, want claimLapsed", code)
+	}
+}
+
+func TestLapseRefusalOnlyReachesTheFormerHolder(t *testing.T) {
+	s, now := claimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "sa"}
+	b := map[string]string{HeaderAgent: "b", HeaderSession: "sb"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+	*now = now.Add(claimLease)
+	if rec := postInputAs(s, "dev1", tap, b); rec.Code != http.StatusOK {
+		t.Fatalf("caller that never held it = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	if rec := postInputAs(s, "dev2", tap, a); rec.Code != http.StatusOK {
+		t.Fatalf("holder on another target = %d, want 200", rec.Code)
+	}
+}
+
+func TestAReleaseLeavesNoLapseMarker(t *testing.T) {
+	s, now := claimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "sa"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+	if rec := claimReq(s, http.MethodDelete, "target=dev1", "", a); rec.Code != http.StatusNoContent {
+		t.Fatalf("release = %d", rec.Code)
+	}
+	*now = now.Add(2 * claimLease)
+	if rec := postInputAs(s, "dev1", tap, a); rec.Code != http.StatusOK {
+		t.Fatalf("input after own release = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+}
+
+// The refusal repeats until the holder claims again, so an agent that ignores
+// it once does not drive an unclaimed device on its retry.
+func TestReclaimingClearsTheLapseMarker(t *testing.T) {
+	s, now := claimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "sa"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+	*now = now.Add(claimLease)
+	for i := 0; i < 2; i++ {
+		if rec := postInputAs(s, "dev1", tap, a); rec.Code != http.StatusConflict || decodeErr(t, rec).Code != ErrCodeClaimLapsed {
+			t.Fatalf("input %d = %d %s, want 409 claimLapsed", i, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := claimReq(s, http.MethodPost, "target=dev1", "", a); rec.Code != http.StatusOK {
+		t.Fatalf("reclaim = %d", rec.Code)
+	}
+	if rec := postInputAs(s, "dev1", tap, a); rec.Code != http.StatusOK {
+		t.Fatalf("input after reclaim = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	// Released after the reclaim, the old marker must not come back.
+	claimReq(s, http.MethodDelete, "target=dev1", "", a)
+	if rec := postInputAs(s, "dev1", tap, a); rec.Code != http.StatusOK {
+		t.Fatalf("input after reclaim and release = %d, want 200", rec.Code)
+	}
+}
+
+func TestLapseMarkerExpires(t *testing.T) {
+	s, now := claimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "sa"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+	*now = now.Add(claimLease)
+	if rec := postInputAs(s, "dev1", tap, a); rec.Code != http.StatusConflict {
+		t.Fatalf("lapsed input = %d, want 409", rec.Code)
+	}
+	*now = now.Add(claimLapsedFor)
+	if rec := postInputAs(s, "dev1", tap, a); rec.Code != http.StatusOK {
+		t.Fatalf("input after the marker expired = %d, want 200", rec.Code)
+	}
+}
+
+func TestAnotherAgentsClaimAfterTheLapseStillAnswersClaimedBy(t *testing.T) {
+	s, now := claimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "sa"}
+	b := map[string]string{HeaderAgent: "b", HeaderSession: "sb"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+	*now = now.Add(claimLease)
+	// A list call observes the lapse before anyone refuses.
+	s.claims.list()
+	if rec := claimReq(s, http.MethodPost, "target=dev1", "", b); rec.Code != http.StatusOK {
+		t.Fatalf("b's claim = %d", rec.Code)
+	}
+	rec := postInputAs(s, "dev1", tap, a)
+	if rec.Code != http.StatusConflict || decodeErr(t, rec).Code != ErrCodeClaimed {
+		t.Fatalf("former holder after b's claim = %d %s, want 409 claimedBy", rec.Code, rec.Body.String())
 	}
 }
 
