@@ -32,6 +32,7 @@ type androidTarget struct {
 
 	logText string
 	logPID  int
+	logCut  string
 	logErr  error
 	gotQ    target.LogcatQuery
 }
@@ -66,7 +67,7 @@ func (f *androidTarget) Logcat(ctx context.Context, q target.LogcatQuery) (*targ
 	if f.logErr != nil {
 		return nil, f.logErr
 	}
-	return &target.Logcat{PID: f.logPID, Package: q.Package, ReadCloser: io.NopCloser(strings.NewReader(f.logText))}, nil
+	return &target.Logcat{PID: f.logPID, Package: q.Package, Cut: f.logCut, ReadCloser: io.NopCloser(strings.NewReader(f.logText))}, nil
 }
 
 const apk = "PK\x03\x04rest of the zip"
@@ -296,6 +297,93 @@ func TestLogcatFilteredDumpIsTrimmedToLines(t *testing.T) {
 		}
 		if f.gotQ.Tag+f.gotQ.Text == "" {
 			t.Errorf("%s: the target was not given the filter: %+v", q, f.gotQ)
+		}
+	}
+}
+
+// numberedLines is n lines "line 000" to "line n-1", each pad bytes longer.
+func numberedLines(n, pad int) string {
+	var b strings.Builder
+	for i := range n {
+		fmt.Fprintf(&b, "line %03d%s\n", i, strings.Repeat(".", pad))
+	}
+	return b.String()
+}
+
+func shrinkLogcatCap(t *testing.T, n int) {
+	t.Helper()
+	old := maxLogcatBytes
+	maxLogcatBytes = n
+	t.Cleanup(func() { maxLogcatBytes = old })
+}
+
+// A log comes oldest first, so a dump past the cap keeps its end.
+func TestLogcatSincePastTheCapKeepsTheNewest(t *testing.T) {
+	shrinkLogcatCap(t, 100)
+	f := &androidTarget{id: "dev1", logText: numberedLines(100, 0)}
+	w := serveAgent(t, f, http.MethodGet, "/api/logcat?target=dev1&since=1m&lines=3", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body)
+	}
+	if want := "line 097\nline 098\nline 099\n"; w.Body.String() != want {
+		t.Errorf("body = %q; want %q", w.Body, want)
+	}
+	if got := w.Header().Get(HeaderLogTruncated); got != "" {
+		t.Errorf("%s = %q; the cap left all three lines", HeaderLogTruncated, got)
+	}
+}
+
+// Lines too long for the cap to hold as many as asked are cut, and said
+// to be, and what is kept starts on a whole line.
+func TestLogcatSaysWhenTheCapCutLines(t *testing.T) {
+	shrinkLogcatCap(t, 100)
+	f := &androidTarget{id: "dev1", logText: numberedLines(20, 22)} // 31 bytes a line
+	w := serveAgent(t, f, http.MethodGet, "/api/logcat?target=dev1&since=1m&lines=10", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body)
+	}
+	want := numberedLines(20, 22)[17*31:]
+	if w.Body.String() != want {
+		t.Errorf("body = %q; want the last three whole lines %q", w.Body, want)
+	}
+	if got := w.Header().Get(HeaderLogTruncated); got != "size" {
+		t.Errorf("%s = %q; want size", HeaderLogTruncated, got)
+	}
+}
+
+func TestLogcatPassesOnATargetsCut(t *testing.T) {
+	f := &androidTarget{id: "dev1", logText: "a\n", logCut: target.LogCutTime}
+	w := serveAgent(t, f, http.MethodGet, "/api/logcat?target=dev1&since=1h", nil)
+	if got := w.Header().Get(HeaderLogTruncated); got != "time" {
+		t.Errorf("%s = %q; want time", HeaderLogTruncated, got)
+	}
+}
+
+func TestTailBuffer(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		writes  []string
+		limit   int
+		want    string
+		dropped bool
+	}{
+		{"under", []string{"a\nb\n"}, 10, "a\nb\n", false},
+		{"exactly", []string{"a\nb\n"}, 4, "a\nb\n", false},
+		{"wraps", []string{"aa\n", "bb\n", "cc\n"}, 7, "bb\ncc\n", true},
+		{"wraps across writes", []string{"a\nb", "\nc\nd", "\n"}, 5, "c\nd\n", true},
+		// The kept part opens on a whole "cc", but nothing says so, so
+		// it goes as a partial line would.
+		{"one write past it", []string{"aa\nbb\ncc\ndd\n"}, 6, "dd\n", true},
+		{"no newline kept", []string{"aaaaaaaa"}, 4, "", true},
+	} {
+		tb := &tailBuffer{limit: c.limit}
+		for _, s := range c.writes {
+			if n, err := tb.Write([]byte(s)); n != len(s) || err != nil {
+				t.Fatalf("%s: Write = %d, %v", c.name, n, err)
+			}
+		}
+		if got := string(tb.Bytes()); got != c.want || tb.dropped != c.dropped {
+			t.Errorf("%s: %q dropped %v; want %q dropped %v", c.name, got, tb.dropped, c.want, c.dropped)
 		}
 	}
 }

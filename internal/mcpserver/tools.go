@@ -350,11 +350,17 @@ func addTools(s *mcp.Server, c *Client) {
 		if in.Text != "" {
 			q.Set("text", in.Text)
 		}
-		b, _, err := c.do(ctx, http.MethodGet, "/api/logcat", q, "", nil)
+		b, h, err := c.do(ctx, http.MethodGet, "/api/logcat", q, "", nil)
 		if err != nil {
 			return errResult(err), nil, nil
 		}
-		return textResult(string(b)), nil, nil
+		res := textResult(string(b))
+		if note := logTruncatedNote(h.Get(httpapi.HeaderLogTruncated)); note != "" {
+			// Its own item, tagged, so ndjson stays one object per line
+			// and the CLI can print it to stderr.
+			res.Content = append(res.Content, &mcp.TextContent{Text: note, Meta: mcp.Meta{MetaNote: true}})
+		}
+		return res, nil, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -641,6 +647,24 @@ func jsonResult(b json.RawMessage, err error) (*mcp.CallToolResult, any, error) 
 		return errResult(err), nil, nil
 	}
 	return textResult(string(b)), nil, nil
+}
+
+// MetaNote marks a text item that is a note about the answer, not part of
+// it, such as logcat's note that a dump was cut.
+const MetaNote = "loupe/note"
+
+// logTruncatedNote says why a dump holds fewer lines than were asked for,
+// from /api/logcat's X-Loupe-Log-Truncated.
+func logTruncatedNote(cut string) string {
+	switch cut {
+	case "":
+		return ""
+	case target.LogCutSize:
+		return "loupe cut this log: it ran past what a dump holds, so these are its newest lines, fewer than asked for."
+	case target.LogCutTime:
+		return "loupe cut this log: reading further back ran out of time, so these are its newest lines, fewer than asked for."
+	}
+	return "loupe cut this log (" + cut + "): fewer lines than asked for."
 }
 
 func textResult(s string) *mcp.CallToolResult {

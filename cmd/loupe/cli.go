@@ -464,7 +464,8 @@ func schemaType(p map[string]any) string {
 }
 
 // writeResult prints a tool's answer. Text goes to stdout as the server sent
-// it, an image to out or stdout, and a tool error to stderr with exit 1.
+// it, an image to out or stdout, and a tool error or a note about the answer
+// (mcpserver.MetaNote) to stderr; an error exits 1.
 func writeResult(res *mcp.CallToolResult, out string) int {
 	w := io.Writer(os.Stdout)
 	if res.IsError {
@@ -473,7 +474,11 @@ func writeResult(res *mcp.CallToolResult, out string) int {
 	for _, c := range res.Content {
 		switch c := c.(type) {
 		case *mcp.TextContent:
-			fmt.Fprintln(w, strings.TrimRight(c.Text, "\n"))
+			tw := w
+			if c.Meta[mcpserver.MetaNote] == true {
+				tw = os.Stderr
+			}
+			fmt.Fprintln(tw, strings.TrimRight(c.Text, "\n"))
 		case *mcp.ImageContent:
 			if out != "" {
 				if err := os.WriteFile(out, c.Data, 0o644); err != nil {

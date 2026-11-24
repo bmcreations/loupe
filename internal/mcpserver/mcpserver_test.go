@@ -369,6 +369,35 @@ func TestLogcatPassesItsFiltersThrough(t *testing.T) {
 	}
 }
 
+// The tool drops headers, so a cut dump says so in a second item, which
+// leaves the log itself untouched.
+func TestLogcatSaysWhenTheDumpWasCut(t *testing.T) {
+	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/logcat" {
+			return false
+		}
+		w.Header().Set(httpapi.HeaderLogTruncated, "size")
+		io.WriteString(w, "newest\n")
+		return true
+	}}
+	cs, stop := connect(t, fake)
+	defer stop()
+	res := call(t, cs, "logcat", map[string]any{"target": "dev1", "since": "20m"})
+	if res.IsError || len(res.Content) != 2 {
+		t.Fatalf("result %+v; want the log and a note", res)
+	}
+	if log := res.Content[0].(*mcp.TextContent).Text; log != "newest\n" {
+		t.Errorf("log = %q", log)
+	}
+	note := res.Content[1].(*mcp.TextContent)
+	if !strings.Contains(note.Text, "newest lines, fewer than asked for") {
+		t.Errorf("note = %q", note.Text)
+	}
+	if note.Meta[MetaNote] != true {
+		t.Errorf("note meta = %v; want %s so the CLI sends it to stderr", note.Meta, MetaNote)
+	}
+}
+
 func TestAScreenshotComesBackAsAnImage(t *testing.T) {
 	png := []byte("\x89PNG\r\n\x1a\nfake")
 	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {

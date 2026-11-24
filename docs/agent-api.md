@@ -708,7 +708,7 @@ Returns the device log as plain text.
 | Param | Effect |
 |---|---|
 | `lines` | Last N lines. Default 500. |
-| `since` | Everything since a duration back from now (`5m`) or an RFC 3339 time, trimmed to `lines`. |
+| `since` | Everything since a duration back from now (`5m`) or an RFC 3339 time, trimmed to its newest `lines`. |
 | `pid`, `package`, `foreground=1` | At most one of these narrows the log to a process. `foreground` uses the foreground app. |
 | `tag` | Only entries with this tag. Exact, ignoring case. See the table below for what a tag is on each target. |
 | `text` | Only entries whose message holds this text on any of its lines, ignoring case. The header (time, pid, tag) is not searched. |
@@ -759,6 +759,20 @@ nothing. A rare tag with no `package` can take most of the limit.
 A follow with a filter starts from the last `lines` lines on Android and keeps
 those that match, so it can start with fewer. On a simulator a follow starts
 live either way.
+
+A dump holds at most 32 MiB, and keeps the newest part. When that leaves
+fewer lines than asked for, `X-Loupe-Log-Truncated` is `size`. A simulator
+dump, filtered or not and `since` included, reads back from now in the
+widening windows above, and when the 15 second limit stops it widening
+before it has `lines` lines, the header is `time`. Either way the lines are
+the newest. The MCP `logcat` tool adds a note after the log when the header
+is set, and `loupe logcat` prints that note to stderr, so a piped log stays as
+sent.
+
+An Android dump reads the whole `since` window to keep its newest part, so a
+window far back takes longer: `since=60m` on one phone took 11.0 seconds,
+where stopping at the first 32 MiB took 4.5. A read the 15 second limit stops
+is 502, not an older answer.
 
 Per platform:
 

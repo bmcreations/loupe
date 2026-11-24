@@ -57,8 +57,21 @@ type LogcatQuery struct {
 type Logcat struct {
 	PID     int
 	Package string
+	// Cut is set when the dump holds fewer lines than were asked for
+	// because reading stopped early, not because the log has no more: one
+	// of LogCutSize and LogCutTime.
+	Cut string
 	io.ReadCloser
 }
+
+const (
+	// LogCutSize is a dump that passed the size it may hold, so only its
+	// newest part was kept.
+	LogCutSize = "size"
+	// LogCutTime is a dump that ran out of time reading further back. What
+	// it holds is still the newest.
+	LogCutTime = "time"
+)
 
 // ErrAppNotRunning is a package that has no process to filter on. logcat
 // filters by pid, and a package that is not running has none.

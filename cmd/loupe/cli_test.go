@@ -304,3 +304,40 @@ func captureStdout(t *testing.T, f func() int) (int, string) {
 	r.Close()
 	return code, string(b)
 }
+
+func captureStderr(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	f()
+	os.Stderr = old
+	w.Close()
+	b, _ := io.ReadAll(r)
+	r.Close()
+	return string(b)
+}
+
+// A note about the answer goes to stderr, so a piped log, ndjson above
+// all, stays as the server sent it.
+func TestWriteResultSendsNotesToStderr(t *testing.T) {
+	log := `{"eventMessage":"a"}` + "\n"
+	res := &mcp.CallToolResult{Content: []mcp.Content{
+		&mcp.TextContent{Text: log},
+		&mcp.TextContent{Text: "loupe cut this log", Meta: mcp.Meta{mcpserver.MetaNote: true}},
+	}}
+	var code int
+	var stdout string
+	stderr := captureStderr(t, func() {
+		code, stdout = captureStdout(t, func() int { return writeResult(res, "") })
+	})
+	if code != 0 || stdout != log {
+		t.Errorf("exit %d stdout %q; want 0 and only the log", code, stdout)
+	}
+	if stderr != "loupe cut this log\n" {
+		t.Errorf("stderr = %q; want the note", stderr)
+	}
+}

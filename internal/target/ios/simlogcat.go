@@ -35,11 +35,12 @@ var bundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$`)
 // simulator compares it against launchctl's labels on the host.
 func ValidBundleID(id string) bool { return bundleIDPattern.MatchString(id) }
 
-// simLogWindows are the --last windows a lines-only dump tries in turn,
-// stopping at the first that holds enough lines. log show with no window
-// reads the whole store, and a streamed simulator logs fast: on loupe-probe
-// 10m was 545k lines in 10.1s, so 1h does not fit a 15s dump on a busy one,
-// while a quiet one gets through all three quickly because quiet is fast.
+// simLogWindows are the --last windows a dump tries in turn, stopping at
+// the first that holds enough lines. log show with no window reads the
+// whole store, and a streamed simulator logs fast: on loupe-probe 10m was
+// 545k lines in 10.1s, so 1h does not fit a 15s dump on a busy one, while
+// a quiet one gets through all three quickly because quiet is fast. A dump
+// with since tries those shorter than since, then since itself.
 var simLogWindows = []time.Duration{time.Minute, 10 * time.Minute, time.Hour}
 
 // simLogStart runs `log` inside the simulator. A var so tests can stand in
@@ -82,27 +83,20 @@ func (s *Simulator) Logcat(ctx context.Context, q target.LogcatQuery) (*target.L
 		return nil, err
 	}
 	out := &target.Logcat{PID: pid, Package: pkg}
-	switch {
-	case q.Follow:
+	if q.Follow {
 		r, err := simLogStart(ctx, s.UDID(), simLogArgs(q, pid, 0))
 		if err != nil {
 			return nil, err
 		}
 		out.ReadCloser = simLogReader(r, q)
-	case !q.Since.IsZero():
-		// The handler trims a since dump to its lines.
-		r, err := simLogStart(ctx, s.UDID(), simLogArgs(q, pid, 0))
-		if err != nil {
-			return nil, err
-		}
-		out.ReadCloser = simLogReader(r, q)
-	default:
-		b, err := simLogTail(ctx, s.UDID(), q, pid)
-		if err != nil {
-			return nil, err
-		}
-		out.ReadCloser = io.NopCloser(bytes.NewReader(b))
+		return out, nil
 	}
+	b, cut, err := simLogTail(ctx, s.UDID(), q, pid)
+	if err != nil {
+		return nil, err
+	}
+	out.Cut = cut
+	out.ReadCloser = io.NopCloser(bytes.NewReader(b))
 	return out, nil
 }
 
@@ -179,7 +173,7 @@ func pidForApp(list, bundle string) int {
 //
 // --start takes "YYYY-MM-DD HH:MM:SS" with an optional zone and no
 // fractional seconds, so since is rounded down to the second; a dump with
-// since is trimmed to its lines by the handler either way.
+// since is trimmed to its lines either way.
 //
 // --info brings in the Info lines show and stream both leave out by
 // default; React Native logs console.log at Info. Debug stays out: the store
@@ -207,44 +201,111 @@ func simLogArgs(q target.LogcatQuery, pid int, window time.Duration) []string {
 	return args
 }
 
-// simLogTail is the last q.Lines entries, trying each of simLogWindows
-// until one holds enough. With a tag or text, it counts the lines that
-// match, so a sparse tag can widen to the last window. It gives up
-// widening when the next window, guessed from how long this one took,
+// simLogTail is the last q.Lines entries, trying each window simLogSteps
+// gives until one holds enough. With a tag or text, it counts the lines
+// that match, so a sparse tag can widen to the last window. It gives up
+// widening when the next window, guessed from this one by simLogGuess,
 // would not finish before ctx's deadline, or when the deadline cuts one,
-// and returns what the last finished window had, which may be nothing.
+// and returns what the last finished window had with target.LogCutTime:
+// fewer lines than asked for, which may be none, but the newest.
+//
+// A since dump goes newest first too. Read from since onwards it would
+// stream the whole window oldest first, and a busy simulator logs more in
+// 20 minutes than a dump can read in time or hold.
 //
 // It counts lines, not entries, so a compact entry that runs over several
 // lines (a dictionary printed whole) can lose its first lines at the cut.
 // ndjson is one line per entry.
-func simLogTail(ctx context.Context, udid string, q target.LogcatQuery, pid int) ([]byte, error) {
+func simLogTail(ctx context.Context, udid string, q target.LogcatQuery, pid int) ([]byte, string, error) {
+	steps := simLogSteps(q, pid)
 	var best []byte
-	for i, w := range simLogWindows {
+	for i, st := range steps {
 		start := time.Now()
-		r, err := simLogStart(ctx, udid, simLogArgs(q, pid, w))
+		r, err := simLogStart(ctx, udid, st.args)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		lines, err := lastFiltered(simLogReader(r, q), q.Lines)
+		fr := &firstRead{ReadCloser: r}
+		lines, err := lastFiltered(simLogReader(fr, q), q.Lines)
 		if err != nil {
 			// A narrower window finished, so what it kept is the answer,
 			// even when a tag or text matched nothing in it.
 			if i > 0 && ctx.Err() != nil {
-				return best, nil
+				return best, target.LogCutTime, nil
 			}
-			return nil, err
+			return nil, "", err
 		}
 		best = joinLines(lines)
-		if len(lines) >= q.Lines || i+1 == len(simLogWindows) {
-			return best, nil
+		if len(lines) >= q.Lines || i+1 == len(steps) {
+			return best, "", nil
 		}
-		took := time.Since(start)
-		next := time.Duration(float64(took) * float64(simLogWindows[i+1]) / float64(w))
+		var first time.Duration
+		if !fr.at.IsZero() {
+			first = fr.at.Sub(start)
+		}
+		next := simLogGuess(first, time.Since(start), st.span, steps[i+1].span)
 		if dl, ok := ctx.Deadline(); ok && time.Until(dl) < next {
-			return best, nil
+			return best, target.LogCutTime, nil
 		}
 	}
-	return best, nil
+	return best, "", nil
+}
+
+// simLogGuess is how long a window of next will take, from one of span
+// whose first byte came at first and whose end at took. log show opens the
+// store before its first byte, header included, which costs every window
+// about the same (0.8-1s on a simulator), so only the reading after it is
+// scaled. first is 0 when no byte came, and all of took was the open.
+func simLogGuess(first, took, span, next time.Duration) time.Duration {
+	if first <= 0 || first > took {
+		first = took
+	}
+	return first + time.Duration(float64(took-first)*float64(next)/float64(span))
+}
+
+// firstRead notes when its first byte arrived.
+type firstRead struct {
+	io.ReadCloser
+	at time.Time
+}
+
+func (f *firstRead) Read(p []byte) (int, error) {
+	n, err := f.ReadCloser.Read(p)
+	if n > 0 && f.at.IsZero() {
+		f.at = time.Now()
+	}
+	return n, err
+}
+
+// simLogStep is one window simLogTail reads: how far back it goes, and
+// the arguments to `log` that read it.
+type simLogStep struct {
+	span time.Duration
+	args []string
+}
+
+// simLogSteps are the windows a dump tries: simLogWindows, or with since
+// those shorter than since and then since itself. A window within a second
+// of since is left to since, whose --start is rounded down to the second.
+func simLogSteps(q target.LogcatQuery, pid int) []simLogStep {
+	if q.Since.IsZero() {
+		steps := make([]simLogStep, len(simLogWindows))
+		for i, w := range simLogWindows {
+			steps[i] = simLogStep{w, simLogArgs(q, pid, w)}
+		}
+		return steps
+	}
+	span := time.Since(q.Since)
+	last := q
+	last.Since = time.Time{} // a --last window rather than --start
+	var steps []simLogStep
+	for _, w := range simLogWindows {
+		if w >= span-time.Second {
+			break
+		}
+		steps = append(steps, simLogStep{w, simLogArgs(last, pid, w)})
+	}
+	return append(steps, simLogStep{span, simLogArgs(q, pid, 0)})
 }
 
 // lastFiltered reads r to the end, keeping its last n lines, and closes it.
