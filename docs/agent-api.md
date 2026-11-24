@@ -820,7 +820,7 @@ in the device log when the call is made, by what each runtime prints for one:
 
 | `kind` | What matches |
 |---|---|
-| `jsError` | An error-level message that is one Error as React Native's console prints it, `[Error: message]` or `[TypeError: message]`: ReactNativeJS at `E` on Android, `com.facebook.react.log` `javascript` at Error or Fault on iOS. React Native's ExceptionsManager logs this line when it reports an uncaught Error and shows the redbox. |
+| `jsError` | An error-level message that is one Error as React Native's console prints it: `[Error: message]` or `[TypeError: message]`, or, for an Error with properties of its own, `{ [Error: message] code: 'E_X' }`. Every error thrown while rendering has a `componentStack`, so it comes in that second form, and so does one with a custom `name`, whatever the name is. ReactNativeJS at `E` on Android, `com.facebook.react.log` `javascript` at Error or Fault on iOS. React Native's ExceptionsManager logs this line when it reports an uncaught Error and shows the redbox. |
 | `dartError` | Flutter's `[ERROR:flutter/...] Unhandled Exception: ...`, the framework's `══╡ EXCEPTION CAUGHT BY ... ╞═` block up to its closing line, or `Another exception was thrown: ...`, which the framework prints in its place for each error after the first. |
 
 `console.warn`, React's `Warning: ...` messages, and any other text logged at

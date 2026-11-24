@@ -46,6 +46,59 @@ func TestScanLogErrorsReadsReactNativeErrors(t *testing.T) {
 	}
 }
 
+// An Error with properties of its own prints them after it in braces: React
+// adds componentStack to every error thrown while rendering, and an app sets
+// code or a custom name. The first two are what a simulator logged for a
+// render throw and an onPress throw with a code; the unified log cut the
+// first one off at about 1 KiB, so its closing brace never came.
+func TestScanLogErrorsReadsErrorsWithProperties(t *testing.T) {
+	render := "{ [Error: sample-js: thrown during render]\n" +
+		`  componentStack: '\n    at Boom (http://localhost:8081/App.bundle//&platform=ios&dev=true:122:20)\n    at RCTView (<anonymous>)\n    at View (http://localhost:8081/index.bundle//&platform=ios&dev=true&lazy=true&minify=false&inlineSourceMap=false&modulesOnly=false&runModule=true&excludeSource=true&sourcePaths=url-server&app=com.example.app&transform.routerRoot=app&transform.engine=hermes<…>`
+	got := ScanLogErrors([]LogEntry{
+		rnEntry(0, render),
+		rnEntry(1, "{ [Error: sample-js: thrown with a code] code: 'E_SAMPLE' }"),
+		rnEntry(2, "{ [ValidationFailure: bad input] name: 'ValidationFailure' }"),
+		rnEntry(3, "{ [Error: items[0] is missing] code: 'E_MISSING' }"),
+		rnEntry(4, "{ [Error] 'retry-after': 30 }"),
+		rnEntry(5, "{ [TypeError: first line\nsecond line]\n  componentStack: '\\n    at Row',\n  code: 'E_ROW' }"),
+	})
+	want := []string{
+		"Error: sample-js: thrown during render",
+		"Error: sample-js: thrown with a code",
+		"ValidationFailure: bad input",
+		"Error: items[0] is missing",
+		"Error",
+		"TypeError: first line",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d errors, want %d: %+v", len(got), len(want), got)
+	}
+	for i, e := range got {
+		if e.Kind != KindJSError || e.Summary != want[i] {
+			t.Errorf("[%d] = %+v, want jsError %q", i, e, want[i])
+		}
+	}
+	if got[0].Text != render {
+		t.Errorf("text = %q", got[0].Text)
+	}
+}
+
+// A function with properties prints in braces the same way, and an object
+// that holds an Error is not one.
+func TestScanLogErrorsSkipsObjectsThatAreNotErrors(t *testing.T) {
+	got := ScanLogErrors([]LogEntry{
+		rnEntry(0, "{ [Function: handler] displayName: 'Row' }"),
+		rnEntry(1, "{ [Function] a: 1 }"),
+		rnEntry(2, "{ error: [Error: x] }"),
+		rnEntry(3, "{ a: 1, b: 2 }"),
+		rnEntry(4, "{ [Error: x] and more after it }"),
+		rnEntry(5, "{ [Note: not an error] }"),
+	})
+	if len(got) != 0 {
+		t.Errorf("got %+v, want none", got)
+	}
+}
+
 // The bar is no false positives: React's warnings go to console.error as
 // strings, and an app logs whatever it likes there.
 func TestScanLogErrorsSkipsReactNativeLogsThatAreNotErrors(t *testing.T) {

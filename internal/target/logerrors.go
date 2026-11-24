@@ -93,6 +93,16 @@ func (e LogError) Report() CrashReport {
 // app's own bracketed text and an array or object dump do not match.
 var jsErrorRE = regexp.MustCompile(`(?s)^\[((?:[A-Za-z_$][\w$]*)?(?:Error|Exception)|Invariant Violation)(?:: (.*))?\]$`)
 
+// jsErrorPropsRE is an Error with properties of its own, which the console
+// prints in braces after it: "{ [Error: message] code: 'E_X' }", or with each
+// property on its own line once they run past 60 characters. React gives
+// every error thrown while rendering a componentStack. Only an Error or a
+// function can open a braced value, so any name but Function is an error's;
+// an app's own error names need no Error suffix here. The match stops at the
+// first property's key, since the log can cut a long message off before the
+// closing brace. A key is an identifier or a quoted string.
+var jsErrorPropsRE = regexp.MustCompile(`(?s)^\{ \[([^\]\n:]+?)(?:: (.*?))?\](?: |\n  )(?:[A-Za-z_]\w*|'(?:[^'\\\n]|\\.)*'): `)
+
 // dartUnhandledRE is the engine's line for an exception nothing caught,
 // "[ERROR:flutter/runtime/dart_vm_initializer.cc(40)] Unhandled Exception:
 // Bad state: ...". The file is left open: older engines logged it from
@@ -162,7 +172,9 @@ func ScanLogErrors(entries []LogEntry) []LogError {
 			}
 			m := jsErrorRE.FindStringSubmatch(e.Text)
 			if m == nil {
-				continue
+				if m = jsErrorPropsRE.FindStringSubmatch(e.Text); m == nil || m[1] == "Function" {
+					continue
+				}
 			}
 			summary := m[1]
 			if msg, _, _ := strings.Cut(m[2], "\n"); msg != "" {
