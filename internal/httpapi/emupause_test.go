@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
 // pauseADB is an adb whose console logs each `avd stop` with the serial it
 // went to, and reports every emulator running.
-func pauseADB(t *testing.T) (target.ADB, func() []string) {
+func pauseADB(t *testing.T) (android.ADB, func() []string) {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "stops")
@@ -28,15 +30,15 @@ esac
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return target.ADB{Path: bin}, func() []string {
+	return android.ADB{Path: bin}, func() []string {
 		b, _ := os.ReadFile(log)
 		return strings.Fields(string(b))
 	}
 }
 
-func attachedEmulator(m *Manager, adb target.ADB, avd, serial string) *target.Emulator {
-	e := target.NewEmulator(adb, target.EmulatorConfig{AVD: avd}, "", "")
-	e.Attach(target.DeviceInfo{Serial: serial, State: "device"})
+func attachedEmulator(m *Manager, adb android.ADB, avd, serial string) *android.Emulator {
+	e := android.NewEmulator(adb, android.EmulatorConfig{AVD: avd}, "", "")
+	e.Attach(android.DeviceInfo{Serial: serial, State: "device"})
 	m.Register(e)
 	return e
 }
@@ -136,7 +138,7 @@ esac
 		t.Fatal(err)
 	}
 	m := NewManager(target.Options{})
-	e := attachedEmulator(m, target.ADB{Path: bin}, "left", "emulator-5554")
+	e := attachedEmulator(m, android.ADB{Path: bin}, "left", "emulator-5554")
 
 	for _, info := range m.Targets(context.Background()) {
 		if info.ID == e.ID() && !info.Paused {
@@ -148,7 +150,7 @@ esac
 // killADB is an adb whose console logs each `emu kill` and `avd stop` with
 // the serial it went to, and drops a serial from get-state once killed. A
 // kill waits for release to be closed, when it is not nil.
-func killADB(t *testing.T, release chan struct{}) (target.ADB, func() []string) {
+func killADB(t *testing.T, release chan struct{}) (android.ADB, func() []string) {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls")
@@ -173,7 +175,7 @@ esac
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return target.ADB{Path: bin}, func() []string {
+	return android.ADB{Path: bin}, func() []string {
 		b, _ := os.ReadFile(log)
 		return strings.Fields(string(b))
 	}

@@ -483,7 +483,7 @@ raw keycode, from either of two sources:
 
 Buttons are named on the wire, not keycoded, so a non-Android target can map
 `"home"` to its own input event instead of an Android-specific number. The
-Android table (`internal/target/rotate.go`) names `home`, `back`, `recents`
+Android table (`internal/target/android/rotate.go`) names `home`, `back`, `recents`
 and `lock`; `appSwitcher` is deliberately absent from it, since that is
 iOS's name for what Android calls `recents`, and an Android target asked for
 it gets a 400 naming the buttons it actually has rather than a silent guess.

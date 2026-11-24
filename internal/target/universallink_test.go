@@ -232,7 +232,7 @@ func TestOpenUniversalLinkFallsBack(t *testing.T) {
 	var ran []string
 	simopenRun = func(ctx context.Context, udid, url, bundle string) error {
 		ran = append(ran, bundle)
-		return redactErr(errors.New("simopen: exit 1: open failed for "+url), url)
+		return RedactErr(errors.New("simopen: exit 1: open failed for "+url), url)
 	}
 	s := NewSimulator(SimInfo{UDID: "u"}, "")
 	var logged strings.Builder

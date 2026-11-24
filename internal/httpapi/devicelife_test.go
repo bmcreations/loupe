@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/record"
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
@@ -57,7 +59,7 @@ func (l *lifeTarget) BootsOnOpen() bool { return l.boots }
 type stuckBootTarget struct{ *lifeTarget }
 
 func (stuckBootTarget) BootStatus(context.Context) target.BootStatus {
-	return target.BootStatus{State: target.BootStateBooting, ProcessAlive: true, PID: 42}
+	return target.BootStatus{State: android.BootStateBooting, ProcessAlive: true, PID: 42}
 }
 
 func (l *lifeTarget) SaveState(context.Context) (bool, error) {
@@ -871,7 +873,7 @@ func TestShutdownSaveFailureKeepsItRunning(t *testing.T) {
 
 func TestShutdownSaveLingeringIs409(t *testing.T) {
 	s, lt := newLifeServer(t, "avd:a", nil)
-	lt.warmErr = fmt.Errorf("save a: %w", target.ErrStreamLingering)
+	lt.warmErr = fmt.Errorf("save a: %w", android.ErrStreamLingering)
 	w := doRecord(s, http.MethodPost, "/api/devices/shutdown?target=avd:a&save=1", nil)
 	if w.Code != http.StatusConflict || errCode(t, w) != ErrCodeBusy {
 		t.Fatalf("save = %d %s; want 409 busy", w.Code, w.Body.String())

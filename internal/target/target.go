@@ -1,7 +1,7 @@
-// Package target defines the contract every streamable Android source satisfies,
-// plus the concrete implementations: a physical device over adb, a managed
-// emulator, and a synthetic test pattern used to validate the client without
-// any Android hardware attached.
+// Package target defines the contract every streamable source satisfies, the
+// interfaces for what a target can do (input, launch, UI tree, settings,
+// frames, ...), and the iOS simulator, physical iPhone and synthetic test
+// pattern targets. Android devices and emulators are in package android.
 package target
 
 import (

@@ -83,7 +83,7 @@ func TestRemoteTrackWanted(t *testing.T) {
 	}{{"", false, false}, {"", true, true}, {"off", true, false}, {"0", true, false}, {"on", false, true}, {"1", false, true}}
 	for _, c := range cases {
 		t.Setenv("LOUPE_REMOTE_TRACK", c.env)
-		if got := remoteTrackWanted(c.caps); got != c.want {
+		if got := RemoteTrackWanted(c.caps); got != c.want {
 			t.Errorf("env %q caps %v: got %v", c.env, c.caps, got)
 		}
 	}

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -65,7 +67,7 @@ func TestADeletedSimulatorIsKeptAndSaysWhy(t *testing.T) {
 func TestAnAdbSyncDoesNotMarkSimulatorsMissing(t *testing.T) {
 	m := NewManager(target.Options{})
 	m.SyncSimulators([]target.SimInfo{simProbe}, "")
-	m.SyncDevices([]target.DeviceInfo{acmeReady}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 	m.SyncDevices(nil, buildADB)
 
 	if !infoFor(t, m, target.SimulatorID(simProbe.UDID)).Available {
@@ -80,7 +82,7 @@ func TestSimulatorsListAfterDevicesRunningFirstThenByName(t *testing.T) {
 	booted.State = "Booted"
 	other := target.SimInfo{UDID: "00000000-0000-0000-0000-000000000000", Name: "iPhone 17", State: "Shutdown"}
 	m.SyncSimulators([]target.SimInfo{simProbe, other, booted}, "")
-	m.SyncDevices([]target.DeviceInfo{acmeReady}, buildADB)
+	m.SyncDevices([]android.DeviceInfo{acmeReady}, buildADB)
 
 	var ids []string
 	for _, ti := range m.Targets(context.Background()) {

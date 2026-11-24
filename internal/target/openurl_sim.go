@@ -55,7 +55,7 @@ func simopenBuild(ctx context.Context) (string, error) {
 	for _, b := range [][]byte{simopenSource, simopenEntitlements, ver} {
 		h.Write(b)
 	}
-	dir, err := cameraDir()
+	dir, err := CameraDir()
 	if err != nil {
 		return "", err
 	}
@@ -213,20 +213,20 @@ func (s *Simulator) openUniversalLink(ctx context.Context, u string) (bundle str
 	}
 	bundle, err = universalLinkApp(ctx, s.UDID(), pu)
 	if err != nil {
-		log.Printf("openURL %s on %s: universal link lookup: %v", RedactURL(u), s.UDID(), redactErr(err, u))
+		log.Printf("openURL %s on %s: universal link lookup: %v", RedactURL(u), s.UDID(), RedactErr(err, u))
 	}
 	if bundle == "" {
 		return "", false
 	}
 	if err := simopenRun(ctx, s.UDID(), u, bundle); err != nil {
-		log.Printf("openURL %s on %s: open in %s: %v; falling back to simctl openurl", RedactURL(u), s.UDID(), bundle, redactErr(err, u))
+		log.Printf("openURL %s on %s: open in %s: %v; falling back to simctl openurl", RedactURL(u), s.UDID(), bundle, RedactErr(err, u))
 		return "", false
 	}
 	return bundle, true
 }
 
 // simopenRun runs the helper on the simulator. The helper prints nothing
-// of the URL, and its output still goes through redactErr.
+// of the URL, and its output still goes through RedactErr.
 var simopenRun = func(ctx context.Context, udid, u, bundle string) error {
 	helper, err := simopenBuild(ctx)
 	if err != nil {
@@ -234,7 +234,7 @@ var simopenRun = func(ctx context.Context, udid, u, bundle string) error {
 	}
 	out, err := exec.CommandContext(ctx, "xcrun", "simctl", "spawn", udid, helper, u, bundle).CombinedOutput()
 	if err != nil {
-		return redactErr(fmt.Errorf("simopen: %w: %s", err, strings.TrimSpace(string(out))), u)
+		return RedactErr(fmt.Errorf("simopen: %w: %s", err, strings.TrimSpace(string(out))), u)
 	}
 	return nil
 }

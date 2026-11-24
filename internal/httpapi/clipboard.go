@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"unicode/utf8"
 
+	"github.com/bmcreations/loupe/internal/target/android"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -54,7 +56,7 @@ func (s *Server) handleClipboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		status := http.StatusBadGateway
-		if errors.Is(err, target.ErrClipboardNoSession) {
+		if errors.Is(err, android.ErrClipboardNoSession) {
 			status = http.StatusConflict
 		}
 		writeJSON(w, status, ErrorResponse{Error: err.Error()})

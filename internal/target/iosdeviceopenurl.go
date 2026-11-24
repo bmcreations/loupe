@@ -42,7 +42,7 @@ func (d *IOSDevice) OpenURL(ctx context.Context, u string) (*LaunchResult, error
 	}
 	out, err := devicectlOpenURL(ctx, d.device(), u)
 	if err != nil {
-		return nil, redactErr(fmt.Errorf("devicectl launch %s with a payload: %w: %s", safariBundle, err, strings.TrimSpace(string(out))), u)
+		return nil, RedactErr(fmt.Errorf("devicectl launch %s with a payload: %w: %s", safariBundle, err, strings.TrimSpace(string(out))), u)
 	}
 	return &LaunchResult{Activity: safariBundle}, nil
 }

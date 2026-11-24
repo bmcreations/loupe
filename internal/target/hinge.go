@@ -20,10 +20,10 @@ import (
 // coalesced: while one is going to the device, only the newest of the ones
 // queued behind it is sent.
 const (
-	hingeAngleID   = "hingeAngle"
-	hingeAngleMin  = 0
-	hingeAngleMax  = 180
-	hingeAngleStep = 1
+	HingeAngleID   = "hingeAngle"
+	HingeAngleMin  = 0
+	HingeAngleMax  = 180
+	HingeAngleStep = 1
 )
 
 // hingeWriteTimeout bounds one coalesced write. It runs detached from the
@@ -35,8 +35,8 @@ const hingeWriteTimeout = simHingeOpen + 5*time.Second
 // hingeSetting is the row both kinds of target report.
 func hingeSetting(deg float64) Setting {
 	return Setting{
-		ID: hingeAngleID, Type: SettingRange, Value: deg,
-		Min: ptr(hingeAngleMin), Max: ptr(hingeAngleMax), Step: ptr(hingeAngleStep),
+		ID: HingeAngleID, Type: SettingRange, Value: deg,
+		Min: ptr(HingeAngleMin), Max: ptr(HingeAngleMax), Step: ptr(HingeAngleStep),
 		Supported: true, Applies: "immediately",
 	}
 }
@@ -55,19 +55,19 @@ type HingeWriter interface {
 	WriteHingeAngle(ctx context.Context, v any) (sent int, err error)
 }
 
-// parseHingeAngle checks a PUT's value: a JSON number, whole degrees, in
+// ParseHingeAngle checks a PUT's value: a JSON number, whole degrees, in
 // range. Whole degrees is the step the GET advertises; a fraction is refused
 // rather than rounded so a client that sent 90.5 is not told 90 took.
-func parseHingeAngle(v any) (int, error) {
+func ParseHingeAngle(v any) (int, error) {
 	f, ok := v.(float64)
 	if !ok {
 		return 0, fmt.Errorf("want a number, got %T", v)
 	}
-	if math.IsNaN(f) || f < hingeAngleMin || f > hingeAngleMax {
-		return 0, fmt.Errorf("%s %v is outside %d-%d", hingeAngleID, f, hingeAngleMin, hingeAngleMax)
+	if math.IsNaN(f) || f < HingeAngleMin || f > HingeAngleMax {
+		return 0, fmt.Errorf("%s %v is outside %d-%d", HingeAngleID, f, HingeAngleMin, HingeAngleMax)
 	}
 	if f != math.Trunc(f) {
-		return 0, fmt.Errorf("%s %v is not a whole number of degrees", hingeAngleID, f)
+		return 0, fmt.Errorf("%s %v is not a whole number of degrees", HingeAngleID, f)
 	}
 	return int(f), nil
 }
@@ -78,14 +78,14 @@ func parseHingeAngle(v any) (int, error) {
 // hinge ended.
 var ErrStillSending = errors.New("still sending")
 
-// hingeCoalescer sends writes that move one target's hinge, newest first:
+// HingeCoalescer sends writes that move one target's hinge, newest first:
 // hingeAngle and posture alike, so the two go out in the order they arrive
 // and a posture's settle wait is never cut into by a slider. A Set that
 // arrives while a write is running replaces whatever was queued behind it.
 // The replaced Set waits for the write that runs in its place and answers
 // with that write's angle and error, so it never reports an angle that was
 // not sent. The zero value is ready.
-type hingeCoalescer struct {
+type HingeCoalescer struct {
 	mu      sync.Mutex
 	running bool
 	queued  *hingeWrite
@@ -112,7 +112,7 @@ type hingeWrite struct {
 // sent is the angle that went to the device for this call: deg, or the
 // angle of the write that ran in its place. err is that write's. sent is
 // valid only when err is nil.
-func (c *hingeCoalescer) Set(ctx context.Context, deg int, apply func(ctx context.Context, deg int) error) (sent int, err error) {
+func (c *HingeCoalescer) Set(ctx context.Context, deg int, apply func(ctx context.Context, deg int) error) (sent int, err error) {
 	w := &hingeWrite{deg: deg, apply: apply, done: make(chan struct{}), sent: deg}
 	c.mu.Lock()
 	if prev := c.queued; prev != nil {
@@ -134,7 +134,7 @@ func (c *hingeCoalescer) Set(ctx context.Context, deg int, apply func(ctx contex
 	}
 }
 
-func (c *hingeCoalescer) drain() {
+func (c *HingeCoalescer) drain() {
 	for {
 		c.mu.Lock()
 		w := c.queued
@@ -155,9 +155,9 @@ func (c *hingeCoalescer) drain() {
 	}
 }
 
-// moveHinge sends one write through c. A nil c, an androidSettings built
+// MoveHinge sends one write through c. A nil c, an androidSettings built
 // by a test, runs apply at once.
-func moveHinge(ctx context.Context, c *hingeCoalescer, deg int, apply func(ctx context.Context, deg int) error) error {
+func MoveHinge(ctx context.Context, c *HingeCoalescer, deg int, apply func(ctx context.Context, deg int) error) error {
 	if c == nil {
 		return apply(ctx, deg)
 	}
