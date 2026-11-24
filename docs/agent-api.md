@@ -938,9 +938,16 @@ Removes flags from the server's list, which otherwise only a restart clears
 
 Both, neither, or an `id` that is not a number is 400; nothing is deleted.
 
-The body is `{"deleted": <count>}`. Deleting an interrupt flag the agent has
-not read lifts the interrupt: the agent's next input no longer answers
-`interrupted`. A watch still open is dropped without capturing its end screen.
+An interrupt flag its agent has not read is 409 `code: "unreadInterrupt"`, with
+the flag in `id`, and nothing is deleted. Deleting it would lift the person's
+stop with nobody having read it. For `?target=`, one unread interrupt among the
+target's flags refuses the whole call, and the other flags stay too. Read the
+flag first with `GET /api/flags?id=`, as the agent it stops
+([flags.md](flags.md#interrupts)); the read lifts it only once the interrupt
+has ended. The delete then goes through.
+
+The body is `{"deleted": <count>}`. A watch still open is dropped without
+capturing its end screen.
 A long-poll on `GET /api/flags?waitMs=` is not woken by a delete and never
 returns a deleted flag. Files already written to disk for a flag sent to a
 program or T3 Code are not removed; they age out with the newest 32. The same

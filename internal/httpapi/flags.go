@@ -411,13 +411,18 @@ func (st *flagStore) get(id uint64) *storedFlag {
 	return nil
 }
 
-// removeLocked drops every flag keep reports false for, stopping the timers of
-// those still watching and lifting any interrupt gate that named them. It
-// returns what it dropped. It does not wake waiters: a delete revises no
-// flag, so nothing is newer than what a waiter has already seen. Called with
-// mu held.
-func (st *flagStore) removeLocked(drop func(*storedFlag) bool) []*storedFlag {
-	var gone []*storedFlag
+// removeLocked drops every flag drop reports true for, stopping the timers of
+// those still watching, and returns what it dropped. If any of them is an
+// interrupt its agent has yet to read, it drops nothing and returns that one
+// as unread instead: deleting it would lift the person's stop with nobody
+// having read it. It does not wake waiters: a delete revises no flag, so
+// nothing is newer than what a waiter has already seen. Called with mu held.
+func (st *flagStore) removeLocked(drop func(*storedFlag) bool) (gone []*storedFlag, unread *storedFlag) {
+	for _, f := range st.flags {
+		if g, ok := st.interrupts[f.Target]; ok && g.id == f.ID && drop(f) {
+			return nil, f
+		}
+	}
 	kept := st.flags[:0]
 	for _, f := range st.flags {
 		if !drop(f) {
@@ -427,14 +432,11 @@ func (st *flagStore) removeLocked(drop func(*storedFlag) bool) []*storedFlag {
 		if f.timer != nil {
 			f.timer.Stop()
 		}
-		if g, ok := st.interrupts[f.Target]; ok && g.id == f.ID {
-			delete(st.interrupts, f.Target)
-		}
 		gone = append(gone, f)
 	}
 	clear(st.flags[len(kept):])
 	st.flags = kept
-	return gone
+	return gone, nil
 }
 
 // list returns the flags revised after after, oldest first, without their
@@ -491,7 +493,9 @@ type DeleteFlagsResponse struct {
 
 // deleteFlags removes one flag (?id=) or every flag on a target (?target=).
 // Exactly one is required. An unknown id is a 404, as reading it is; a target
-// with no flags deletes none and succeeds, so clearing is repeatable.
+// with no flags deletes none and succeeds, so clearing is repeatable. An
+// interrupt its agent has not read is ErrCodeUnreadInterrupt, and then
+// nothing is deleted, not even a target's other flags.
 func (s *Server) deleteFlags(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	idv, targetID := q.Get("id"), q.Get("target")
@@ -512,8 +516,16 @@ func (s *Server) deleteFlags(w http.ResponseWriter, r *http.Request) {
 		drop = func(f *storedFlag) bool { return f.Target == targetID }
 	}
 	s.flags.mu.Lock()
-	gone := s.flags.removeLocked(drop)
+	gone, unread := s.flags.removeLocked(drop)
 	s.flags.mu.Unlock()
+	if unread != nil {
+		writeJSON(w, http.StatusConflict, ErrorResponse{
+			Error: fmt.Sprintf("flag %d is an interrupt its agent has not read; nothing was deleted. Read it with GET /api/flags?id=%d once it has ended, then delete", unread.ID, unread.ID),
+			Code:  ErrCodeUnreadInterrupt,
+			ID:    strconv.FormatUint(unread.ID, 10),
+		})
+		return
+	}
 	if idv != "" && len(gone) == 0 {
 		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: fmt.Sprintf("no flag %d; the server keeps the last %d", id, maxFlags)})
 		return

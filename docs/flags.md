@@ -56,8 +56,10 @@ Reading:
 - `GET /api/flags/shot?id=&which=start|end` is the PNG.
 
 Clearing: `DELETE /api/flags?id=` removes one flag and `DELETE /api/flags?target=`
-every flag on a target ([agent-api.md](agent-api.md)). Deleting an unread
-interrupt lifts it.
+every flag on a target ([agent-api.md](agent-api.md)). An interrupt nobody has
+read is not deleted: the call answers 409 `code: "unreadInterrupt"` with the
+flag's `id` and deletes nothing, including a target's other flags. Read it
+first.
 
 `GET /api/flags/listeners?target=` is who would hear a flag raised now:
 
@@ -199,5 +201,7 @@ one on a ⇧⌘-drag, or from "Stop agent & flag" on the driving banner.
 - Reading mid-interrupt lifts nothing, so the agent decides from the device as
   the person left it whether its plan still applies.
 - A newer interrupt on the target replaces the older one.
+- `DELETE /api/flags` refuses an interrupt until it is read (409
+  `code: "unreadInterrupt"`), so deleting it is no way around reading it.
 - A read carrying `X-Loupe-Viewer` is a person's app, such as the Mac app
   following a delivery, and lifts nothing.

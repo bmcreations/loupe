@@ -10,6 +10,7 @@ import (
 	imgpng "image/png"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -270,21 +271,78 @@ func TestDeleteFlagsRefusesBadQueries(t *testing.T) {
 	}
 }
 
-func TestDeletingAnInterruptLiftsItsGate(t *testing.T) {
-	for _, q := range []string{"?id=1", "?target=dev1"} {
+// An agent holding the token must not clear a person's stop without reading
+// it, so deleting an unread interrupt is refused and nothing goes, whether it
+// is still open, ended, or read only by an agent it does not stop. Presence
+// is checked with the list and the gate with mayAct: a GET by id would be a
+// read.
+func TestDeletingAnUnreadInterruptIsRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(s *Server)
+	}{
+		{"open", func(s *Server) {}},
+		{"ended", func(s *Server) {
+			serveOn(s, http.MethodPost, "/api/flags/end?id=2", "", nil)
+		}},
+		{"read by another session", func(s *Server) {
+			serveOn(s, http.MethodPost, "/api/flags/end?id=2", "", nil)
+			serveOn(s, http.MethodGet, "/api/flags?id=2", "", map[string]string{HeaderAgent: "claude", HeaderSession: "s2"})
+		}},
+	} {
+		for _, q := range []string{"?id=2", "?target=dev1"} {
+			s, _ := newFlagServer(t)
+			s.claims = newClaimBook(nil)
+			if _, refused := s.claims.take("dev1", "claude", "s1", ""); refused != nil {
+				t.Fatalf("claim refused: %+v", refused)
+			}
+			holder := inputCaller{agent: "claude", session: "s1"}
+			req := httptest.NewRequest(http.MethodPost, "/api/input?target=dev1", nil)
+			serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{}`, nil)
+			serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"kind":"interrupt"}`, nil)
+			tc.setup(s)
+
+			var e ErrorResponse
+			json.Unmarshal(deleteFlags(t, s, q, http.StatusConflict), &e)
+			if e.Code != "unreadInterrupt" || e.ID != "2" {
+				t.Errorf("%s %s: refusal = %+v, want code unreadInterrupt naming flag 2", tc.name, q, e)
+			}
+			if !strings.Contains(e.Error, "GET /api/flags?id=2") {
+				t.Errorf("%s %s: error %q does not say to read flag 2 first", tc.name, q, e.Error)
+			}
+			if ids := flagIDs(t, s); len(ids) != 2 || ids[0] != 1 || ids[1] != 2 {
+				t.Errorf("%s %s: flags left = %v, want [1 2]: a refused delete removes nothing", tc.name, q, ids)
+			}
+			if r := s.mayAct(req, "dev1", "tap", holder); r == nil || r.Code != ErrCodeInterrupted {
+				t.Errorf("%s %s: tap after the refused delete = %+v, want still interrupted", tc.name, q, r)
+			}
+		}
+	}
+}
+
+func TestDeletingAReadInterruptSucceeds(t *testing.T) {
+	for _, tc := range []struct {
+		q    string
+		want int
+	}{{"?id=2", 1}, {"?target=dev1", 2}} {
 		s, _ := newFlagServer(t)
 		req := httptest.NewRequest(http.MethodPost, "/api/input?target=dev1", nil)
 		caller := inputCaller{agent: "claude", session: "s1"}
+		serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{}`, nil)
 		serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"kind":"interrupt"}`, nil)
-		if r := s.mayAct(req, "dev1", "tap", caller); r == nil || r.Code != ErrCodeInterrupted {
-			t.Fatalf("%s: tap = %+v, want interrupted before the delete", q, r)
-		}
-		deleteFlags(t, s, q, http.StatusOK)
+		serveOn(s, http.MethodPost, "/api/flags/end?id=2", "", nil)
+		serveOn(s, http.MethodGet, "/api/flags?id=2", "", map[string]string{HeaderAgent: "claude", HeaderSession: "s1"})
 		if r := s.mayAct(req, "dev1", "tap", caller); r != nil {
-			t.Errorf("%s: tap after deleting the unread interrupt = %+v, want allowed", q, r)
+			t.Fatalf("%s: tap after reading the interrupt = %+v, want allowed", tc.q, r)
 		}
-		if _, held := s.flags.interrupted("dev1", callerKey("claude", "s1")); held {
-			t.Errorf("%s: the store still holds the interrupt", q)
+
+		var got DeleteFlagsResponse
+		json.Unmarshal(deleteFlags(t, s, tc.q, http.StatusOK), &got)
+		if got.Deleted != tc.want {
+			t.Errorf("%s: deleted = %d, want %d", tc.q, got.Deleted, tc.want)
+		}
+		if r := s.mayAct(req, "dev1", "tap", caller); r != nil {
+			t.Errorf("%s: tap after the delete = %+v, want allowed", tc.q, r)
 		}
 	}
 }

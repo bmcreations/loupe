@@ -23,7 +23,8 @@ type ErrorResponse struct {
 	// ErrCodeHumanHeld.
 	RetryAfterMs int64 `json:"retryAfterMs,omitempty"`
 	// ID names the recording that caused an ErrCodeRecording 409 on a start,
-	// when it is known, and the flag behind an ErrCodeInterrupted 409.
+	// when it is known, and the flag behind an ErrCodeInterrupted or
+	// ErrCodeUnreadInterrupt 409.
 	ID string `json:"id,omitempty"`
 	// Claim is the claim that caused an ErrCodeClaimed 409.
 	Claim *ClaimInfo `json:"claim,omitempty"`
@@ -94,6 +95,14 @@ const ErrCodeHumanHeld = "humanHeld"
 // with GET /api/flags?id=, which lifts the refusal, and decides from the
 // screen as it is now whether what it was doing still applies.
 const ErrCodeInterrupted = "interrupted"
+
+// ErrCodeUnreadInterrupt is DELETE /api/flags's 409 when a flag it would
+// delete is an interrupt its agent has not read: deleting it would lift the
+// person's stop unread. ID is the flag's. Nothing was deleted, not even a
+// ?target='s other flags. Reading it with GET /api/flags?id= once it has
+// ended, as the agent it stops, lifts the interrupt and the delete then goes
+// through.
+const ErrCodeUnreadInterrupt = "unreadInterrupt"
 
 // ErrCodeClaimed is the 409 an agent gets for input on a target another agent
 // has claimed, and for claiming or releasing one. `claim` names the holder.

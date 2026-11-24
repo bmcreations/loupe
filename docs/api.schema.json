@@ -18,6 +18,9 @@
     "DELETE /api/flags": {
       "$ref": "#/$defs/httpapi.DeleteFlagsResponse"
     },
+    "DELETE /api/flags 409": {
+      "$ref": "#/$defs/httpapi.ErrorResponse"
+    },
     "DELETE /api/install 200": {
       "$ref": "#/$defs/httpapi.UninstallResponse"
     },
