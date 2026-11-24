@@ -37,6 +37,7 @@ the file beats the default.** The file is described under Configuration below.
 | `-emulator` | from the SDK | Path to the emulator binary |
 | `-android-avdmanager` | `cmdline-tools/*/bin` in the SDK | avdmanager, which creates AVDs from installed system images |
 | `-android-cli` | `/usr/local/bin/android`, then `/opt/homebrew/bin/android` | Google's android CLI, which creates AVDs from the picker |
+| `-bundletool` | `bundletool` on PATH, then `/opt/homebrew/bin`, then `/usr/local/bin` | bundletool, a script or `bundletool-all.jar`, which `/api/install` runs to build APKs from an `.aab` |
 | `-avd` | | AVD to boot at startup. Repeatable. Every installed AVD is listed either way |
 | `-gpu` | `host` | Emulator GPU mode. **Only `host` reaches 60fps** |
 | `-emulator-window` | `false` | Open the emulator's window when booting an AVD; off runs it headless with no audio |

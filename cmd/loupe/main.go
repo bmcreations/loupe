@@ -231,6 +231,7 @@ func main() {
 		androidSDK    = flag.String("android-sdk", "", "Android SDK root (default: ANDROID_HOME, ANDROID_SDK_ROOT, then ~/Library/Android/sdk)")
 		avdManager    = flag.String("android-avdmanager", "", "path to avdmanager, which creates AVDs from installed system images (default: cmdline-tools/*/bin in the Android SDK)")
 		androidCLI    = flag.String("android-cli", "", "path to Google's android CLI, which creates AVDs from the picker (default: /usr/local/bin/android, then /opt/homebrew/bin/android)")
+		bundletool    = flag.String("bundletool", "", "path to bundletool, a script or bundletool-all.jar, which /api/install runs to turn an .aab into APKs (default: bundletool on PATH, then /opt/homebrew/bin, then /usr/local/bin)")
 		revylCLI      = flag.String("revyl-cli", "", "path to the revyl CLI, which starts Revyl cloud devices on your own account (default: ~/.revyl/bin/revyl, /opt/homebrew/bin, /usr/local/bin, then loupe's own download)")
 		gpu           = flag.String("gpu", "host", "emulator -gpu mode; only 'host' reaches 60fps")
 		synthetic     = flag.Bool("synthetic", false, "register a synthetic 60fps test pattern target")
@@ -668,6 +669,7 @@ func main() {
 	go hostModel()
 	api.SetHostModel(hostModel)
 	api.SetAAPT2(android.AAPT2Binary(android.SDKRoot(*androidSDK)))
+	api.SetBundletool(func() ([]string, error) { return android.FindBundletool(*bundletool) })
 	// Presets beside it, for the same reason.
 	if err := api.SetPresetsPath(filepath.Join(filepath.Dir(cfgPath), "presets.json")); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: presets unreadable, starting with none: %v\n", err)

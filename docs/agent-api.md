@@ -41,7 +41,7 @@ Common refusals on routes that change a device:
 | `POST /api/input` | Tap, swipe, text, keys, buttons, launch, open URL, wait |
 | `POST /api/sequence` | Several input steps in one request |
 | `POST /api/drop` | Paste an image into a simulator text field |
-| `POST /api/install` | Install an APK or split set, or an iOS app |
+| `POST /api/install` | Install an APK, a split set or an App Bundle (`.aab`), or an iOS app |
 | `DELETE /api/install` | Uninstall an Android app |
 | `POST /api/media` | Add a photo or video to the device library |
 | `POST`, `DELETE /api/camera` | Feed the back camera an image, or an AVD one of the Mac's cameras |
@@ -354,8 +354,8 @@ a `tap` event there. The image is never traced.
 
 ### `POST /api/install?target=<id>`
 
-Installs the request body as an APK. A `multipart/form-data` body installs a
-base and its splits together:
+Installs the request body as an APK, or as the APKs built from an App Bundle
+(below). A `multipart/form-data` body installs a base and its splits together:
 
 ```sh
 curl -F apk=@base.apk -F apk=@split.apk "$URL/api/install?target=$ID"
@@ -364,6 +364,22 @@ curl -F apk=@base.apk -F apk=@split.apk "$URL/api/install?target=$ID"
 Up to 64 file parts, any field name. **Splits are the normal case**: anything
 built from an App Bundle is a base plus config splits, and the base alone is
 refused with `INSTALL_FAILED_MISSING_SPLIT`.
+
+**An App Bundle (`.aab`)**, as `flutter build appbundle` and EAS build by
+default, goes as the whole body or as the only file part. loupe knows it by
+the `BundleConfig.pb` at its root, not by its name. bundletool reads the
+device's spec over adb, builds the APKs that spec takes, and those install as
+a base and splits would; `splits` in the response names them, base first.
+This needs bundletool on the Mac running loupe: `brew install bundletool`, or
+`-bundletool` pointing at a bundletool script or `bundletool-all.jar` (a jar
+also needs a Java runtime). It is looked up on each install, so installing it
+needs no restart.
+
+bundletool signs what it builds with `~/.android/debug.keystore`, the key
+Gradle debug builds create, not with the bundle's own key. Without that file
+it builds unsigned APKs, which no device installs, so loupe stops there with
+a 501 `noDebugKeystore` and nothing reaches the device. A release `.aab`
+installs debug-signed too.
 
 | Param | Effect |
 |---|---|
@@ -374,9 +390,12 @@ refused with `INSTALL_FAILED_MISSING_SPLIT`.
 
 | Status | Meaning |
 |---|---|
-| 400 | A part is not a zip (the error names it). |
+| 400 | A part is not a zip (the error names it), or an `.aab` came with other files. |
 | 413 | Upload over 1 GiB. |
 | 422 | The package manager refused. The response has adb's output and the `INSTALL_FAILED_*` code split out. `INSTALL_FAILED_VERSION_DOWNGRADE` adds a `hint`: retry with `downgrade=1` (debuggable app) or uninstall first. |
+| 422 | `code: "BUNDLETOOL_FAILED"`: bundletool refused the `.aab` itself: a config or manifest it cannot parse, an entry path it rejects, an entry whose compressed data ends early. `reason` is its error line and `output` all it printed. |
+| 501 | `code: "noBundletool"`: an `.aab`, and no bundletool on this Mac. `code: "noJava"`: bundletool is a jar and no Java runtime was found. `code: "noDebugKeystore"`: no `~/.android/debug.keystore` to sign the APKs with. The error says what to install or create. |
+| 502 | adb or the device failed. For an `.aab`, also: no adb for bundletool to run, bundletool failing to read the device's spec, its JVM exiting before bundletool reported an error, a file error on this Mac while bundletool ran (a missing temp directory, a full disk), and `extract-apks` writing no APKs for the device or more than 64. The error says which. |
 
 Any `Failure [...]` line fails the install whatever adb's exit status, and so
 does a zero exit with no `Success` line.
