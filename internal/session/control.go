@@ -99,6 +99,12 @@ func (s *Session) AgentFailed() {
 	s.control(func(a *Arbiter, now time.Time) []ControlChange { return a.AgentFailed(now) })
 }
 
+// AgentGone ends the named agent's "driving" or "waiting" banner at once,
+// for an agent whose claim on the target ended.
+func (s *Session) AgentGone(name string) {
+	s.control(func(a *Arbiter, now time.Time) []ControlChange { return a.AgentGone(name, now) })
+}
+
 // ControlState reports who holds the target and what the agent is doing.
 func (s *Session) ControlState() ControlState {
 	s.ctlMu.Lock()

@@ -208,6 +208,19 @@ func (a *Arbiter) AgentActed(name string, now time.Time) []ControlChange {
 	return append(a.Tick(now), a.agentIs(AgentDriving, name, now)...)
 }
 
+// AgentGone reports the agent name as idle at once when it is the one shown
+// driving or waiting: its claim ended, so it no longer acts on the target.
+// Waiting out agentShown would keep offering a take over from an agent that
+// already let go. Another agent shown is left as it is.
+func (a *Arbiter) AgentGone(name string, now time.Time) []ControlChange {
+	changes := a.Tick(now)
+	if a.agent != AgentIdle && a.agentName == name {
+		a.agent = AgentIdle
+		changes = append(changes, ControlChange{Agent: AgentIdle, AgentName: a.agentName})
+	}
+	return changes
+}
+
 // AgentFailed records that an allowed agent's action did not reach the
 // device. An agent still shown waiting is no longer waiting on anyone, and
 // goes idle; one shown driving stays so, since its last action that landed

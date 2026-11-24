@@ -394,21 +394,26 @@ func (b *claimBook) take(id, agent, session, link string) (*ClaimInfo, *ClaimInf
 
 // release ends the target's claim. A caller that does not hold it is refused
 // with the holder unless force is set, which is for a person in the picker.
-// Releasing a target nobody holds succeeds.
-func (b *claimBook) release(id, agent, session string, force bool) *ClaimInfo {
+// Releasing a target nobody holds succeeds. released reports whether a claim
+// ended and gone is its holder's agent name; the holder's driving badge ends
+// with the claim.
+func (b *claimBook) release(id, agent, session string, force bool) (holder *ClaimInfo, gone string, released bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	c := b.live(id)
 	if c == nil {
-		return nil
+		return nil, "", false
 	}
 	if !force && c.key() != callerKey(agent, session) {
-		return b.info(id, c)
+		return b.info(id, c), "", false
 	}
 	delete(b.claims, id)
+	if d, ok := b.driving[id]; ok && d.agent == cmpOr(c.agent, "agent") {
+		delete(b.driving, id)
+	}
 	b.trace(map[string]any{"action": "release", "target": id, "agent": c.agent, "session": c.session, "forced": force && c.key() != callerKey(agent, session)})
 	b.saveClaims()
-	return nil
+	return nil, c.agent, true
 }
 
 // has reports whether id has a live claim.
@@ -748,12 +753,18 @@ func (s *Server) releaseClaim(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 	force := r.URL.Query().Get("force") == "1"
-	if holder := s.claims.release(id, agent, session, force); holder != nil {
+	holder, gone, released := s.claims.release(id, agent, session, force)
+	if holder != nil {
 		writeJSON(w, http.StatusConflict, ErrorResponse{
 			Error: fmt.Sprintf("%s is claimed by someone else; ?force=1 releases it anyway", id),
 			Code:  ErrCodeClaimed, Claim: holder,
 		})
 		return
+	}
+	if released {
+		if sess, ok := s.mgr.Session(id); ok {
+			sess.AgentGone(gone)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
