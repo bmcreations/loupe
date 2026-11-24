@@ -277,7 +277,8 @@ func TestLogcatDumpIsTextWithTheProcessNamed(t *testing.T) {
 	}
 }
 
-// -T has no line limit, so a since dump is trimmed to ?lines= here.
+// A target may return more lines than asked for a since dump, so it is
+// trimmed to ?lines= here.
 func TestLogcatSinceIsTrimmedToLines(t *testing.T) {
 	f := &androidTarget{id: "dev1", logText: "a\nb\nc\nd\n"}
 	w := serveAgent(t, f, http.MethodGet, "/api/logcat?target=dev1&since=1m&lines=2", nil)

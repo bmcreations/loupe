@@ -749,20 +749,24 @@ own fields.
 
 A filtered dump only finds what it reads, inside the 15 second dump limit.
 On Android it reads the newest 10000 lines first, or `lines` when that is
-more, and widens until it has `lines` matching lines or has read the whole
-buffer, sizing each wider read to finish inside the limit. A phone with large
-log buffers can take longer than the limit to send the whole buffer: one with
-16 MiB main and system buffers took 33 s. There a match older than the widest
-read that fits is missed. With `package`, `pid` or `foreground`, logcat reads
-only that process's lines, and the whole buffer is tried first. That try
-gets half the limit, so for a busy process such as `system_server` it can
-leave the dump reaching less far back than the same filter without a process. On a
-simulator the dump widens its window from a minute to 10 minutes to an hour
-until it has `lines` matching lines. On either, it stops widening when the
-next read looks unable to finish inside the limit, or the limit cuts one, and
-answers with what the last finished read kept, which can be nothing. Only a
-first read the limit cuts is 502. A rare tag with no `package` can take most
-of the limit, and `since` bounds how far back it reads.
+more, and widens until it has `lines` matching lines, has read the whole
+buffer, or has read back past `since`, sizing each wider read to finish
+inside the limit. With `since`, when a read falls short of it and the lines
+back to `since` look like they fit in the next, the next read is every line
+from `since` on, which logcat stops at `since` itself, and that read answers
+the dump. A phone with large log buffers can take longer than
+the limit to send the whole buffer: one with 16 MiB main and system buffers
+took 33 s. There a match older than the widest read that fits is missed.
+With `package`, `pid` or `foreground`, logcat reads only that process's
+lines, and the whole buffer, or the whole `since` window, is tried first.
+That try gets half the limit, so for a busy process such as `system_server`
+it can leave the dump reaching less far back than the same filter without a
+process. On a simulator the dump widens its window from a minute to 10
+minutes to an hour until it has `lines` matching lines. On either, it stops
+widening when the next read looks unable to finish inside the limit, or the
+limit cuts one, and answers with what the last finished read kept, which
+can be nothing. Only a first read the limit cuts is 502. A rare tag with no
+`package` can take most of the limit, and a short `since` stops it sooner.
 
 A follow with a filter starts from the last `lines` lines on Android and keeps
 those that match, so it can start with fewer. On a simulator a follow starts
@@ -770,18 +774,17 @@ live either way.
 
 A dump holds at most 32 MiB, and keeps the newest part. When that leaves
 fewer lines than asked for, `X-Loupe-Log-Truncated` is `size`. A simulator
-dump, filtered or not and `since` included, and a filtered Android dump with
-no `since`, read back from now in the widening windows above, and when the
+dump, filtered or not and `since` included, and an Android dump with a filter
+or `since`, read back from now in the widening windows above, and when the
 15 second limit stops them widening before they have `lines` lines, the
 header is `time`. Either way the lines are
 the newest. The MCP `logcat` tool adds a note after the log when the header
 is set, and `loupe logcat` prints that note to stderr, so a piped log stays as
 sent.
 
-An Android dump reads the whole `since` window to keep its newest part, so a
-window far back takes longer: `since=60m` on one phone took 11.0 seconds,
-where stopping at the first 32 MiB took 4.5. A read the 15 second limit stops
-is 502, not an older answer.
+An unfiltered Android `since` dump is one read of the newest `lines` lines,
+with those logged before `since` dropped, so a `since` far back costs no more
+than a near one.
 
 Per platform:
 

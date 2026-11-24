@@ -2124,8 +2124,8 @@ func (s *Server) handleLogcat(w http.ResponseWriter, r *http.Request) {
 	}
 	s.traceAgent(r, t.ID(), "logcat", nil)
 	raw := tail.Bytes()
-	// -T has no line limit of its own, and a filtered dump can read more
-	// lines than it keeps, so both are trimmed here.
+	// A target may return more than lines for a since or filtered dump
+	// (target.LogcatQuery.Lines), so both are trimmed here.
 	if !q.Since.IsZero() || q.Filtered() {
 		raw = lastLines(raw, q.Lines)
 	}
