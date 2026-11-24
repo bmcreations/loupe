@@ -284,8 +284,11 @@ func MergeCrashReports(crashes, logged []CrashReport, q CrashQuery) []CrashRepor
 		if e.Kind != KindJSError || e.PID == 0 {
 			return false
 		}
+		// A dropbox report's time is whole milliseconds, so one written in
+		// the error's own millisecond reads as before it.
+		at := e.Time.Truncate(time.Millisecond)
 		for _, c := range crashes {
-			if c.PID == e.PID && c.Kind != "anr" && !c.Time.Before(e.Time) && c.Time.Sub(e.Time) <= fatalJSWindow {
+			if c.PID == e.PID && c.Kind != "anr" && !c.Time.Before(at) && c.Time.Sub(at) <= fatalJSWindow {
 				return true
 			}
 		}

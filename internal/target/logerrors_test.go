@@ -328,6 +328,14 @@ func TestMergeCrashReportsDropsAJSErrorItsCrashReportCovers(t *testing.T) {
 	if got := rowIDs(MergeCrashReports(crashes[:1], newest, CrashQuery{Limit: 1})); got != "crash-100,js-200" {
 		t.Errorf("limit 1 = %s", got)
 	}
+	// A dropbox report's time is whole milliseconds and the log's is
+	// micros, so a report written in the error's own millisecond reads as
+	// up to 1 ms before it.
+	sameMS := []CrashReport{{ID: "crash-500", Kind: "crash", PID: 500, Time: logT0.Truncate(time.Millisecond)}}
+	early := []CrashReport{{ID: "js-500", Kind: KindJSError, PID: 500, Time: logT0}}
+	if got := rowIDs(MergeCrashReports(sameMS, early, CrashQuery{})); got != "crash-500" {
+		t.Errorf("same millisecond = %s", got)
+	}
 }
 
 func TestClipSummaryKeepsWholeCharacters(t *testing.T) {
