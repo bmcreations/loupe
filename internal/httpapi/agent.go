@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target/android"
 
 	"github.com/bmcreations/loupe/internal/composetree"
@@ -562,7 +564,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	if t.Kind() == target.KindIOSDevice {
 		// A phone's call can run a timed-out command, a devicectl wake and a
 		// retry; agentTimeout would end it with a bare context error first.
-		timeout = max(timeout, target.IOSInputDeadline())
+		timeout = max(timeout, ios.IOSInputDeadline())
 	}
 	if lb, ok := t.(target.LaunchBudgeter); ok && req.Action == "launch" {
 		timeout = max(timeout, lb.LaunchBudget())
@@ -801,7 +803,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotImplemented, ErrorResponse{Error: safeErr.Error()})
 			return
 		}
-		if errors.Is(err, target.ErrHubHoldsInput) {
+		if errors.Is(err, ios.ErrHubHoldsInput) {
 			writeJSON(w, http.StatusConflict, ErrorResponse{Error: safeErr.Error(), Code: ErrCodeHubHeld})
 			return
 		}
@@ -809,19 +811,19 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusConflict, ErrorResponse{Error: safeErr.Error(), Code: ErrCodeTouchRejected})
 			return
 		}
-		if errors.Is(err, target.ErrRunnerStarting) {
+		if errors.Is(err, ios.ErrRunnerStarting) {
 			writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: safeErr.Error(), Code: ErrCodeRunnerStarting})
 			return
 		}
-		if errors.Is(err, target.ErrRunnerNotBuilt) || errors.Is(err, target.ErrTouchNeedsCable) {
+		if errors.Is(err, ios.ErrRunnerNotBuilt) || errors.Is(err, ios.ErrTouchNeedsCable) {
 			writeJSON(w, http.StatusUnprocessableEntity, ErrorResponse{Error: safeErr.Error(), Code: ErrCodeRunnerUnavailable})
 			return
 		}
-		if errors.Is(err, target.ErrPhoneUnreachable) {
+		if errors.Is(err, ios.ErrPhoneUnreachable) {
 			writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: safeErr.Error(), Code: ErrCodePhoneUnreachable})
 			return
 		}
-		if errors.Is(err, target.ErrPhoneDeliveryUnknown) {
+		if errors.Is(err, ios.ErrPhoneDeliveryUnknown) {
 			writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: safeErr.Error(), Code: ErrCodePhoneDeliveryUnknown})
 			return
 		}
@@ -983,7 +985,7 @@ func sanitizeActionErr(req InputRequest, err error, redaction *textRedaction) er
 	if err == nil || req.Action != "text" {
 		return err
 	}
-	if errors.Is(err, target.ErrPhoneUnreachable) || errors.Is(err, target.ErrPhoneDeliveryUnknown) {
+	if errors.Is(err, ios.ErrPhoneUnreachable) || errors.Is(err, ios.ErrPhoneDeliveryUnknown) {
 		return err
 	}
 	if ns, ok := errors.AsType[android.NoSessionError](err); ok {
@@ -1633,7 +1635,7 @@ func (s *Server) installIOS(w http.ResponseWriter, r *http.Request, t target.Tar
 			resp.Launch = s.launchInstalled(r, t, resp.Package, "")
 		}
 		writeJSON(w, http.StatusOK, resp)
-	case errors.Is(err, target.ErrNotIOSApp):
+	case errors.Is(err, ios.ErrNotIOSApp):
 		rec["outcome"] = "notApp"
 		s.trace.Record(rec)
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -1862,7 +1864,7 @@ func logcatQuery(q url.Values, now time.Time) (target.LogcatQuery, error) {
 	if v := q.Get("package"); v != "" {
 		// An Android package or an Apple bundle ID; each target checks
 		// its own rule again before using it.
-		if !android.ValidPackageName(v) && !target.ValidBundleID(v) {
+		if !android.ValidPackageName(v) && !ios.ValidBundleID(v) {
 			return lq, fmt.Errorf("package %q is not a package name or bundle ID", v)
 		}
 		lq.Package = v
@@ -1877,10 +1879,10 @@ func logcatQuery(q url.Values, now time.Time) (target.LogcatQuery, error) {
 	}
 	switch v := q.Get("format"); v {
 	case "", "text":
-	case target.LogFormatNDJSON:
+	case ios.LogFormatNDJSON:
 		lq.Format = v
 	default:
-		return lq, fmt.Errorf("format %q: want text or %s", v, target.LogFormatNDJSON)
+		return lq, fmt.Errorf("format %q: want text or %s", v, ios.LogFormatNDJSON)
 	}
 	return lq, nil
 }
@@ -1924,7 +1926,7 @@ func (s *Server) handleLogcat(w http.ResponseWriter, r *http.Request) {
 	log, err := lc.Logcat(ctx, q)
 	if err != nil {
 		s.traceAgent(r, t.ID(), "logcat", err)
-		if errors.Is(err, target.ErrLogQueryUnsupported) {
+		if errors.Is(err, ios.ErrLogQueryUnsupported) {
 			writeJSON(w, http.StatusUnprocessableEntity, ErrorResponse{Error: err.Error(), Code: ErrCodeNotSupported})
 			return
 		}
@@ -1938,7 +1940,7 @@ func (s *Server) handleLogcat(w http.ResponseWriter, r *http.Request) {
 	defer log.Close()
 
 	h := w.Header()
-	if q.Format == target.LogFormatNDJSON {
+	if q.Format == ios.LogFormatNDJSON {
 		h.Set("Content-Type", "application/x-ndjson")
 	} else {
 		h.Set("Content-Type", "text/plain; charset=utf-8")
@@ -2068,7 +2070,7 @@ func launchErrCode(err error) (code string, status int, ok bool) {
 		return ErrCodeNoSuchActivity, http.StatusNotFound, true
 	case errors.Is(err, target.ErrNoURLHandler):
 		return ErrCodeNoURLHandler, http.StatusUnprocessableEntity, true
-	case errors.Is(err, target.ErrNotDevSigned), errors.Is(err, target.ErrShimNotLoaded):
+	case errors.Is(err, ios.ErrNotDevSigned), errors.Is(err, ios.ErrShimNotLoaded):
 		return ErrCodeNoCameraShim, http.StatusUnprocessableEntity, true
 	}
 	return "", 0, false

@@ -1,7 +1,7 @@
 // Package target defines the contract every streamable source satisfies, the
 // interfaces for what a target can do (input, launch, UI tree, settings,
-// frames, ...), and the iOS simulator, physical iPhone and synthetic test
-// pattern targets. Android devices and emulators are in package android.
+// frames, ...), and the synthetic test pattern target. Android devices and
+// emulators are in package android, iOS simulators and iPhones in package ios.
 package target
 
 import (

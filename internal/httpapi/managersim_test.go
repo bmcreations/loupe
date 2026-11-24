@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -15,9 +17,9 @@ func TestStaleSimulatorListingDoesNotMarkANewSimulatorMissing(t *testing.T) {
 	m := NewManager(target.Options{})
 	pollStart := time.Now()
 	creatorStart := pollStart.Add(time.Second)
-	fresh := target.SimInfo{UDID: "AAAA-1111", Name: "Fresh", OSVersion: "27.0", State: "Shutdown"}
+	fresh := ios.SimInfo{UDID: "AAAA-1111", Name: "Fresh", OSVersion: "27.0", State: "Shutdown"}
 
-	m.SyncSimulatorsAt(creatorStart, []target.SimInfo{fresh}, "simcap")
+	m.SyncSimulatorsAt(creatorStart, []ios.SimInfo{fresh}, "simcap")
 	m.SyncSimulatorsAt(pollStart, nil, "simcap") // listed before the create returned
 
 	if state := m.statePresence("sim:AAAA-1111"); state == "missing" {
@@ -40,18 +42,18 @@ func (m *Manager) statePresence(id string) string {
 // simulator. Applied afterwards, it must not register it again.
 func TestAListingFromBeforeUnregisterDoesNotBringTheSimulatorBack(t *testing.T) {
 	m := NewManager(target.Options{})
-	info := target.SimInfo{UDID: "DEAD-0001", Name: "Doomed", OSVersion: "27.0", State: "Shutdown"}
-	m.SyncSimulatorsAt(time.Now(), []target.SimInfo{info}, "simcap")
+	info := ios.SimInfo{UDID: "DEAD-0001", Name: "Doomed", OSVersion: "27.0", State: "Shutdown"}
+	m.SyncSimulatorsAt(time.Now(), []ios.SimInfo{info}, "simcap")
 	pollStart := time.Now()
 	time.Sleep(time.Millisecond)
 	m.Unregister("sim:DEAD-0001")
-	m.SyncSimulatorsAt(pollStart, []target.SimInfo{info}, "simcap")
+	m.SyncSimulatorsAt(pollStart, []ios.SimInfo{info}, "simcap")
 	if _, ok := m.Target("sim:DEAD-0001"); ok {
 		t.Fatal("a listing from before the delete re-registered the simulator")
 	}
 	// A listing that began afterwards is the truth again.
 	time.Sleep(time.Millisecond)
-	m.SyncSimulatorsAt(time.Now(), []target.SimInfo{info}, "simcap")
+	m.SyncSimulatorsAt(time.Now(), []ios.SimInfo{info}, "simcap")
 	if _, ok := m.Target("sim:DEAD-0001"); !ok {
 		t.Error("a listing from after the delete was ignored")
 	}
@@ -85,8 +87,8 @@ func TestRegisterScannedSkipsATargetUnregisteredAfterTheScanBegan(t *testing.T) 
 // leaves the list rather than staying as a missing row.
 func TestADeletedSimulatorLeavesTheList(t *testing.T) {
 	m := NewManager(target.Options{})
-	info := target.SimInfo{UDID: "GONE-0001", Name: "Gone", OSVersion: "27.0", State: "Shutdown"}
-	m.SyncSimulatorsAt(time.Now(), []target.SimInfo{info}, "simcap")
+	info := ios.SimInfo{UDID: "GONE-0001", Name: "Gone", OSVersion: "27.0", State: "Shutdown"}
+	m.SyncSimulatorsAt(time.Now(), []ios.SimInfo{info}, "simcap")
 	time.Sleep(time.Millisecond)
 	m.SyncSimulatorsAt(time.Now(), nil, "simcap")
 	if _, ok := m.Target("sim:GONE-0001"); ok {

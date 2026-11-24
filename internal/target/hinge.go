@@ -28,9 +28,9 @@ const (
 
 // hingeWriteTimeout bounds one coalesced write. It runs detached from the
 // request that queued it, because a later request may be the one waiting on
-// it; simHingeOpen is the slowest case, a Duo whose hinge has to open
+// it; SimHingeOpen is the slowest case, a Duo whose hinge has to open
 // CoreDevice first.
-const hingeWriteTimeout = simHingeOpen + 5*time.Second
+const hingeWriteTimeout = SimHingeOpen + 5*time.Second
 
 // hingeSetting is the row both kinds of target report.
 func hingeSetting(deg float64) Setting {
@@ -89,6 +89,16 @@ type HingeCoalescer struct {
 	mu      sync.Mutex
 	running bool
 	queued  *hingeWrite
+}
+
+// Queued reports the angle waiting behind the write in flight, if any.
+func (c *HingeCoalescer) Queued() (deg int, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.queued == nil {
+		return 0, false
+	}
+	return c.queued.deg, true
 }
 
 type hingeWrite struct {

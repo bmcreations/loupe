@@ -4,9 +4,9 @@ package target
 
 import "syscall"
 
-// procGroupAttr puts a child in its own process group, so signalGroup can
+// ProcGroupAttr puts a child in its own process group, so SignalGroup can
 // reach everything it spawned.
-func procGroupAttr() *syscall.SysProcAttr { return &syscall.SysProcAttr{Setpgid: true} }
+func ProcGroupAttr() *syscall.SysProcAttr { return &syscall.SysProcAttr{Setpgid: true} }
 
 // SessionAttr starts a child in a new session, detached from loupe's terminal.
 func SessionAttr() *syscall.SysProcAttr { return &syscall.SysProcAttr{Setsid: true} }
@@ -14,5 +14,5 @@ func SessionAttr() *syscall.SysProcAttr { return &syscall.SysProcAttr{Setsid: tr
 // SignalPid sends sig to pid. Signal 0 only checks that the pid exists.
 func SignalPid(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) }
 
-// signalGroup sends sig to the process group led by pid.
-func signalGroup(pid int, sig syscall.Signal) error { return syscall.Kill(-pid, sig) }
+// SignalGroup sends sig to the process group led by pid.
+func SignalGroup(pid int, sig syscall.Signal) error { return syscall.Kill(-pid, sig) }

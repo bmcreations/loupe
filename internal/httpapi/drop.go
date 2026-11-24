@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -59,7 +61,7 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := dr.CanDropImage(r.Context()); err != nil {
-		if errors.Is(err, target.ErrSimcapOutdated) {
+		if errors.Is(err, ios.ErrSimcapOutdated) {
 			writeJSON(w, http.StatusNotImplemented, ErrorResponse{Error: err.Error(), Code: ErrCodeSimcapOutdated})
 			return
 		}
@@ -149,19 +151,19 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 		extra["clearErr"] = res.ClearErr
 	}
 	switch {
-	case errors.Is(err, target.ErrNoPaste):
+	case errors.Is(err, ios.ErrNoPaste):
 		trace("noPaste", nil)
 		writeJSON(w, http.StatusUnprocessableEntity, ErrorResponse{Error: err.Error(), Code: ErrCodeNoPaste})
 		return
-	case errors.Is(err, target.ErrPasteFailed):
+	case errors.Is(err, ios.ErrPasteFailed):
 		trace("pasteFailed", nil)
 		writeJSON(w, http.StatusUnprocessableEntity, ErrorResponse{Error: err.Error(), Code: ErrCodePasteFailed})
 		return
-	case errors.Is(err, target.ErrSimcapOutdated):
+	case errors.Is(err, ios.ErrSimcapOutdated):
 		trace("simcapOutdated", nil)
 		writeJSON(w, http.StatusNotImplemented, ErrorResponse{Error: err.Error(), Code: ErrCodeSimcapOutdated})
 		return
-	case errors.Is(err, target.ErrHubHoldsInput):
+	case errors.Is(err, ios.ErrHubHoldsInput):
 		trace("error", err)
 		writeJSON(w, http.StatusConflict, ErrorResponse{Error: err.Error(), Code: ErrCodeHubHeld})
 		return

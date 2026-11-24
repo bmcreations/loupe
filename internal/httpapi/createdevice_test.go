@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target/android"
 
 	"github.com/bmcreations/loupe/internal/target"
@@ -91,7 +93,7 @@ func avdManagerStub(t *testing.T, script string) string {
 	return bin
 }
 
-func devServer(t *testing.T, withAndroid, ios bool) *devEnv {
+func devServer(t *testing.T, withAndroid, withIOS bool) *devEnv {
 	t.Helper()
 	home := t.TempDir()
 	tools := &fakeTools{home: home}
@@ -110,7 +112,7 @@ func devServer(t *testing.T, withAndroid, ios bool) *devEnv {
 			}
 		}
 	}
-	if ios {
+	if withIOS {
 		cfg.Simcap = "/simcap"
 	}
 	c := NewDeviceCreator(cfg)
@@ -130,20 +132,20 @@ func devServer(t *testing.T, withAndroid, ios bool) *devEnv {
 			{ID: "pixel_fold", Name: "Pixel Fold", Group: target.GroupFoldable, MinAPI: 35, DiagonalIn: 7.58, Width: 2208, Height: 1840},
 		}, nil
 	}
-	c.runtimes = func(context.Context) ([]target.SimRuntime, error) {
-		return []target.SimRuntime{
-			{ID: rt27, Name: "iOS 27.0", Version: "27.0", Types: []target.SimDeviceType{{ID: ip17, Name: "iPhone 17"}}},
-			{ID: rt271, Name: "iOS 27.1", Version: "27.1", Types: []target.SimDeviceType{{ID: duo, Name: "iPhone Duo"}}},
+	c.runtimes = func(context.Context) ([]ios.SimRuntime, error) {
+		return []ios.SimRuntime{
+			{ID: rt27, Name: "iOS 27.0", Version: "27.0", Types: []ios.SimDeviceType{{ID: ip17, Name: "iPhone 17"}}},
+			{ID: rt271, Name: "iOS 27.1", Version: "27.1", Types: []ios.SimDeviceType{{ID: duo, Name: "iPhone Duo"}}},
 		}, nil
 	}
-	c.sizes = func(context.Context, []target.SimDeviceType) map[string]target.SimTypeInfo {
-		return map[string]target.SimTypeInfo{
+	c.sizes = func(context.Context, []ios.SimDeviceType) map[string]ios.SimTypeInfo {
+		return map[string]ios.SimTypeInfo{
 			ip17: {Group: target.GroupPhone, Size: `6.3" · 1206×2622`},
 			duo:  {Group: target.GroupFoldable, Size: `7.6" · 2853×2007`},
 		}
 	}
-	c.listSims = func(context.Context) ([]target.SimInfo, error) {
-		return []target.SimInfo{{UDID: "AAAA-1111", Name: "Fresh", OSVersion: "27.0", State: "Shutdown"}}, nil
+	c.listSims = func(context.Context) ([]ios.SimInfo, error) {
+		return []ios.SimInfo{{UDID: "AAAA-1111", Name: "Fresh", OSVersion: "27.0", State: "Shutdown"}}, nil
 	}
 	s := &Server{mgr: cfg.Manager}
 	s.SetDeviceCreator(c)
@@ -435,8 +437,8 @@ func TestCreateSimulatorFailureUsesStdoutMessage(t *testing.T) {
 	e.tools.simErr = "An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=403):\nIncompatible device\n"
 	// 27.1 is not paired with the iPhone 17 in the options, so go around the
 	// pair check by pairing it for this test.
-	e.s.devs.runtimes = func(context.Context) ([]target.SimRuntime, error) {
-		return []target.SimRuntime{{ID: rt271, Name: "iOS 27.1", Version: "27.1", Types: []target.SimDeviceType{{ID: ip17, Name: "iPhone 17"}}}}, nil
+	e.s.devs.runtimes = func(context.Context) ([]ios.SimRuntime, error) {
+		return []ios.SimRuntime{{ID: rt271, Name: "iOS 27.1", Version: "27.1", Types: []ios.SimDeviceType{{ID: ip17, Name: "iPhone 17"}}}}, nil
 	}
 	post(e, `{"platform":"ios","os":"`+rt271+`","device":"`+ip17+`","name":"Bad"}`)
 	waitFor(t, func() bool { r, ok := targetRow(t, e.s, "sim-new:Bad"); return ok && r.State == "createFailed" })
@@ -524,7 +526,7 @@ func TestAVDManagerSDKFollowsTheBinary(t *testing.T) {
 // A failed listing after a successful create is traced, not dropped.
 func TestCreateSimulatorTracesAFailedListing(t *testing.T) {
 	e := devServer(t, false, true)
-	e.s.devs.listSims = func(context.Context) ([]target.SimInfo, error) { return nil, errors.New("simctl timed out") }
+	e.s.devs.listSims = func(context.Context) ([]ios.SimInfo, error) { return nil, errors.New("simctl timed out") }
 	post(e, `{"platform":"ios","os":"`+rt27+`","device":"`+ip17+`","name":"Fresh"}`)
 	var sawSync bool
 	for i := 0; i < 2; i++ {

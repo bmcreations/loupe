@@ -80,10 +80,7 @@ func waitQueued(t *testing.T, c *HingeCoalescer, deg int) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		c.mu.Lock()
-		q := c.queued
-		c.mu.Unlock()
-		if q != nil && q.deg == deg {
+		if q, ok := c.Queued(); ok && q == deg {
 			return
 		}
 		time.Sleep(time.Millisecond)

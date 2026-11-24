@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -221,7 +223,7 @@ func TestLogcatQueryParsing(t *testing.T) {
 			Lines: defaultLogcatLines, Since: now.Add(-time.Hour), Package: "com.android.settings",
 		}},
 		{"foreground=1&follow=1", target.LogcatQuery{Lines: defaultLogcatLines, Foreground: true, Follow: true}},
-		{"format=ndjson", target.LogcatQuery{Lines: defaultLogcatLines, Format: target.LogFormatNDJSON}},
+		{"format=ndjson", target.LogcatQuery{Lines: defaultLogcatLines, Format: ios.LogFormatNDJSON}},
 		{"format=text", target.LogcatQuery{Lines: defaultLogcatLines}},
 		{"package=dev.bmc-creations.app", target.LogcatQuery{Lines: defaultLogcatLines, Package: "dev.bmc-creations.app"}},
 	}
@@ -287,7 +289,7 @@ func TestLogcatAppNotRunningIs409(t *testing.T) {
 }
 
 func TestLogcatUnsupportedQueryIs422(t *testing.T) {
-	f := &androidTarget{id: "dev1", logErr: fmt.Errorf("%w: logcat has no ndjson format", target.ErrLogQueryUnsupported)}
+	f := &androidTarget{id: "dev1", logErr: fmt.Errorf("%w: logcat has no ndjson format", ios.ErrLogQueryUnsupported)}
 	w := serveAgent(t, f, http.MethodGet, "/api/logcat?target=dev1&format=ndjson", nil)
 	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "notSupported") {
 		t.Errorf("status = %d: %s; want 422 notSupported", w.Code, w.Body)
@@ -303,7 +305,7 @@ func TestLogcatNDJSONIsServedAsNDJSON(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/x-ndjson" {
 		t.Errorf("Content-Type = %q; want application/x-ndjson", ct)
 	}
-	if f.gotQ.Format != target.LogFormatNDJSON {
+	if f.gotQ.Format != ios.LogFormatNDJSON {
 		t.Errorf("Format = %q; want ndjson", f.gotQ.Format)
 	}
 }

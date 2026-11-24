@@ -26,6 +26,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target/android"
 
 	"github.com/bmcreations/loupe/internal/awake"
@@ -573,14 +575,14 @@ func main() {
 			fmt.Fprintf(os.Stderr, "warning: simcap path: %v\n", err)
 		} else if _, err := os.Stat(bin); err != nil {
 			fmt.Printf("simulators: not listed, %s is not built (make simcap)\n", bin)
-		} else if err := target.CheckSimcap(ctx, bin); err != nil {
+		} else if err := ios.CheckSimcap(ctx, bin); err != nil {
 			fmt.Printf("simulators: not listed, %v (make simcap)\n", err)
-		} else if sims, err := target.ListSimulators(ctx); err != nil {
+		} else if sims, err := ios.ListSimulators(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: iOS simulator discovery failed: %v\n", err)
 		} else {
 			mgr.SyncSimulators(sims, bin)
 			for _, sim := range sims {
-				fmt.Printf("target: %s (%s, iOS %s, %s)\n", target.SimulatorID(sim.UDID), sim.Name, sim.OSVersion, sim.State)
+				fmt.Printf("target: %s (%s, iOS %s, %s)\n", ios.SimulatorID(sim.UDID), sim.Name, sim.OSVersion, sim.State)
 			}
 			registered += len(sims)
 			simcapBin = bin
@@ -602,7 +604,7 @@ func main() {
 	// counted in registered: only one on a cable streams, so a server with
 	// only iPhones still needs the pattern to show anything.
 	if !*noIOSDevices && runtime.GOOS == "darwin" {
-		if bin, err := filepath.Abs(*simcapPath); err == nil && target.CheckSimcap(ctx, bin) == nil {
+		if bin, err := filepath.Abs(*simcapPath); err == nil && ios.CheckSimcap(ctx, bin) == nil {
 			mgr.SetIOSSimcap(bin)
 		}
 		// Set whether or not it is built yet: a touch looks for the
@@ -615,12 +617,12 @@ func main() {
 				fmt.Printf("xcrunner: not built in %s yet (make xcrunner TEAM=...)\n", dir)
 			}
 		}
-		if devs, err := target.ListIOSDevices(ctx); err != nil {
+		if devs, err := ios.ListIOSDevices(ctx); err != nil {
 			fmt.Printf("ios devices: not listed, %v\n", err)
 		} else {
 			mgr.SyncIOSDevices(devs)
 			for _, d := range devs {
-				fmt.Printf("target: %s (%s, iOS %s, %s)\n", target.IOSDeviceID(d), d.Name, d.OSVersion, cmp.Or(d.Transport, "unreachable"))
+				fmt.Printf("target: %s (%s, iOS %s, %s)\n", ios.IOSDeviceID(d), d.Name, d.OSVersion, cmp.Or(d.Transport, "unreachable"))
 			}
 			go watchIOSDevices(ctx, mgr)
 		}
@@ -1103,7 +1105,7 @@ func watchSimulators(ctx context.Context, mgr *httpapi.Manager, simcap string) {
 		}
 		lctx, cancel := context.WithTimeout(ctx, simulatorPoll)
 		listedAt := time.Now()
-		sims, err := target.ListSimulators(lctx)
+		sims, err := ios.ListSimulators(lctx)
 		cancel()
 		if err != nil {
 			// A failed listing is not every simulator deleted. Keep the last
@@ -1132,7 +1134,7 @@ func watchIOSDevices(ctx context.Context, mgr *httpapi.Manager) {
 		case <-tick.C:
 		}
 		lctx, cancel := context.WithTimeout(ctx, iosDevicePoll)
-		devs, err := target.ListIOSDevices(lctx)
+		devs, err := ios.ListIOSDevices(lctx)
 		cancel()
 		if err != nil {
 			// As with simctl, a failed listing is not every device gone.

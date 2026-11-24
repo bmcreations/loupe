@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -133,7 +135,7 @@ func TestScanAVDsReadsAvdmanagerOutput(t *testing.T) {
 
 func TestParseSimRuntimesAndTypeInfo(t *testing.T) {
 	raw, _ := os.ReadFile("../../../testdata/devices/sim-runtimes.json")
-	rts, err := target.ParseSimRuntimes(raw)
+	rts, err := ios.ParseSimRuntimes(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,17 +145,17 @@ func TestParseSimRuntimesAndTypeInfo(t *testing.T) {
 	if len(rts[1].Types) != 1 || rts[1].Types[0].Name != "iPhone Duo" {
 		t.Errorf("27.1 types = %+v, want only the Duo", rts[1].Types)
 	}
-	for file, want := range map[string]target.SimTypeInfo{
+	for file, want := range map[string]ios.SimTypeInfo{
 		"sim-caps-iphone17.json": {Group: target.GroupPhone, Size: `6.3" · 1206×2622`},
 		"sim-caps-duo.json":      {Group: target.GroupFoldable, Size: `7.6" · 2853×2007`},
 	} {
 		caps, _ := os.ReadFile("../../../testdata/devices/" + file)
-		got, err := target.ParseSimTypeInfo(caps, "iPhone")
+		got, err := ios.ParseSimTypeInfo(caps, "iPhone")
 		if err != nil || got != want {
 			t.Errorf("%s = %+v, %v; want %+v", file, got, err, want)
 		}
 	}
-	if got, _ := target.ParseSimTypeInfo([]byte(`{"capabilities":{}}`), "iPad"); got.Group != target.GroupTablet {
+	if got, _ := ios.ParseSimTypeInfo([]byte(`{"capabilities":{}}`), "iPad"); got.Group != target.GroupTablet {
 		t.Errorf("iPad group = %q", got.Group)
 	}
 }

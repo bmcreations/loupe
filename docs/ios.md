@@ -371,7 +371,7 @@ Text`, `Image`, `Header`) maps to the matching macOS `AX` role constant so the
 rest of loupe's view-hierarchy handling is unchanged. The phone sends two
 dumps: an InitialDump with geometry and labels but no roles, then an
 AdditionalData dump that adds the roles, so the decoder merges dumps by object
-ID. The decoder and its tests live in loupe `internal/target/iosdeviceax.go`.
+ID. The decoder and its tests live in loupe `internal/target/ios/iosdeviceax.go`.
 
 ### Sign simcap with a team
 

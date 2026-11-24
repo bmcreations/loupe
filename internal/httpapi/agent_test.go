@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/target/ios"
+
 	"github.com/bmcreations/loupe/internal/target/android"
 
 	"github.com/bmcreations/loupe/internal/session"
@@ -2188,7 +2190,7 @@ func TestInputRequestFieldsAreOmittedWhenZero(t *testing.T) {
 // not the 502 every other input failure gets.
 func TestAgentHubHoldIsAConflictWithACode(t *testing.T) {
 	m := NewManager(target.Options{})
-	ft := &fakeRotatorTarget{id: "dev1", pressErr: fmt.Errorf("%w; reclaim it", target.ErrHubHoldsInput)}
+	ft := &fakeRotatorTarget{id: "dev1", pressErr: fmt.Errorf("%w; reclaim it", ios.ErrHubHoldsInput)}
 	m.Register(ft)
 	s := &Server{mgr: m}
 	rec := postInput(s, "dev1", `{"action":"button","button":"back"}`)
@@ -2227,7 +2229,7 @@ func postPhoneInputErr(t *testing.T, err error) ErrorResponse {
 // was sent, so the caller may retry.
 func TestAgentUnreachablePhoneIsA503WithACode(t *testing.T) {
 	cause := "CoreDeviceError 1001: not supported by this device (devicectl wake: ok)"
-	body := postPhoneInputErr(t, fmt.Errorf("%w: %s", target.ErrPhoneUnreachable, cause))
+	body := postPhoneInputErr(t, fmt.Errorf("%w: %s", ios.ErrPhoneUnreachable, cause))
 	if body.Code != ErrCodePhoneUnreachable {
 		t.Fatalf("code = %q; want %q", body.Code, ErrCodePhoneUnreachable)
 	}
@@ -2241,7 +2243,7 @@ func TestAgentUnreachablePhoneIsA503WithACode(t *testing.T) {
 // phoneUnreachable because a caller retries one and must not retry the other.
 func TestAgentPhoneDeliveryUnknownIsA503WithItsOwnCode(t *testing.T) {
 	cause := "no reply in 15s"
-	body := postPhoneInputErr(t, fmt.Errorf("%w: %s", target.ErrPhoneDeliveryUnknown, cause))
+	body := postPhoneInputErr(t, fmt.Errorf("%w: %s", ios.ErrPhoneDeliveryUnknown, cause))
 	if body.Code != ErrCodePhoneDeliveryUnknown {
 		t.Fatalf("code = %q; want %q", body.Code, ErrCodePhoneDeliveryUnknown)
 	}
@@ -2288,8 +2290,8 @@ func TestAgentTextOnAPhoneKeepsItsPhoneErrorDetail(t *testing.T) {
 		err  error
 		code string
 	}{
-		{"unreachable", fmt.Errorf("%w: %s", target.ErrPhoneUnreachable, cause), ErrCodePhoneUnreachable},
-		{"delivery unknown", fmt.Errorf("%w: %s", target.ErrPhoneDeliveryUnknown, cause), ErrCodePhoneDeliveryUnknown},
+		{"unreachable", fmt.Errorf("%w: %s", ios.ErrPhoneUnreachable, cause), ErrCodePhoneUnreachable},
+		{"delivery unknown", fmt.Errorf("%w: %s", ios.ErrPhoneDeliveryUnknown, cause), ErrCodePhoneDeliveryUnknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := NewManager(target.Options{})
