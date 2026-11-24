@@ -439,6 +439,38 @@ esac`)
 	}
 }
 
+// The read from since on comes oldest first, so the matches it printed
+// before the deadline cut it are the oldest, not the newest. They must not
+// become the answer.
+func TestLogcatFilteredSinceDumpDropsAReadFromSinceCutPartway(t *testing.T) {
+	buf := sinceLog(30000, 100, 6000, 29990)
+	dir := t.TempDir()
+	stamped := filepath.Join(dir, "buffer")
+	if err := os.WriteFile(stamped, []byte(strings.Join(buf, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	partial := filepath.Join(dir, "partial")
+	if err := os.WriteFile(partial, []byte(threadtime(buf, 6000, 6001)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adb, _ := fakeADB(t, `args="$*"
+case "$args" in
+*" -d -T "*) cat '`+partial+`'; exec sleep 30 ;;
+*" -t "*) n=${args##* -t }; n=${n%% *}; exec tail -n "$n" '`+stamped+`' ;;
+esac`)
+	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	got, cut, err := filteredDump(t, tgt, target.LogcatQuery{Since: logAt(5000), Tag: "ReactNativeJS", Lines: 5}, 2*time.Second)
+	if err != nil {
+		t.Fatalf("Logcat: %v", err)
+	}
+	if want := threadtime(buf, 29990, 29991); got != want {
+		t.Errorf("kept %q; want the first window's one match %q, not the cut read's oldest", got, want)
+	}
+	if cut != target.LogCutTime {
+		t.Errorf("Cut %q; want %q", cut, target.LogCutTime)
+	}
+}
+
 // When the lines back to since look like more than the widest window that
 // fits, the next read is that window, not one from since.
 func TestLogcatFilteredSinceDumpWidensWhenSinceIsTooFarBack(t *testing.T) {
