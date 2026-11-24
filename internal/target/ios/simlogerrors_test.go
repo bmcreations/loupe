@@ -157,10 +157,12 @@ func TestSimulatorCrashesListsLogErrorsWithReports(t *testing.T) {
 	}
 }
 
-func TestSimulatorCrashesLimitCoversBoth(t *testing.T) {
+// The limit applies to the reports and the log errors each, so the newest
+// of both come back.
+func TestSimulatorCrashesLimitIsPerSource(t *testing.T) {
 	fakeSimErrors(t, fixtureLog(t))
 	got, err := bootedCrashSim().Crashes(context.Background(), target.CrashQuery{Limit: 1})
-	if err != nil || len(got) != 1 || got[0].Kind != target.KindDartError {
+	if err != nil || len(got) != 2 || got[0].Kind != target.KindDartError || got[1].Kind != "crash" {
 		t.Errorf("got %+v, %v", got, err)
 	}
 }

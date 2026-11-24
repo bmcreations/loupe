@@ -1,6 +1,7 @@
 package target
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -248,24 +249,82 @@ func TestLogErrorReportIsARow(t *testing.T) {
 	}
 }
 
+func rowIDs(l []CrashReport) string {
+	var s []string
+	for _, r := range l {
+		s = append(s, r.ID)
+	}
+	return strings.Join(s, ",")
+}
+
 func TestMergeCrashReportsNewestFirstWithSinceAndLimit(t *testing.T) {
 	at := func(s int) time.Time { return logT0.Add(time.Duration(s) * time.Second) }
 	crashes := []CrashReport{{ID: "c3", Time: at(3)}, {ID: "c1", Time: at(1)}}
 	logged := []CrashReport{{ID: "j2", Time: at(2)}, {ID: "j4", Time: at(4)}, {ID: "j0", Time: at(0)}}
-	ids := func(l []CrashReport) string {
-		var s []string
-		for _, r := range l {
-			s = append(s, r.ID)
-		}
-		return strings.Join(s, ",")
-	}
-	if got := ids(MergeCrashReports(crashes, logged, CrashQuery{})); got != "j4,c3,j2,c1,j0" {
+	if got := rowIDs(MergeCrashReports(crashes, logged, CrashQuery{})); got != "j4,c3,j2,c1,j0" {
 		t.Errorf("all = %s", got)
 	}
-	if got := ids(MergeCrashReports(crashes, logged, CrashQuery{Since: at(2)})); got != "j4,c3,j2" {
+	if got := rowIDs(MergeCrashReports(crashes, logged, CrashQuery{Since: at(2)})); got != "j4,c3,j2" {
 		t.Errorf("since = %s", got)
 	}
-	if got := ids(MergeCrashReports(crashes, logged, CrashQuery{Limit: 2})); got != "j4,c3" {
-		t.Errorf("limit = %s", got)
+	// The limit is each source's: the two newest log errors and the two
+	// newest crash reports.
+	if got := rowIDs(MergeCrashReports(crashes, logged, CrashQuery{Limit: 2})); got != "j4,c3,j2,c1" {
+		t.Errorf("limit 2 = %s", got)
+	}
+	if got := rowIDs(MergeCrashReports(crashes, logged, CrashQuery{Limit: 1})); got != "j4,c3" {
+		t.Errorf("limit 1 = %s", got)
+	}
+}
+
+// An app that logs an error in a loop after a native crash cannot push the
+// crash out of the default listing.
+func TestMergeCrashReportsKeepsCrashesUnderManyLogErrors(t *testing.T) {
+	crashes := []CrashReport{{ID: "crash", Kind: "crash", Time: logT0}}
+	var logged []CrashReport
+	for i := 1; i <= 25; i++ {
+		logged = append(logged, CrashReport{ID: "j" + strconv.Itoa(i), Kind: KindJSError, Time: logT0.Add(time.Duration(i) * time.Second)})
+	}
+	got := MergeCrashReports(crashes, logged, CrashQuery{Limit: 20})
+	if len(got) != 21 || got[0].ID != "j25" || got[19].ID != "j6" || got[20].ID != "crash" {
+		t.Errorf("got %s", rowIDs(got))
+	}
+}
+
+// A fatal JS error in a release build is logged and then ends the process,
+// which writes a crash report: the report stands for both.
+func TestMergeCrashReportsDropsAJSErrorItsCrashReportCovers(t *testing.T) {
+	at := func(ms int) time.Time { return logT0.Add(time.Duration(ms) * time.Millisecond) }
+	crashes := []CrashReport{
+		{ID: "crash-100", Kind: "crash", PID: 100, Time: at(40)},
+		{ID: "crash-300", Kind: "crash", PID: 300, Time: at(9000)},
+		{ID: "crash-400", Kind: "crash", PID: 400, Time: at(0)},
+		{ID: "crash-0", Kind: "crash", Time: at(20)},
+	}
+	logged := []CrashReport{
+		// Its process crashed 40 ms later.
+		{ID: "js-100", Kind: KindJSError, PID: 100, Time: at(0)},
+		// Another process.
+		{ID: "js-200", Kind: KindJSError, PID: 200, Time: at(10)},
+		// Crashed 9 s later, which is another error.
+		{ID: "js-300", Kind: KindJSError, PID: 300, Time: at(0)},
+		// Logged after its pid's crash, so by a later process with that pid.
+		{ID: "js-400", Kind: KindJSError, PID: 400, Time: at(500)},
+		// No pid to match on.
+		{ID: "js-0", Kind: KindJSError, Time: at(0)},
+		// A Dart error does not end the process.
+		{ID: "dart-100", Kind: KindDartError, PID: 100, Time: at(10)},
+	}
+	got := rowIDs(MergeCrashReports(crashes, logged, CrashQuery{}))
+	if want := "crash-300,js-400,crash-100,crash-0,js-200,dart-100,crash-400,js-300,js-0"; got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+	// A covered error does not take a place under the limit.
+	newest := []CrashReport{
+		{ID: "js-100", Kind: KindJSError, PID: 100, Time: at(30)},
+		{ID: "js-200", Kind: KindJSError, PID: 200, Time: at(10)},
+	}
+	if got := rowIDs(MergeCrashReports(crashes[:1], newest, CrashQuery{Limit: 1})); got != "crash-100,js-200" {
+		t.Errorf("limit 1 = %s", got)
 	}
 }

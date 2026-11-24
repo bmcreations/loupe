@@ -786,8 +786,12 @@ Android.
 
 | Param | Effect |
 |---|---|
-| `limit` | Last N reports. Default 20. |
+| `limit` | The newest N crash reports, and the newest N JS and Dart errors. Default 20. |
 | `since` | Reports since then. Takes what logcat's `since` does. |
+
+`limit` applies to the crash reports and to the JS and Dart errors each, so
+a listing holds up to twice `limit` rows. An app that logs an error in a loop
+cannot push a crash report out of the listing.
 
 Each row has `id`, `kind`, `time`, `process`, `bundleID` (empty for a daemon),
 `version`, `build`, `pid` and `summary` (`EXC_CRASH (SIGABRT), Abort trap: 6`).
@@ -813,10 +817,15 @@ was saved. Synthetic answers 501.
 
 #### JS and Dart errors
 
-A `jsError` or `dartError` row is an error the app reported and lived
-through: a React Native dev build's redbox, or a Dart exception in Flutter.
-Neither ends the process, so neither writes a crash report. loupe finds them
-in the device log when the call is made, by what each runtime prints for one:
+A `jsError` or `dartError` row is an error the app reported in the device
+log: a React Native redbox or uncaught JS error, or a Dart exception in
+Flutter. In a dev build neither ends the process, so neither writes a crash
+report. In a release build a fatal JS error ends the process and can log the
+same line first. Its crash report is listed, and the `jsError` row is dropped
+when a report with the same `pid` comes at most 5 s after it. A simulator's
+report takes tens of seconds to appear, and until it does the `jsError` row
+is listed on its own. loupe finds these rows in the device log when the call
+is made, by what each runtime prints for one:
 
 | `kind` | What matches |
 |---|---|

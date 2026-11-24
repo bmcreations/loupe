@@ -205,7 +205,7 @@ type logcatIn struct {
 
 type crashesIn struct {
 	Targeted
-	Limit int    `json:"limit,omitempty" jsonschema:"how many of the newest reports at most; the server defaults to 20"`
+	Limit int    `json:"limit,omitempty" jsonschema:"how many of the newest crash reports, and how many of the newest jsError and dartError rows, at most; the server defaults to 20"`
 	Since string `json:"since,omitempty" jsonschema:"a duration back from now (5m) or an RFC 3339 time"`
 }
 
@@ -359,7 +359,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "crashes",
-		Description: "The target's crash reports, newest first, one summary row each: a simulator's or a physical iPhone's .ips reports, or an Android device's dropbox crashes, native crashes and ANRs. A simulator report can take 40s after the crash to appear. On a booted simulator and on Android, rows of kind jsError and dartError are errors the app lived through, found in the device log: a React Native redbox or an uncaught JS error, and a Dart exception Flutter reported. The process is still running after one; they last as long as the device log keeps them.",
+		Description: "The target's crash reports, newest first, one summary row each: a simulator's or a physical iPhone's .ips reports, or an Android device's dropbox crashes, native crashes and ANRs. A simulator report can take 40s after the crash to appear. On a booted simulator and on Android, rows of kind jsError and dartError are errors found in the device log: a React Native redbox or an uncaught JS error, and a Dart exception Flutter reported. In a dev build the app keeps running after one and writes no crash report. A fatal JS error in a release build ends the app: its crash report replaces the jsError row once the report appears. They last as long as the device log keeps them. The limit applies to the crash reports and to the log rows each, so a crash report is never pushed out by log rows.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in crashesIn) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"target": {in.Target}}
 		if in.Limit > 0 {

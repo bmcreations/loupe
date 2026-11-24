@@ -248,20 +248,45 @@ func clipSummary(s string) string {
 	return s[:maxSummary] + "…"
 }
 
+// fatalJSWindow is how long after a fatal JS error the crash report for
+// the same death can be written.
+const fatalJSWindow = 5 * time.Second
+
 // MergeCrashReports puts crash reports and log errors into one listing,
-// newest first, with the query's Since and Limit applied to the whole.
+// newest first. Since applies to both. Limit applies to each source on its
+// own, so up to Limit crash reports and Limit log errors come back: an app
+// that logs an error in a loop cannot push a crash out of the listing.
+//
+// A jsError is dropped when a crash report for the same pid comes at most
+// fatalJSWindow after it. In a release build a fatal JS error is logged
+// and then ends the process, and the crash report stands for both.
 func MergeCrashReports(crashes, logged []CrashReport, q CrashQuery) []CrashReport {
-	all := make([]CrashReport, 0, len(crashes)+len(logged))
-	for _, l := range [][]CrashReport{crashes, logged} {
+	newest := func(l []CrashReport, keep func(CrashReport) bool) []CrashReport {
+		var out []CrashReport
 		for _, r := range l {
-			if q.Since.IsZero() || !r.Time.Before(q.Since) {
-				all = append(all, r)
+			if (q.Since.IsZero() || !r.Time.Before(q.Since)) && keep(r) {
+				out = append(out, r)
 			}
 		}
+		sort.SliceStable(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+		if q.Limit > 0 && len(out) > q.Limit {
+			out = out[:q.Limit]
+		}
+		return out
 	}
+	covered := func(e CrashReport) bool {
+		if e.Kind != KindJSError || e.PID == 0 {
+			return false
+		}
+		for _, c := range crashes {
+			if c.PID == e.PID && c.Kind != "anr" && !c.Time.Before(e.Time) && c.Time.Sub(e.Time) <= fatalJSWindow {
+				return true
+			}
+		}
+		return false
+	}
+	all := newest(crashes, func(CrashReport) bool { return true })
+	all = append(all, newest(logged, func(e CrashReport) bool { return !covered(e) })...)
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Time.After(all[j].Time) })
-	if q.Limit > 0 && len(all) > q.Limit {
-		all = all[:q.Limit]
-	}
 	return all
 }

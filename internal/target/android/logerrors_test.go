@@ -181,7 +181,7 @@ func TestDeviceLogErrorsNameTheAppByUID(t *testing.T) {
 }
 
 // The dropbox's crashes and the log's errors are one listing, newest
-// first, under one limit.
+// first, with the limit applied to each.
 func TestDeviceCrashesMergesTheDropboxAndTheLog(t *testing.T) {
 	dir := t.TempDir()
 	dropbox := filepath.Join(dir, "data_app_crash.txt")
@@ -198,7 +198,7 @@ func TestDeviceCrashesMergesTheDropboxAndTheLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	tgt := NewDevice(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
-	list, err := tgt.Crashes(context.Background(), target.CrashQuery{Limit: 2})
+	list, err := tgt.Crashes(context.Background(), target.CrashQuery{Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
