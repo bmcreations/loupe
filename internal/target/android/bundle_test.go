@@ -207,6 +207,16 @@ java.lang.IllegalArgumentException: Name '..' is not supported inside path.`, tr
 		{"corrupt manifest", `[BT:1.17.2] Error: com.google.protobuf.InvalidProtocolBufferException: Protocol message had invalid UTF-8.
 java.io.UncheckedIOException: com.google.protobuf.InvalidProtocolBufferException: Protocol message had invalid UTF-8.
 Caused by: com.google.protobuf.InvalidProtocolBufferException: Protocol message had invalid UTF-8.`, true},
+		// An entry whose deflate stream ends before its compressed size does
+		// is the bundle's damage: the upload is all on disk before bundletool
+		// runs. bundletool 1.18.3 printed these for BundleConfig.pb and for a
+		// dex cut that way.
+		{"config ends early", `[BT:1.18.3] Error: Error reading file 'BundleConfig.pb'.
+java.io.UncheckedIOException: Error reading file 'BundleConfig.pb'.
+Caused by: java.io.EOFException: Unexpected end of ZLIB input stream`, true},
+		{"dex ends early", `[BT:1.18.3] Error: java.io.EOFException: Unexpected end of ZLIB input stream
+com.google.common.util.concurrent.UncheckedExecutionException: java.io.EOFException: Unexpected end of ZLIB input stream
+Caused by: java.io.EOFException: Unexpected end of ZLIB input stream`, true},
 		{"temp dir missing", `[BT:1.17.2] Error: java.nio.file.NoSuchFileException: /tmp/gone/AutoValue_BuildApksCommand213534187188440284
 java.io.UncheckedIOException: java.nio.file.NoSuchFileException: /tmp/gone/AutoValue_BuildApksCommand213534187188440284
 Caused by: java.nio.file.NoSuchFileException: /tmp/gone/AutoValue_BuildApksCommand213534187188440284`, false},
@@ -231,7 +241,7 @@ fi`
 				t.Fatal("BundleAPKs succeeded")
 			}
 			first := strings.SplitN(c.out, "\n", 2)[0]
-			sentence := strings.TrimPrefix(first, "[BT:1.17.2] Error: ")
+			_, sentence, _ := strings.Cut(first, "] Error: ")
 			refused, ok := target.IsInstallRefused(err)
 			if ok != c.refuse {
 				t.Fatalf("err = %v; refusal = %v, want %v", err, ok, c.refuse)

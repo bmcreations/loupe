@@ -151,12 +151,16 @@ func bundletoolFailed(step, out string, err error) error {
 // error line is the Mac's fault rather than the bundle's: some exception in
 // its chain is the JDK's I/O, in java.io or java.nio, as a missing temp dir
 // (java.nio.file.NoSuchFileException) or a full disk (java.io.IOException)
-// is. java.io.UncheckedIOException alone does not count: the JDK wraps a
-// bundle's corrupt protobuf in one too, and then its cause is protobuf's.
+// is. Two of them do not count. java.io.UncheckedIOException alone: the JDK
+// wraps a bundle's corrupt protobuf in one too, and then its cause is
+// protobuf's. java.io.EOFException: the upload is all on disk before
+// bundletool runs, so a stream ending early is a zip entry whose deflate
+// stream is cut short, the bundle's damage.
 func hostFault(trace string) bool {
 	for _, m := range btExceptionRE.FindAllStringSubmatch(trace, -1) {
-		if c := m[1]; c != "java.io.UncheckedIOException" &&
-			(strings.HasPrefix(c, "java.io.") || strings.HasPrefix(c, "java.nio.")) {
+		switch c := m[1]; {
+		case c == "java.io.UncheckedIOException", c == "java.io.EOFException":
+		case strings.HasPrefix(c, "java.io."), strings.HasPrefix(c, "java.nio."):
 			return true
 		}
 	}
