@@ -63,7 +63,7 @@ var toolRoutes = []toolRoute{
 
 // Targeted is the one field every device tool takes.
 type Targeted struct {
-	Target string `json:"target" jsonschema:"the target id from the targets tool, e.g. avd:Pixel_10, emulator-5554 or sim:<udid>"`
+	Target string `json:"target,omitempty" jsonschema:"the target id from the targets tool, e.g. avd:Pixel_10, emulator-5554 or sim:<udid>. Leave it out to drive loupe mcp's -target, or the one running device; the call says so if there are several"`
 }
 
 type uiIn struct {

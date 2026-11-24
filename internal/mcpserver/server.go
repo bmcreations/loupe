@@ -25,6 +25,7 @@ func NewServer(c *Client) *mcp.Server {
 	})
 	addTools(s, c)
 	addFlagTools(s, c)
+	s.AddReceivingMiddleware(defaultTargetMiddleware(c))
 	return s
 }
 

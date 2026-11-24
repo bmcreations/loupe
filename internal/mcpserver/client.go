@@ -28,11 +28,13 @@ import (
 // Client is the HTTP side: one loupe server, one token, and the claims this
 // process holds.
 type Client struct {
-	base    *url.URL
-	token   string
-	agent   string
-	session string
-	http    *http.Client
+	base  *url.URL
+	token string
+	agent string
+	// defaultTarget is -target: what a device tool drives when the call names none.
+	defaultTarget string
+	session       string
+	http          *http.Client
 	// noPush keeps Run from pushing flags, for tests that count requests.
 	noPush bool
 
