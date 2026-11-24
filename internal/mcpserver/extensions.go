@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -110,7 +110,8 @@ func addExtensionTools(s *mcp.Server, c *Client) {
 		// noFollow: the proxy passes a redirect through as the extension sent
 		// it, and following one that starts with / would carry the token to
 		// loupe's own route and report its answer as the extension's.
-		status, h, b, err := c.send(ctx, c.noFollow, method, "/api/ext/"+in.Name+"/"+p, q, ct, body)
+		// One byte past the cut tells formatExtensionAnswer there is more.
+		status, h, b, err := c.send(ctx, c.noFollow, method, "/api/ext/"+in.Name+"/"+p, q, ct, body, maxExtensionBody+1)
 		if err != nil {
 			return errResult(err), nil, nil
 		}
@@ -118,6 +119,8 @@ func addExtensionTools(s *mcp.Server, c *Client) {
 	})
 }
 
+// formatExtensionAnswer renders an answer whose body was read to at most
+// maxExtensionBody+1 bytes; a longer b means the rest was left unread.
 func formatExtensionAnswer(status int, h http.Header, b []byte) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "status: %d %s\ncontent-type: %s\n", status, http.StatusText(status), h.Get("Content-Type"))
@@ -125,16 +128,46 @@ func formatExtensionAnswer(status int, h http.Header, b []byte) string {
 		fmt.Fprintf(&out, "location: %s\n", loc)
 	}
 	out.WriteString("\n")
-	if !utf8.Valid(b) {
-		fmt.Fprintf(&out, "[%d bytes of non-text content not shown]", len(b))
+	if len(b) <= maxExtensionBody {
+		if !utf8.Valid(b) {
+			fmt.Fprintf(&out, "[%d bytes of non-text content not shown]", len(b))
+			return out.String()
+		}
+		out.Write(b)
 		return out.String()
 	}
-	if len(b) > maxExtensionBody {
-		cut := bytes.ToValidUTF8(b[:maxExtensionBody], nil)
-		out.Write(cut)
-		fmt.Fprintf(&out, "\n[truncated: showing %d of %d bytes]", len(cut), len(b))
+	cut := dropSplitRune(b[:maxExtensionBody])
+	total := ""
+	if n, err := strconv.ParseInt(h.Get("Content-Length"), 10, 64); err == nil && n > 0 {
+		total = strconv.FormatInt(n, 10)
+	}
+	if !utf8.Valid(cut) {
+		if total != "" {
+			fmt.Fprintf(&out, "[%s bytes of non-text content not shown]", total)
+		} else {
+			fmt.Fprintf(&out, "[over %d bytes of non-text content not shown]", maxExtensionBody)
+		}
 		return out.String()
 	}
-	out.Write(b)
+	out.Write(cut)
+	if total != "" {
+		fmt.Fprintf(&out, "\n[truncated: showing %d of %s bytes]", len(cut), total)
+	} else {
+		fmt.Fprintf(&out, "\n[truncated: showing the first %d bytes; the rest was not read]", len(cut))
+	}
 	return out.String()
+}
+
+// dropSplitRune drops a last rune that the cut left incomplete, so the text
+// check is not fooled by the cut.
+func dropSplitRune(b []byte) []byte {
+	for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(b[i]) {
+			if !utf8.FullRune(b[i:]) {
+				return b[:i]
+			}
+			break
+		}
+	}
+	return b
 }

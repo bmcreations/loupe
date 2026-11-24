@@ -146,7 +146,7 @@ func (e *APIError) Error() string {
 // Never X-Loupe-Viewer: that header makes a request the person's, which would
 // walk past the human hold this process is meant to respect.
 func (c *Client) do(ctx context.Context, method, path string, q url.Values, contentType string, body io.Reader) ([]byte, http.Header, error) {
-	status, h, b, err := c.send(ctx, c.http, method, path, q, contentType, body)
+	status, h, b, err := c.send(ctx, c.http, method, path, q, contentType, body, 0)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -160,8 +160,10 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, cont
 
 // send is do without the status check, through hc (c.http or c.noFollow): it
 // returns whatever the server answered, so a caller that wants a 4xx's body
-// and content type can have them (call_extension).
-func (c *Client) send(ctx context.Context, hc *http.Client, method, path string, q url.Values, contentType string, body io.Reader) (int, http.Header, []byte, error) {
+// and content type can have them (call_extension). A limit above 0 stops the
+// read after that many bytes and closes the body, so a large or endless one
+// costs no more than the limit.
+func (c *Client) send(ctx context.Context, hc *http.Client, method, path string, q url.Values, contentType string, body io.Reader, limit int64) (int, http.Header, []byte, error) {
 	u := *c.base
 	u.Path = c.base.Path + path
 	u.RawQuery = q.Encode()
@@ -186,18 +188,22 @@ func (c *Client) send(ctx context.Context, hc *http.Client, method, path string,
 			// Every later request goes to http:// too.
 			c.base.Scheme = "http"
 			if body == nil {
-				return c.send(ctx, hc, method, path, q, contentType, nil)
+				return c.send(ctx, hc, method, path, q, contentType, nil, limit)
 			}
 			if sk, ok := body.(io.Seeker); ok {
 				if _, serr := sk.Seek(0, io.SeekStart); serr == nil {
-					return c.send(ctx, hc, method, path, q, contentType, body)
+					return c.send(ctx, hc, method, path, q, contentType, body, limit)
 				}
 			}
 		}
 		return 0, nil, nil, err
 	}
 	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
+	var r io.Reader = resp.Body
+	if limit > 0 {
+		r = io.LimitReader(resp.Body, limit)
+	}
+	b, err := io.ReadAll(r)
 	if err != nil {
 		return 0, nil, nil, err
 	}

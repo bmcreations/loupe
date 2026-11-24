@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestListExtensionsPassesThroughTheServersList(t *testing.T) {
@@ -160,10 +161,43 @@ func TestCallExtensionReturnsARedirectWithoutFollowingIt(t *testing.T) {
 	}
 }
 
+// call_extension reads one byte past the cut and no more, so a large download
+// or a stream that never ends comes back at once instead of being read whole.
+func TestCallExtensionStopsReadingPastTheCut(t *testing.T) {
+	gone := make(chan bool, 1)
+	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, strings.Repeat("a", 2*maxExtensionBody))
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+			gone <- true
+		case <-time.After(10 * time.Second):
+			gone <- false
+		}
+		return true
+	}}
+	cs, stop := connect(t, fake)
+	res := call(t, cs, "call_extension", map[string]any{"name": "slipway", "path": "events"})
+	stop()
+	if !<-gone {
+		t.Error("the stream stayed open until the server gave up")
+	}
+	if res.IsError || !strings.HasSuffix(text(res), "[truncated: showing the first 65536 bytes; the rest was not read]") {
+		t.Errorf("isError %v, tail %q", res.IsError, text(res)[max(0, len(text(res))-80):])
+	}
+}
+
 func TestFormatExtensionAnswerCutsALargeBodyAndHidesBinary(t *testing.T) {
-	out := formatExtensionAnswer(200, http.Header{"Content-Type": {"text/plain"}}, []byte(strings.Repeat("a", maxExtensionBody+10)))
-	if !strings.Contains(out, "[truncated: showing 65536 of 65546 bytes]") {
+	big := []byte(strings.Repeat("a", maxExtensionBody+1))
+	out := formatExtensionAnswer(200, http.Header{"Content-Type": {"text/plain"}, "Content-Length": {"65546"}}, big)
+	if !strings.HasSuffix(out, "\n[truncated: showing 65536 of 65546 bytes]") {
 		t.Errorf("no truncation note: %q", out[len(out)-60:])
+	}
+	// A two-byte rune split by the cut is still text.
+	split := []byte(strings.Repeat("a", maxExtensionBody-1) + "é")
+	if out := formatExtensionAnswer(200, http.Header{"Content-Type": {"text/plain"}}, split); !strings.HasSuffix(out, "\n[truncated: showing the first 65535 bytes; the rest was not read]") {
+		t.Errorf("split rune: %q", out[len(out)-80:])
 	}
 	if out := formatExtensionAnswer(200, http.Header{"Content-Type": {"image/png"}}, []byte{0xff, 0xfe, 0x00}); !strings.Contains(out, "3 bytes of non-text content") {
 		t.Errorf("binary: %q", out)
