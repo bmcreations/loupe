@@ -844,8 +844,22 @@ is made, by what each runtime prints for one:
 error level are not listed. An app's own `console.error(err)` with an Error
 object prints the same line as an uncaught error, and is listed the same way.
 
-`summary` is the error's first line, such as `Error: message` or
-`Unhandled Exception: Bad state: message`. `version` and `build` are empty.
+Most Dart errors in a Flutter debug build are not listed. An error the
+framework catches, such as a throw in `onPressed` or in `build`, goes to the
+Dart VM service as a `Flutter.Error` event, which `flutter run` and DevTools
+show, and nothing reaches the device log. loupe does not read the VM service.
+Only an uncaught async error, `[ERROR:flutter/...] Unhandled Exception: ...`,
+is listed from a debug build. Building with
+`--dart-define=flutter.inspector.structuredErrors=false` sends caught errors
+to the log as the `EXCEPTION CAUGHT BY` block, which is listed. In a profile
+or release build the first caught error prints as its message and stack with
+no banner, which is not listed, and each later one prints
+`Another exception was thrown: ...`, which is.
+
+`summary` is at most 300 bytes: the error's first line, such as
+`Error: message` or `Unhandled Exception: Bad state: message`, or for
+Flutter's block its header and the error's first line,
+`EXCEPTION CAUGHT BY GESTURE: Bad state: message`. `version` and `build` are empty.
 `bundleID` stays after the app quits: on Android it is the package that owns
 the line's uid, and on a simulator it is read from the app's `Info.plist`. On
 Android, `process` is empty once that process has exited. The report is the
