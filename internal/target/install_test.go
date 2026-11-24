@@ -275,3 +275,14 @@ func TestInstallAllowTestPassesT(t *testing.T) {
 		t.Errorf("adb argv = %q; want install -r -t", got)
 	}
 }
+
+func TestInstallDowngradePassesD(t *testing.T) {
+	adb, argv := fakeADB(t, `echo Success`)
+	tgt := NewADBTarget(ADB{Path: adb}, DeviceInfo{Serial: "s", State: "device"}, "", "")
+	if _, err := tgt.Install(context.Background(), []string{"/stage/0.apk"}, InstallOptions{Downgrade: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readArgv(t, argv); len(got) != 1 || !strings.HasPrefix(got[0], "-s s install -r -d ") {
+		t.Errorf("adb argv = %q; want install -r -d", got)
+	}
+}

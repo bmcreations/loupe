@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -558,5 +560,39 @@ func TestApplyPresetPostsUnderAClaim(t *testing.T) {
 	}
 	if got := fake.requests(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("requests:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestInstallDowngradeIsASeparateQueryParam(t *testing.T) {
+	apk := filepath.Join(t.TempDir(), "a.apk")
+	if err := os.WriteFile(apk, []byte("PK\x03\x04x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeLoupe{}
+	cs, stop := connect(t, fake)
+	defer stop()
+	res := call(t, cs, "install", map[string]any{"target": "avd:P", "paths": []string{apk}, "downgrade": true})
+	if res.IsError {
+		t.Fatalf("result %+v", res)
+	}
+	got := fake.requests()
+	if len(got) != 1 || !strings.Contains(got[0], "downgrade=1") || !strings.HasPrefix(got[0], "POST /api/install?") {
+		t.Errorf("requests %v", got)
+	}
+}
+
+func TestUninstallClaimsThenDeletesThePackage(t *testing.T) {
+	fake := &fakeLoupe{}
+	cs, stop := connect(t, fake)
+	defer stop()
+	res := call(t, cs, "uninstall", map[string]any{"target": "avd:P", "package": "com.example.app"})
+	if res.IsError {
+		t.Fatalf("result %+v", res)
+	}
+	got := fake.requests()
+	if len(got) != 2 || !strings.HasPrefix(got[0], "POST /api/claims") ||
+		!strings.HasPrefix(got[1], "DELETE /api/install?") || !strings.Contains(got[1], "package=com.example.app") ||
+		!strings.Contains(got[1], "target=avd") {
+		t.Errorf("requests %v; want a claim, then DELETE /api/install", got)
 	}
 }

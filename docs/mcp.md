@@ -26,8 +26,9 @@ Any other MCP client takes the same command, `~/.local/bin/loupe mcp`, with
 
 `targets`, `ui`, `screenshot` (returns an image, not JSON), `point`, `tap`,
 `swipe`, `scroll`, `type_text`, `key`, `button`, `launch`, `open_url`, `sequence`,
-`logcat`, `crashes`, `crash`, `install`, `camera`, `drop`, `boot`, `boot_status`,
-`release`, `flags`, `flag` and `submit_feedback`. `boot` takes `wait` as `/api/devices/boot` does
+`logcat`, `crashes`, `crash`, `install`, `uninstall`, `camera`, `drop`, `boot`, `boot_status`,
+`release`, `flags`, `flag` and `submit_feedback`. `install` takes `downgrade` as
+`/api/install` does, and `uninstall` takes `package`; both are Android only. `boot` takes `wait` as `/api/devices/boot` does
 (`10m`, or `0` to return at once), and `boot_status` reports on a boot still
 running; it reads only and claims nothing.
 

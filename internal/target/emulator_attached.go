@@ -24,6 +24,7 @@ var (
 	_ AppInfo        = (*Emulator)(nil)
 	_ ScreenSizer    = (*Emulator)(nil)
 	_ Installer      = (*Emulator)(nil)
+	_ Uninstaller    = (*Emulator)(nil)
 	_ Logcatter      = (*Emulator)(nil)
 	_ Crasher        = (*Emulator)(nil)
 	_ Launcher       = (*Emulator)(nil)
@@ -271,4 +272,13 @@ func (e *Emulator) ComposeDump(ctx context.Context) (*ComposeDump, error) {
 	}
 	defer done()
 	return in.ComposeDump(ctx)
+}
+
+func (e *Emulator) Uninstall(ctx context.Context, pkg string) (*InstallResult, error) {
+	in, done, err := e.running()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	return in.Uninstall(ctx, pkg)
 }
