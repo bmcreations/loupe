@@ -250,7 +250,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "ui",
-		Description: "Read the target's view hierarchy. Each node carries center, in device pixels, which goes straight into tap. Prefer this to reading a screenshot for finding something to tap.",
+		Description: "Read the target's view hierarchy. Each node carries center, in device pixels, which goes straight into tap, and its text, desc and id, which go into a match. Pass interactive: true. Prefer this to a screenshot for finding or checking anything on screen. sequence and scroll already end their answers with this tree, so do not call ui after them.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in uiIn) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"target": {in.Target}}
 		if in.Interactive {
@@ -261,7 +261,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "screenshot",
-		Description: "A PNG of the target's screen at its own resolution.",
+		Description: "A PNG of the target's screen at its own resolution. An image costs far more to read than ui's tree and names nothing you can match, so take one only to judge how something looks, not to find, tap or check text.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in Targeted) (*mcp.CallToolResult, any, error) {
 		b, _, err := c.do(ctx, http.MethodGet, "/api/screenshot", url.Values{"target": {in.Target}}, "", nil)
 		if err != nil {
@@ -284,7 +284,7 @@ func addTools(s *mcp.Server, c *Client) {
 		func(in swipeIn) (string, httpapi.InputRequest) {
 			return in.Target, httpapi.InputRequest{Action: "swipe", X: in.X, Y: in.Y, X2: in.X2, Y2: in.Y2, Ms: in.Ms}
 		})
-	addInput(s, c, "scroll", "Scroll a list the way a person does, and know when it has stopped. The server swipes inside the list, reads the screen again, and answers swipes and atEdge: atEdge true means the last stroke moved nothing, so the list is already at its top, bottom or end -- do not scroll that way again. until=edge goes straight to the top or bottom in one call; find scrolls until a node is on screen and answers with it. Use this instead of swipe and a screenshot to page through anything."+driving,
+	addInput(s, c, "scroll", "Scroll a list the way a person does, and know when it has stopped. The server swipes inside the list, reads the screen again, and answers swipes and atEdge: atEdge true means the last stroke moved nothing, so the list is already at its top, bottom or end -- do not scroll that way again. until=edge goes straight to the top or bottom in one call; find scrolls until a node is on screen and answers with it. The answer ends with the interactive tree of the screen it stopped on, as ui reports it. Use this instead of swipe and a screenshot to page through anything."+driving,
 		func(in scrollIn) (string, httpapi.InputRequest) {
 			return in.Target, httpapi.InputRequest{Action: "scroll", Direction: in.Direction, Until: in.Until, Find: in.Find, X: in.X, Y: in.Y, Max: in.Max, Ms: in.Ms}
 		})
@@ -446,7 +446,7 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "sequence",
-		Description: "Run several inputs in one call, so a known flow (fill a form, tap through a dialog) costs one round trip instead of one per step. Each step is an input tool's body with its action named: tap (x,y or match), swipe, text, key, button, launch, openURL, move, and wait (ms, or match to wait for a node). Steps run in order and the cursor moves to each touch first; the first step that fails stops the rest, and the answer names it and holds every step's result. The answer ends with the interactive tree of the screen the sequence stopped on, as ui reports it, so plan the next call from it instead of reading the screen again; noScreen leaves it out. Use a wait with a match before a step whose node depends on what an earlier step opened." + driving,
+		Description: "Run several inputs in one call, so a known flow (fill a form, tap through a dialog) costs one round trip instead of one per step. Each step is an input tool's body with its action named: tap (x,y or match), swipe, scroll (with find, to bring a node below the fold on screen), text, key, button, launch, openURL, move, and wait (ms, or match to wait for a node). Steps run in order and the cursor moves to each touch first; the first step that fails stops the rest, and the answer names it and holds every step's result. The answer ends with the interactive tree of the screen the sequence stopped on, as ui reports it, so plan the next call from it instead of reading the screen again; noScreen leaves it out. Every call is a round trip through you, so put every step you can predict into one sequence, through to the screen you need, and end it with a wait or scroll find for what that screen should show: they fail unless the node appears, so they are also the check. Asked to check that something works, prove it once on the shortest path, answer, and stop." + driving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sequenceIn) (*mcp.CallToolResult, any, error) {
 		res, _, err := jsonResult(c.drive(ctx, in.Target, func() (json.RawMessage, error) {
 			return c.postJSON(ctx, "/api/sequence", url.Values{"target": {in.Target}}, struct {
@@ -528,7 +528,7 @@ func addInput[In any](s *mcp.Server, c *Client, name, desc string, build func(In
 		func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 			t, req := build(in)
 			q := url.Values{"target": {t}}
-			return jsonResult(c.drive(ctx, t, func() (json.RawMessage, error) {
+			res, _, err := jsonResult(c.drive(ctx, t, func() (json.RawMessage, error) {
 				// A tap naming a node has no point yet; the server points
 				// once it has found one.
 				if pointsFirst(req.Action) && req.Match == nil {
@@ -540,6 +540,12 @@ func addInput[In any](s *mcp.Server, c *Client, name, desc string, build func(In
 				}
 				return c.postJSON(ctx, "/api/input", q, inputBody(req))
 			}))
+			// A scroll lands on a screen the agent has not seen; showing it
+			// saves the ui call that would follow.
+			if req.Action == "scroll" && !res.IsError {
+				c.appendScreen(ctx, t, res)
+			}
+			return res, nil, err
 		})
 }
 
@@ -593,12 +599,9 @@ func multipartAPKs(paths []string) ([]byte, string, error) {
 	return buf.Bytes(), mw.FormDataContentType(), nil
 }
 
-// jsonResult hands the server's JSON back as the tool's text. An HTTP error
-// is a tool error, not a protocol one, so the model reads the server's code
-// (humanHeld, claimedBy, handsOff) and its retry time and can act on them.
-// appendScreen adds the target's interactive tree to res, so a sequence's
-// answer shows where it landed and the agent saves a ui call. A failed read
-// leaves res as it was: the sequence's own answer still stands.
+// appendScreen adds the target's interactive tree to res, so a sequence's or
+// scroll's answer shows where it landed and the agent saves a ui call. A
+// failed read leaves res as it was: the input's own answer still stands.
 func (c *Client) appendScreen(ctx context.Context, target string, res *mcp.CallToolResult) {
 	b, err := c.getJSON(ctx, "/api/ui", url.Values{"target": {target}, "interactive": {"1"}})
 	if err != nil {
@@ -607,6 +610,9 @@ func (c *Client) appendScreen(ctx context.Context, target string, res *mcp.CallT
 	res.Content = append(res.Content, &mcp.TextContent{Text: "screen now: " + string(b)})
 }
 
+// jsonResult hands the server's JSON back as the tool's text. An HTTP error
+// is a tool error, not a protocol one, so the model reads the server's code
+// (humanHeld, claimedBy, handsOff) and its retry time and can act on them.
 func jsonResult(b json.RawMessage, err error) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return errResult(err), nil, nil
