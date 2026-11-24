@@ -726,12 +726,16 @@ entry has to match all of them. Each is printable text up to 256 bytes. Loupe
 matches them on the Mac against what the device prints, so neither reaches
 the device's shell or the unified log's predicate.
 
-An entry is kept or dropped whole. Its tag comes from its first line, and a
-`text` found on any of its lines, such as inside a multi-line dictionary,
-keeps all of them. `lines` counts the lines kept, not the entries, so
-`lines=50&tag=flutter` is the last 50 lines of `flutter` entries. A compact
-entry over several lines counts each of them, and the cut can fall partway
-through the oldest one.
+On an iOS simulator or iPhone an entry is kept or dropped whole. Its tag
+comes from its first line, and a `text` found on any of its lines, such as
+inside a multi-line dictionary, keeps all of them. Android prints each line
+of a multi-line message with a header of its own, so each line is matched
+alone there and `text` keeps only the lines that hold it: a match on the
+first line of a React Native error drops its `componentStack` lines.
+
+`lines` counts the lines kept, not the entries, so `lines=50&tag=flutter` is
+the last 50 lines of `flutter` entries. A compact entry over several lines
+counts each of them, and the cut can fall partway through the oldest one.
 
 | Target | `tag` matches | Example |
 |---|---|---|
