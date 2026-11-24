@@ -138,6 +138,23 @@ func TestAClaimLapsesAfterTheLeaseAndCallsRenewIt(t *testing.T) {
 	}
 }
 
+// A holder that stops calling for claimLease loses the claim. Its next input
+// must say so, in a code of its own, instead of passing through unclaimed.
+func TestALapsedHolderIsToldItsClaimLapsed(t *testing.T) {
+	s, now := claimServer(t)
+	a := map[string]string{HeaderAgent: "a", HeaderSession: "sa"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+
+	*now = now.Add(claimLease)
+	rec := postInputAs(s, "dev1", tap, a)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("lapsed holder's tap = %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	if code := decodeErr(t, rec).Code; code != "claimLapsed" {
+		t.Fatalf("code = %q, want claimLapsed", code)
+	}
+}
+
 func TestOnlyTheHolderReleasesUnlessForced(t *testing.T) {
 	s, _ := claimServer(t)
 	a := map[string]string{HeaderAgent: "a"}
