@@ -36,7 +36,8 @@ var (
 // Logcat reads the phone's syslog: every process's lines, as text, through
 // lockdownd's syslog_relay over a cable or Wi-Fi. It has no history to
 // query by time and no structured form, so Since and Format are refused, and
-// a package has no route to its pid here, so only PID narrows it.
+// a package has no route to its pid here, so only PID, Tag and Text narrow
+// it.
 func (d *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logcat, error) {
 	switch {
 	case q.Format != "":
@@ -56,10 +57,11 @@ func (d *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logc
 	}
 	if q.Follow {
 		stop := context.AfterFunc(ctx, func() { c.Close() })
-		return &target.Logcat{PID: q.PID, ReadCloser: &syslogReader{src: c, pid: q.PID, stop: stop}}, nil
+		r := &syslogReader{src: c, stop: stop, f: newSyslogFilter(q)}
+		return &target.Logcat{PID: q.PID, ReadCloser: r}, nil
 	}
 	defer c.Close()
-	lines, err := syslogDump(c, q.PID, q.Lines)
+	lines, err := syslogDump(c, newSyslogFilter(q), q.Lines)
 	if err != nil {
 		return nil, err
 	}
@@ -67,9 +69,8 @@ func (d *Device) Logcat(ctx context.Context, q target.LogcatQuery) (*target.Logc
 }
 
 // syslogDump reads until the stream is quiet or the cap runs out, keeping
-// the last n lines that pass the pid filter.
-func syslogDump(c net.Conn, pid, n int) ([]string, error) {
-	f := &syslogFilter{pid: pid}
+// the last n lines that pass f.
+func syslogDump(c net.Conn, f *syslogFilter, n int) ([]string, error) {
 	var kept []string
 	keep := func(line []byte) {
 		if line = f.line(line); line == nil {
@@ -115,16 +116,14 @@ func syslogDump(c net.Conn, pid, n int) ([]string, error) {
 // syslogReader is a follow: lines as they arrive, decoded and filtered.
 type syslogReader struct {
 	src  net.Conn
-	pid  int
 	stop func() bool
-	f    syslogFilter
+	f    *syslogFilter
 	in   []byte
 	out  []byte
 	buf  [32 << 10]byte
 }
 
 func (r *syslogReader) Read(p []byte) (int, error) {
-	r.f.pid = r.pid
 	for len(r.out) == 0 {
 		k, err := r.src.Read(r.buf[:])
 		r.in = append(r.in, r.buf[:k]...)
@@ -161,10 +160,16 @@ var syslogHeader = regexp.MustCompile(`\[(\d+)\] <[A-Za-z]+>:`)
 
 // syslogFilter turns one raw line into what is served, or nil to drop it.
 // A line with no header continues the message above it, a multi-line
-// dictionary for one, so it goes wherever that message went.
+// dictionary for one, so it goes wherever that message went. The tag and
+// text are matched after unvis, against the line as it is served.
 type syslogFilter struct {
 	pid      int
 	lastKept bool
+	tags     *target.LogFilter
+}
+
+func newSyslogFilter(q target.LogcatQuery) *syslogFilter {
+	return &syslogFilter{pid: q.PID, tags: target.NewLogFilter(q, parseSyslog)}
 }
 
 func (f *syslogFilter) line(raw []byte) []byte {
@@ -181,7 +186,11 @@ func (f *syslogFilter) line(raw []byte) []byte {
 			return nil
 		}
 	}
-	return unvis(raw)
+	line := unvis(raw)
+	if !f.tags.Keep(line) {
+		return nil
+	}
+	return line
 }
 
 // unvis undoes the vis(3) encoding syslog_relay applies to every byte that
@@ -228,3 +237,25 @@ func ctrl(c byte) byte {
 }
 
 func isOctal(c byte) bool { return c >= '0' && c <= '7' }
+
+// syslogLine reads the header of a syslog_relay line: the process, with
+// its sender in parentheses when the line names one, then the message.
+var syslogLine = regexp.MustCompile(`^[A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \S+ (.+?)\[\d+\] <[A-Za-z]+>: ?`)
+
+// parseSyslog reads a decoded syslog_relay line for LogFilter. Its tag is
+// the sender when the line names one, "wifid(WiFiPolicy)" is WiFiPolicy,
+// and the process otherwise. A line with no header continues the one above.
+func parseSyslog(line []byte) target.LogLine {
+	if !syslogHeader.Match(line) {
+		return target.LogLine{Continues: true}
+	}
+	m := syslogLine.FindSubmatchIndex(line)
+	if m == nil {
+		return target.LogLine{}
+	}
+	name := line[m[2]:m[3]]
+	if open := bytes.IndexByte(name, '('); open >= 0 && name[len(name)-1] == ')' {
+		name = name[open+1 : len(name)-1]
+	}
+	return target.LogLine{Tags: []string{string(name)}, Message: line[m[1]:]}
+}

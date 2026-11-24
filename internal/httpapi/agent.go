@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/bmcreations/loupe/internal/target/ios"
 
@@ -1935,6 +1937,8 @@ const (
 	maxLogcatBytes = 32 << 20
 	// logcatDumpTimeout covers reading the whole ring buffer back over adb.
 	logcatDumpTimeout = 15 * time.Second
+	// maxLogFilterLen bounds ?tag= and ?text=, in bytes.
+	maxLogFilterLen = 256
 )
 
 // logcatQuery reads GET /api/logcat's parameters. since takes a duration
@@ -1990,15 +1994,42 @@ func logcatQuery(q url.Values, now time.Time) (target.LogcatQuery, error) {
 	default:
 		return lq, fmt.Errorf("format %q: want text or %s", v, ios.LogFormatNDJSON)
 	}
+	// tag and text are matched on the host against what the device
+	// printed, so any printable text is allowed; neither reaches a shell.
+	var err error
+	if lq.Tag, err = logFilterParam(q, "tag", true); err != nil {
+		return lq, err
+	}
+	if lq.Text, err = logFilterParam(q, "text", false); err != nil {
+		return lq, err
+	}
 	return lq, nil
+}
+
+// logFilterParam reads ?tag= or ?text=: printable UTF-8 up to
+// maxLogFilterLen bytes, a tag without the spaces around it.
+func logFilterParam(q url.Values, name string, trim bool) (string, error) {
+	v := q.Get(name)
+	if trim {
+		v = strings.TrimSpace(v)
+	}
+	if len(v) > maxLogFilterLen {
+		return "", fmt.Errorf("%s is %d bytes; want at most %d", name, len(v), maxLogFilterLen)
+	}
+	if !utf8.ValidString(v) || strings.ContainsFunc(v, unicode.IsControl) {
+		return "", fmt.Errorf("%s %q: want printable text on one line", name, v)
+	}
+	return v, nil
 }
 
 // handleLogcat returns the device log as text, one line per entry
 // (logcat's threadtime on Android, the unified log's compact style on a
 // simulator), or with ?format=ndjson one JSON object per line where the
 // target has that form: the last ?lines= of it, or everything since ?since=, narrowed to
-// one process by ?pid=, ?package= or ?foreground=1. With ?follow=1 it
-// stays open and streams new lines until the caller hangs up.
+// one process by ?pid=, ?package= or ?foreground=1, and to the entries
+// whose tag is ?tag= and whose message holds ?text=, both ignoring case.
+// lines counts the entries those keep. With ?follow=1 it stays open and
+// streams new lines until the caller hangs up.
 //
 // The process it narrowed to is in X-Loupe-Pid and X-Loupe-Package, since
 // ?foreground=1 names whichever app is in front and the caller cannot know
@@ -2077,8 +2108,10 @@ func (s *Server) handleLogcat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.traceAgent(r, t.ID(), "logcat", nil)
-	// -T has no line limit of its own, so a since dump is trimmed here.
-	if !q.Since.IsZero() {
+	// -T has no line limit of its own, and a filtered dump reads the whole
+	// buffer so its last lines are ones that matched, so both are trimmed
+	// here.
+	if !q.Since.IsZero() || q.Filtered() {
 		raw = lastLines(raw, q.Lines)
 	}
 	w.Write(raw)

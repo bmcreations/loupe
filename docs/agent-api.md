@@ -710,12 +710,37 @@ Returns the device log as plain text.
 | `lines` | Last N lines. Default 500. |
 | `since` | Everything since a duration back from now (`5m`) or an RFC 3339 time, trimmed to `lines`. |
 | `pid`, `package`, `foreground=1` | At most one of these narrows the log to a process. `foreground` uses the foreground app. |
+| `tag` | Only entries with this tag. Exact, ignoring case. See the table below for what a tag is on each target. |
+| `text` | Only entries whose message holds this text, ignoring case. The header (time, pid, tag) is not searched. |
 | `follow=1` | Keeps the response open and flushes each read. |
 | `format=ndjson` | Simulators only. One JSON object per entry (`application/x-ndjson`). |
 
 The pid used and the package, when there is one, come back in `X-Loupe-Pid`
 and `X-Loupe-Package`. A package with no process is 409. A follow fixes the pid
 when it opens, so it keeps reading the old process after an app restart.
+
+`tag` and `text` are for apps that share a process with their host. In Expo
+Go, `package` narrows the log to Expo Go, and `tag=ReactNativeJS` narrows it
+to the app's JavaScript. They combine with each other and with a process: an
+entry has to match all of them. `lines` counts the entries they keep, so
+`lines=50&tag=flutter` is the last 50 `flutter` lines, however far back they
+are. Each is printable text up to 256 bytes. Loupe matches them on the Mac
+against what the device prints, so neither reaches the device's shell or the
+unified log's predicate. A line with no header of its own, such as the rest
+of a multi-line dictionary, goes with the entry above it.
+
+| Target | `tag` matches | Example |
+|---|---|---|
+| Android | The logcat tag | `ReactNativeJS`, `flutter` |
+| iOS simulator | The subsystem or `subsystem:category`. An entry with no subsystem matches the sender's image, which compact prints in parentheses. | `com.facebook.react.log`, `com.facebook.react.log:javascript`, `Flutter` |
+| Physical iPhone | The sender in parentheses, or the process when the line has none | `WiFiPolicy` in `wifid(WiFiPolicy)[56]` |
+
+A follow with a filter starts from the last `lines` lines on Android and keeps
+those that match, so it can start with fewer. On a simulator a follow starts
+live either way. A filtered dump on Android reads the whole ring buffer, and
+one on a simulator widens its window until it has `lines` matching entries
+or runs out of time, so a rare tag with no `package` can take most of the 15
+second dump limit.
 
 Per platform:
 

@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -61,7 +63,8 @@ var simLogStart = func(ctx context.Context, udid string, args []string) (io.Read
 
 // Logcat implements Logcatter with the simulator's unified log, through
 // `log show` for a dump and `log stream` for a follow. The text form is
-// `--style compact`; ?format=ndjson is `--style ndjson`.
+// `--style compact`; ?format=ndjson is `--style ndjson`. A tag or text is
+// matched here against what `log` prints, never put in its predicate.
 //
 // A follow is live from the moment it opens: log stream has no backlog,
 // and a show stitched in front of it would lose whatever was logged while
@@ -85,14 +88,14 @@ func (s *Simulator) Logcat(ctx context.Context, q target.LogcatQuery) (*target.L
 		if err != nil {
 			return nil, err
 		}
-		out.ReadCloser = newSimLogFilter(r, q.Format)
+		out.ReadCloser = simLogReader(r, q)
 	case !q.Since.IsZero():
 		// The handler trims a since dump to its lines.
 		r, err := simLogStart(ctx, s.UDID(), simLogArgs(q, pid, 0))
 		if err != nil {
 			return nil, err
 		}
-		out.ReadCloser = newSimLogFilter(r, q.Format)
+		out.ReadCloser = simLogReader(r, q)
 	default:
 		b, err := simLogTail(ctx, s.UDID(), q, pid)
 		if err != nil {
@@ -205,7 +208,8 @@ func simLogArgs(q target.LogcatQuery, pid int, window time.Duration) []string {
 }
 
 // simLogTail is the last q.Lines entries, trying each of simLogWindows
-// until one holds enough. It gives up widening when the next window,
+// until one holds enough. With a tag or text, it counts the lines that
+// match, so a sparse tag can widen to the last window. It gives up widening when the next window,
 // guessed from how long this one took, would not finish before ctx's
 // deadline, and returns what it has.
 //
@@ -220,7 +224,7 @@ func simLogTail(ctx context.Context, udid string, q target.LogcatQuery, pid int)
 		if err != nil {
 			return nil, err
 		}
-		lines, err := lastFiltered(newSimLogFilter(r, q.Format), q.Lines)
+		lines, err := lastFiltered(simLogReader(r, q), q.Lines)
 		if err != nil {
 			if best != nil && ctx.Err() != nil {
 				return best, nil
@@ -315,3 +319,163 @@ func (f *simLogFilter) drop(line []byte) bool {
 }
 
 func (f *simLogFilter) Close() error { return f.src.Close() }
+
+// simLogReader is what `log` printed, less what simLogFilter drops and
+// what q's tag and text do not match.
+func simLogReader(r io.ReadCloser, q target.LogcatQuery) io.ReadCloser {
+	parse := parseCompact
+	if q.Format == LogFormatNDJSON {
+		parse = parseNDJSON
+	}
+	return target.FilterLog(newSimLogFilter(r, q.Format), target.NewLogFilter(q, parse))
+}
+
+// parseCompact reads a `log --style compact` line for LogFilter:
+//
+//	2026-11-24 07:45:56.764 Df locationd[33406:2f24689] [com.apple.locationd:QA] msg
+//	2026-11-24 07:45:59.978 F  backboardd[33403:29d7a27] (IOSurface) msg
+//
+// After the process comes either the entry's [subsystem:category], or, when
+// it has no subsystem, its sender's image in parentheses. A category may
+// hold spaces, and launchd's subsystems hold brackets and spaces of their
+// own, but no subsystem seen holds a colon, so the first colon ends it.
+// A line with no timestamp continues the entry above.
+func parseCompact(line []byte) target.LogLine {
+	if !compactStamp(line) {
+		return target.LogLine{Continues: true}
+	}
+	rest, ok := afterCompactProcess(line[len("2026-11-24 07:45:56.764"):])
+	if !ok {
+		return target.LogLine{}
+	}
+	switch {
+	case bytes.HasPrefix(rest, []byte("[")):
+		sub, after, ok := bytes.Cut(rest[1:], []byte(":"))
+		if !ok {
+			return target.LogLine{}
+		}
+		cat, msg, ok := cutToken(after, ']')
+		if !ok {
+			return target.LogLine{}
+		}
+		return target.LogLine{Tags: subsystemTags(string(sub), string(cat)), Message: msg}
+	case bytes.HasPrefix(rest, []byte("(")):
+		sender, msg, ok := cutToken(rest[1:], ')')
+		if !ok {
+			return target.LogLine{}
+		}
+		return target.LogLine{Tags: []string{string(sender)}, Message: msg}
+	}
+	return target.LogLine{Message: rest}
+}
+
+// compactStamp reports whether line starts "YYYY-MM-DD hh:mm:ss.mmm ".
+func compactStamp(line []byte) bool {
+	const shape = "0000-00-00 00:00:00.000 "
+	if len(line) < len(shape) {
+		return false
+	}
+	for i := 0; i < len(shape); i++ {
+		if shape[i] == '0' {
+			if line[i] < '0' || line[i] > '9' {
+				return false
+			}
+		} else if line[i] != shape[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// afterCompactProcess skips the type and "Process[pid:tid] " that follow a
+// compact timestamp. A process name may hold spaces, so it ends at the
+// first bracket that holds pid:tid.
+func afterCompactProcess(b []byte) ([]byte, bool) {
+	b = bytes.TrimLeft(b, " ")
+	sp := bytes.IndexByte(b, ' ')
+	if sp < 0 {
+		return nil, false
+	}
+	b = b[sp:]
+	for {
+		open := bytes.IndexByte(b, '[')
+		if open < 0 {
+			return nil, false
+		}
+		b = b[open+1:]
+		end := bytes.IndexByte(b, ']')
+		if end < 0 {
+			return nil, false
+		}
+		if pidTID(b[:end]) {
+			return bytes.TrimPrefix(b[end+1:], []byte(" ")), true
+		}
+	}
+}
+
+func pidTID(b []byte) bool {
+	pid, tid, ok := bytes.Cut(b, []byte(":"))
+	if !ok || len(pid) == 0 || len(tid) == 0 {
+		return false
+	}
+	for _, c := range pid {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	for _, c := range tid {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// cutToken splits b at the first close followed by a space or the end of
+// the line, into the token before it and the message after.
+func cutToken(b []byte, close byte) (token, msg []byte, ok bool) {
+	for i := 0; i < len(b); i++ {
+		if b[i] != close {
+			continue
+		}
+		if i+1 == len(b) {
+			return b[:i], nil, true
+		}
+		if b[i+1] == ' ' {
+			return b[:i], b[i+2:], true
+		}
+	}
+	return nil, nil, false
+}
+
+func subsystemTags(sub, cat string) []string {
+	if cat == "" {
+		return []string{sub}
+	}
+	return []string{sub, sub + ":" + cat}
+}
+
+// parseNDJSON reads a `log --style ndjson` entry for LogFilter, with the
+// same tags parseCompact gives the entry: its subsystem and
+// subsystem:category, or with no subsystem the base name of its sender's
+// image. Text is matched against eventMessage alone, so a key or another
+// field's value does not keep the line.
+func parseNDJSON(line []byte) target.LogLine {
+	var e struct {
+		Subsystem       string `json:"subsystem"`
+		Category        string `json:"category"`
+		SenderImagePath string `json:"senderImagePath"`
+		EventMessage    string `json:"eventMessage"`
+	}
+	if json.Unmarshal(line, &e) != nil {
+		return target.LogLine{}
+	}
+	l := target.LogLine{Message: []byte(e.EventMessage)}
+	switch {
+	case e.Subsystem != "":
+		l.Tags = subsystemTags(e.Subsystem, e.Category)
+	case e.SenderImagePath != "":
+		l.Tags = []string{path.Base(e.SenderImagePath)}
+	}
+	return l
+}

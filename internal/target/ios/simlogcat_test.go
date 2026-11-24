@@ -152,6 +152,116 @@ func TestSimLogTailStopsWideningPastTheDeadline(t *testing.T) {
 	}
 }
 
+func TestParseCompact(t *testing.T) {
+	rn := []string{"com.facebook.react.log", "com.facebook.react.log:javascript"}
+	for _, c := range []struct {
+		line string
+		tags []string
+		msg  string
+		cont bool
+	}{
+		{`2026-11-24 07:45:56.764 Df locationd[33406:2f24689] [com.apple.locationd.Utility:QA] {"msg":"x"}`,
+			[]string{"com.apple.locationd.Utility", "com.apple.locationd.Utility:QA"}, `{"msg":"x"}`, false},
+		// A category may hold spaces.
+		{"2026-11-24 07:45:59.281 E  SpringBoard[33390:29d7943] [com.apple.coregraphics:Unknown process name] CGAffineTransformInvert: singular matrix.",
+			[]string{"com.apple.coregraphics", "com.apple.coregraphics:Unknown process name"}, "CGAffineTransformInvert: singular matrix.", false},
+		// launchd's subsystems hold brackets and spaces, and no category.
+		{"2026-11-24 07:45:59.814 Df launchd_sim[33370:2f30703] [user/501/com.apple.managedappdistributiond [23706]:] xpcproxy_sim spawned with pid 23706",
+			[]string{"user/501/com.apple.managedappdistributiond [23706]"}, "xpcproxy_sim spawned with pid 23706", false},
+		// With no subsystem the sender's image is printed instead.
+		{"2026-11-24 07:45:59.978 F  backboardd[33403:29d7a27] (IOSurface) IOSurfaceQueryTransactionList got non-success",
+			[]string{"IOSurface"}, "IOSurfaceQueryTransactionList got non-success", false},
+		{"2026-11-24 08:00:00.000 Df Runner[4300:1a2b] (Flutter) flutter: porchlight tapped",
+			[]string{"Flutter"}, "flutter: porchlight tapped", false},
+		// A process name may hold a space, and a message may start with a
+		// bracket of its own.
+		{"2026-11-24 08:00:00.000 I  Expo Go[4211:1a2b] [com.facebook.react.log:javascript] [porchlight] sent",
+			rn, "[porchlight] sent", false},
+		{"2026-11-24 08:00:00.000 I  Expo Go[4211:1a2b] [com.facebook.react.log:javascript]", rn, "", false},
+		{"}, with animation: true", nil, "", true},
+		{"    \"FLAGS\" = 5;", nil, "", true},
+	} {
+		got := parseCompact([]byte(c.line))
+		if !reflect.DeepEqual(got.Tags, c.tags) || string(got.Message) != c.msg || got.Continues != c.cont {
+			t.Errorf("parseCompact(%q) = %q %q %v; want %q %q %v", c.line, got.Tags, got.Message, got.Continues, c.tags, c.msg, c.cont)
+		}
+	}
+}
+
+func TestParseNDJSON(t *testing.T) {
+	for _, c := range []struct {
+		line string
+		tags []string
+		msg  string
+	}{
+		{`{"subsystem":"com.facebook.react.log","category":"javascript","senderImagePath":"/x/Expo Go","eventMessage":"sent"}`,
+			[]string{"com.facebook.react.log", "com.facebook.react.log:javascript"}, "sent"},
+		{`{"subsystem":"","category":"","senderImagePath":"/a/Flutter.framework/Flutter","eventMessage":"flutter: x"}`,
+			[]string{"Flutter"}, "flutter: x"},
+		{`{"subsystem":"user/501/x [1]","category":"","senderImagePath":"/usr/libexec/launchd_sim","eventMessage":"m"}`,
+			[]string{"user/501/x [1]"}, "m"},
+		{`not json`, nil, ""},
+	} {
+		got := parseNDJSON([]byte(c.line))
+		if !reflect.DeepEqual(got.Tags, c.tags) || string(got.Message) != c.msg || got.Continues {
+			t.Errorf("parseNDJSON(%q) = %q %q %v; want %q %q", c.line, got.Tags, got.Message, got.Continues, c.tags, c.msg)
+		}
+	}
+}
+
+const (
+	compactRN    = "2026-11-24 08:00:00.000 I  Expo Go[4211:1a2b] [com.facebook.react.log:javascript] porchlight-js sent {\n"
+	compactCont  = "  \"n\" = 1;\n"
+	compactOther = "2026-11-24 08:00:01.000 Df locationd[1:2] [com.apple.locationd:QA] tick {\n"
+	compactSaid  = "2026-11-24 08:00:02.000 Df Expo Go[4211:1a2b] (Expo Go) PORCHLIGHT-JS said\n"
+)
+
+func TestSimLogReaderFiltersByTagAndText(t *testing.T) {
+	in := "Timestamp               Ty Process[PID:TID]\n" + compactRN + compactCont + compactOther + compactCont + compactSaid
+	for _, c := range []struct {
+		q    target.LogcatQuery
+		want string
+	}{
+		{target.LogcatQuery{Tag: "com.facebook.react.log"}, compactRN + compactCont},
+		{target.LogcatQuery{Tag: "COM.FACEBOOK.REACT.LOG:javascript"}, compactRN + compactCont},
+		{target.LogcatQuery{Tag: "expo go"}, compactSaid},
+		{target.LogcatQuery{Text: "porchlight-js"}, compactRN + compactCont + compactSaid},
+		{target.LogcatQuery{}, in[len("Timestamp               Ty Process[PID:TID]\n"):]},
+	} {
+		if got := readAll(t, simLogReader(io.NopCloser(strings.NewReader(in)), c.q)); got != c.want {
+			t.Errorf("%+v: got %q; want %q", c.q, got, c.want)
+		}
+	}
+}
+
+// Text looks in eventMessage alone, so a word that is also a key or a field
+// value does not keep the line.
+func TestSimLogReaderNDJSONTextIsTheMessageOnly(t *testing.T) {
+	in := `{"subsystem":"porchlight","eventMessage":"tick"}` + "\n" +
+		`{"subsystem":"x","eventMessage":"Porchlight sent"}` + "\n" +
+		`{"count":2,"finished":1}` + "\n"
+	got := readAll(t, simLogReader(io.NopCloser(strings.NewReader(in)), target.LogcatQuery{Format: LogFormatNDJSON, Text: "porchlight"}))
+	if got != `{"subsystem":"x","eventMessage":"Porchlight sent"}`+"\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// The window stops widening on matching lines, so a match older than the
+// last lines of the window is still found.
+func TestSimLogTailCountsOnlyMatchingLines(t *testing.T) {
+	asked := fakeSimLog(t, map[string]string{
+		"60s":  compactRN + compactOther + compactOther,
+		"600s": compactRN + compactRN,
+	})
+	got, err := simLogTail(context.Background(), "u", target.LogcatQuery{Lines: 1, Tag: "com.facebook.react.log"}, 0)
+	if err != nil || string(got) != compactRN {
+		t.Errorf("got %q, %v", got, err)
+	}
+	if !reflect.DeepEqual(*asked, []string{"60s"}) {
+		t.Errorf("windows = %q; want the first, which holds a match", *asked)
+	}
+}
+
 func TestValidBundleID(t *testing.T) {
 	for _, ok := range []string{"com.apple.Preferences", "dev.bmc-creations.app", "Foo"} {
 		if !ValidBundleID(ok) {

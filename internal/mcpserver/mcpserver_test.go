@@ -349,6 +349,26 @@ func TestLogcatPassesItsFormatThrough(t *testing.T) {
 	}
 }
 
+func TestLogcatPassesItsFiltersThrough(t *testing.T) {
+	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/api/logcat" {
+			return false
+		}
+		io.WriteString(w, "kept\n")
+		return true
+	}}
+	cs, stop := connect(t, fake)
+	defer stop()
+	res := call(t, cs, "logcat", map[string]any{"target": "emulator-5554", "tag": "ReactNativeJS", "text": "porchlight sent"})
+	if res.IsError || text(res) != "kept\n" {
+		t.Fatalf("result %+v", res)
+	}
+	got := fake.requests()
+	if len(got) != 1 || !strings.Contains(got[0], "tag=ReactNativeJS") || !strings.Contains(got[0], "text=porchlight+sent") {
+		t.Errorf("requests %v", got)
+	}
+}
+
 func TestAScreenshotComesBackAsAnImage(t *testing.T) {
 	png := []byte("\x89PNG\r\n\x1a\nfake")
 	fake := &fakeLoupe{handle: func(w http.ResponseWriter, r *http.Request) bool {
