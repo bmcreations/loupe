@@ -639,8 +639,10 @@ by name, as for any AVD loupe did not start.
 A boot holds its caller's claim on the target until the boot ends, `wait=0`'s
 background boot included, so a `wait` longer than the 10-minute lease does not
 lose the device to another agent. `idleMs` reads 0 while it holds, and the
-lease starts again when the boot returns. A boot from an agent with no claim
-holds nothing.
+lease starts again when the boot returns. Other loupe servers on the Mac see
+the hold as lasting at most 15 minutes, the longest `wait`, so a server stopped
+mid-boot keeps the device from other agents no longer than that. A boot from
+an agent with no claim holds nothing.
 
 Viewers get `MsgEnded` before the session closes. An AVD booted this way is
 paused and shut down by the idle clock like any other. With
@@ -1216,19 +1218,34 @@ claims the target after a lapse, the former holder's input answers 409
 the device. It repeats on every input until the holder claims the target again
 (`POST /api/claims`), or an hour after the lapse. Another caller is unaffected,
 and an agent that claims in between makes the former holder's input answer
-`claimedBy`. Releasing a claim yourself leaves no such marker, and the markers
-are not saved across a restart. Claims are
-saved to `claims.json` beside the config file and survive a restart, unless
-the lease ran out while the server was down. A renewal is saved at most once a
-minute, so a restored lease can be up to a minute short. Claims are kept out of
-`handsoff.json`, which holds only what the person marked.
+`claimedBy`. Releasing a claim yourself leaves no such marker.
+
+Every loupe server on the Mac shares claims, whatever its `-config`: the
+launchd service, a dev server, and spare servers on other ports. A claim taken
+through one refuses other agents' claims and input through all of them with
+the same `claimedBy` 409, and the holder can renew it, release it and hear
+`claimLapsed` through any of them. Claims and lapse markers are kept in
+`claims.json` in loupe's cache directory (`~/Library/Caches/loupe` on macOS),
+beside the token, and survive a restart unless the lease ran out while no
+server was running. A claim on `synthetic`, which each server draws for itself,
+stays with that server, in `claims.json` beside its config. A server built
+before claims were shared keeps its own and does not see the others'.
+
+A renewal is saved at most once a minute, so a restored lease can be up to a
+minute short. So can the lease as a server other than the one the holder calls
+reads it: the holder may hear `claimLapsed` up to a minute early, and claims
+again. A claim ends only when it is released or its lease runs out, so a server
+stopped with a claim held keeps that device from other agents on every server
+for up to 10 minutes. Claims are kept out of `handsoff.json`, which holds only
+what the person marked.
 
 ### Hands off
 
 `POST /api/devices/handsoff?target=&on=1|0` marks a target off limits to every
 agent, a claim's holder included. Input answers 409 `code: "handsOff"` with no
 retry time. The mark is saved to `handsoff.json` beside the config file and
-survives a restart.
+survives a restart. Unlike a claim it is that server's own: another loupe
+server on the Mac does not see it.
 
 The shutdown, delete, uninstall and install `?launch=1` routes go through the same check
 as `/api/input`. Reads are never refused.
