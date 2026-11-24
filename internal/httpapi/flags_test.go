@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -177,7 +178,7 @@ func TestFlagWatchEndsWithASecondScreen(t *testing.T) {
 func TestFlagStoreKeepsTheNewest(t *testing.T) {
 	st := newFlagStore()
 	for range maxFlags + 3 {
-		st.add(&storedFlag{})
+		st.add(&storedFlag{}, nil)
 	}
 	list := st.list(0, "")
 	if len(list.Flags) != maxFlags || list.Flags[0].ID != 4 {
@@ -399,6 +400,44 @@ func TestDeletingAWatchingFlagStopsItsTimerAndEnd(t *testing.T) {
 	}
 	if ids := flagIDs(t, s); len(ids) != 0 {
 		t.Errorf("flags = %v, want none", ids)
+	}
+}
+
+// pausingTarget parks its next Inspect once armed, so a test can act while
+// endFlag captures the end screen without the store's lock.
+type pausingTarget struct {
+	*flagTarget
+	armed   atomic.Bool
+	reached chan struct{}
+	resume  chan struct{}
+}
+
+func (p *pausingTarget) Inspect(ctx context.Context) (*target.UI, error) {
+	if p.armed.CompareAndSwap(true, false) {
+		close(p.reached)
+		<-p.resume
+	}
+	return p.flagTarget.Inspect(ctx)
+}
+
+func TestDeletingAFlagWhileItEndsAnswers404(t *testing.T) {
+	_, ft := newFlagServer(t)
+	p := &pausingTarget{flagTarget: ft, reached: make(chan struct{}), resume: make(chan struct{})}
+	m := NewManager(target.Options{})
+	m.Register(p)
+	s := &Server{mgr: m, token: "secret", flags: newFlagStore()}
+
+	serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"watch":true}`, nil)
+	p.armed.Store(true)
+	code := make(chan int, 1)
+	go func() {
+		code <- serveOn(s, http.MethodPost, "/api/flags/end?id=1", "", nil).Code
+	}()
+	<-p.reached
+	deleteFlags(t, s, "?id=1", http.StatusOK)
+	close(p.resume)
+	if c := <-code; c != http.StatusNotFound {
+		t.Errorf("end of a flag deleted mid-capture = %d, want 404", c)
 	}
 }
 

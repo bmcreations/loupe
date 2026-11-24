@@ -56,8 +56,8 @@ Reading:
 - `GET /api/flags/shot?id=&which=start|end` is the PNG.
 
 Clearing: `DELETE /api/flags?id=` removes one flag and `DELETE /api/flags?target=`
-every flag on a target ([agent-api.md](agent-api.md)). An interrupt nobody has
-read is not deleted: the call answers 409 `code: "unreadInterrupt"` with the
+every flag on a target ([agent-api.md](agent-api.md)). An interrupt the agent it
+stops has not read is not deleted: the call answers 409 `code: "unreadInterrupt"` with the
 flag's `id` and deletes nothing, including a target's other flags. Read it
 first.
 

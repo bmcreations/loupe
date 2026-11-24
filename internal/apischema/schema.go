@@ -136,7 +136,7 @@ var endpoints = []endpoint{
 	{"POST /api/flags request", dirRequest, httpapi.FlagRequest{}},
 	{"POST /api/flags 200", dirResponse, httpapi.Flag{}},
 	{"DELETE /api/flags", dirResponse, httpapi.DeleteFlagsResponse{}},
-	// 409 code unreadInterrupt: an interrupt nobody has read; nothing deleted.
+	// 409 code unreadInterrupt: an interrupt its agent has not read; nothing deleted.
 	{"DELETE /api/flags 409", dirResponse, httpapi.ErrorResponse{}},
 	{"POST /api/flags/end request", dirRequest, httpapi.FlagEndRequest{}},
 	{"POST /api/flags/end 200", dirResponse, httpapi.Flag{}},
