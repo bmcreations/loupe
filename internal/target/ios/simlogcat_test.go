@@ -89,17 +89,6 @@ func TestPidForApp(t *testing.T) {
 	}
 }
 
-func TestLastFilteredKeepsTheLastN(t *testing.T) {
-	got, err := lastFiltered(io.NopCloser(strings.NewReader("a\nb\nc\nd\ne\n")), 2)
-	if err != nil || !reflect.DeepEqual(got, []string{"d", "e"}) {
-		t.Errorf("got %q, %v", got, err)
-	}
-	got, _ = lastFiltered(io.NopCloser(strings.NewReader("a\n")), 3)
-	if !reflect.DeepEqual(got, []string{"a"}) {
-		t.Errorf("short: got %q", got)
-	}
-}
-
 // fakeSimLog stands in for simctl, answering each --last window with the
 // lines given for it.
 func fakeSimLog(t *testing.T, byWindow map[string]string) *[]string {

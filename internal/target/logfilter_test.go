@@ -3,6 +3,7 @@ package target
 import (
 	"bytes"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -173,5 +174,16 @@ func TestFilterLogWithoutAFilterIsTheSameReader(t *testing.T) {
 	src := io.NopCloser(strings.NewReader("x"))
 	if FilterLog(src, nil) != src {
 		t.Error("FilterLog wrapped a reader it had nothing to filter on")
+	}
+}
+
+func TestLastLinesKeepsTheLastN(t *testing.T) {
+	got, err := LastLines(io.NopCloser(strings.NewReader("a\nb\nc\nd\ne\n")), 2)
+	if err != nil || !reflect.DeepEqual(got, []string{"d", "e"}) {
+		t.Errorf("got %q, %v", got, err)
+	}
+	got, _ = LastLines(io.NopCloser(strings.NewReader("a\n")), 3)
+	if !reflect.DeepEqual(got, []string{"a"}) {
+		t.Errorf("short: got %q", got)
 	}
 }

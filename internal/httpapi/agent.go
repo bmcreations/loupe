@@ -1932,7 +1932,8 @@ func (c *countingReader) Read(p []byte) (int, error) {
 const (
 	defaultLogcatLines = 500
 	maxLogcatLines     = 20000
-	// logcatDumpTimeout covers reading the whole ring buffer back over adb.
+	// logcatDumpTimeout bounds a dump. A filtered dump widens its reads
+	// back through the buffer until this would cut them.
 	logcatDumpTimeout = 15 * time.Second
 	// maxLogFilterLen bounds ?tag= and ?text=, in bytes.
 	maxLogFilterLen = 256
@@ -2122,9 +2123,8 @@ func (s *Server) handleLogcat(w http.ResponseWriter, r *http.Request) {
 	}
 	s.traceAgent(r, t.ID(), "logcat", nil)
 	raw := tail.Bytes()
-	// -T has no line limit of its own, and a filtered dump reads the whole
-	// buffer so its last lines are ones that matched, so both are trimmed
-	// here.
+	// -T has no line limit of its own, and a filtered dump can read more
+	// lines than it keeps, so both are trimmed here.
 	if !q.Since.IsZero() || q.Filtered() {
 		raw = lastLines(raw, q.Lines)
 	}
