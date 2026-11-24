@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	imgpng "image/png"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -175,11 +178,266 @@ func TestFlagWatchEndsWithASecondScreen(t *testing.T) {
 func TestFlagStoreKeepsTheNewest(t *testing.T) {
 	st := newFlagStore()
 	for range maxFlags + 3 {
-		st.add(&storedFlag{})
+		st.add(&storedFlag{}, nil)
 	}
 	list := st.list(0, "")
 	if len(list.Flags) != maxFlags || list.Flags[0].ID != 4 {
 		t.Errorf("kept %d flags, oldest %d", len(list.Flags), list.Flags[0].ID)
+	}
+}
+
+func deleteFlags(t *testing.T, s *Server, query string, wantStatus int) []byte {
+	t.Helper()
+	w := serveOn(s, http.MethodDelete, "/api/flags"+query, "", nil)
+	if w.Code != wantStatus {
+		t.Fatalf("DELETE /api/flags%s = %d, want %d: %s", query, w.Code, wantStatus, w.Body)
+	}
+	return w.Body.Bytes()
+}
+
+func flagIDs(t *testing.T, s *Server) []uint64 {
+	t.Helper()
+	var list FlagsResponse
+	json.Unmarshal(serveOn(s, http.MethodGet, "/api/flags", "", nil).Body.Bytes(), &list)
+	ids := []uint64{}
+	for _, f := range list.Flags {
+		ids = append(ids, f.ID)
+	}
+	return ids
+}
+
+func TestDeleteFlagByIDRemovesOnlyThatFlag(t *testing.T) {
+	s, _ := newFlagServer(t)
+	for range 3 {
+		serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{}`, nil)
+	}
+	var got DeleteFlagsResponse
+	json.Unmarshal(deleteFlags(t, s, "?id=2", http.StatusOK), &got)
+	if got.Deleted != 1 {
+		t.Errorf("deleted = %d, want 1", got.Deleted)
+	}
+	if ids := flagIDs(t, s); len(ids) != 2 || ids[0] != 1 || ids[1] != 3 {
+		t.Errorf("flags left = %v, want [1 3]", ids)
+	}
+	if w := serveOn(s, http.MethodGet, "/api/flags?id=2", "", nil); w.Code != http.StatusNotFound {
+		t.Errorf("GET of the deleted flag = %d, want 404", w.Code)
+	}
+	// Deleting it again is a 404, as reading it is.
+	body := deleteFlags(t, s, "?id=2", http.StatusNotFound)
+	var e ErrorResponse
+	json.Unmarshal(body, &e)
+	if e.Error != fmt.Sprintf("no flag 2; the server keeps the last %d", maxFlags) {
+		t.Errorf("error = %q", e.Error)
+	}
+	deleteFlags(t, s, "?id=99", http.StatusNotFound)
+}
+
+func TestDeleteFlagsByTargetLeavesOtherTargets(t *testing.T) {
+	s, _ := newFlagServer(t)
+	other := &flagTarget{screenshotTarget: screenshotTarget{id: "dev2", png: whitePNG(t, 100, 200)}, ui: &target.UI{Width: 100, Height: 200, Root: &target.Node{}}}
+	s.mgr.Register(other)
+	serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{}`, nil)
+	serveOn(s, http.MethodPost, "/api/flags?target=dev2", `{}`, nil)
+	serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{}`, nil)
+
+	var got DeleteFlagsResponse
+	json.Unmarshal(deleteFlags(t, s, "?target=dev1", http.StatusOK), &got)
+	if got.Deleted != 2 {
+		t.Errorf("deleted = %d, want 2", got.Deleted)
+	}
+	if ids := flagIDs(t, s); len(ids) != 1 || ids[0] != 2 {
+		t.Errorf("flags left = %v, want [2]", ids)
+	}
+	// A target with no flags is not an error: nothing to clear.
+	json.Unmarshal(deleteFlags(t, s, "?target=dev1", http.StatusOK), &got)
+	if got.Deleted != 0 {
+		t.Errorf("second delete = %d, want 0", got.Deleted)
+	}
+	json.Unmarshal(deleteFlags(t, s, "?target=nope", http.StatusOK), &got)
+	if got.Deleted != 0 {
+		t.Errorf("unknown target = %d, want 0", got.Deleted)
+	}
+}
+
+func TestDeleteFlagsRefusesBadQueries(t *testing.T) {
+	s, _ := newFlagServer(t)
+	serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{}`, nil)
+	deleteFlags(t, s, "", http.StatusBadRequest)
+	deleteFlags(t, s, "?id=abc", http.StatusBadRequest)
+	deleteFlags(t, s, "?id=-1", http.StatusBadRequest)
+	// Both given is ambiguous, so it is refused and nothing is deleted.
+	deleteFlags(t, s, "?id=1&target=dev1", http.StatusBadRequest)
+	if ids := flagIDs(t, s); len(ids) != 1 {
+		t.Errorf("flags left = %v, want the one flag untouched", ids)
+	}
+}
+
+// An agent holding the token must not clear a person's stop without reading
+// it, so deleting an unread interrupt is refused and nothing goes, whether it
+// is still open, ended, or read only by an agent it does not stop. Presence
+// is checked with the list and the gate with mayAct: a GET by id would be a
+// read.
+func TestDeletingAnUnreadInterruptIsRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(s *Server)
+	}{
+		{"open", func(s *Server) {}},
+		{"ended", func(s *Server) {
+			serveOn(s, http.MethodPost, "/api/flags/end?id=2", "", nil)
+		}},
+		{"read by another session", func(s *Server) {
+			serveOn(s, http.MethodPost, "/api/flags/end?id=2", "", nil)
+			serveOn(s, http.MethodGet, "/api/flags?id=2", "", map[string]string{HeaderAgent: "claude", HeaderSession: "s2"})
+		}},
+	} {
+		for _, q := range []string{"?id=2", "?target=dev1"} {
+			s, _ := newFlagServer(t)
+			s.claims = newClaimBook(nil)
+			if _, refused := s.claims.take("dev1", "claude", "s1", ""); refused != nil {
+				t.Fatalf("claim refused: %+v", refused)
+			}
+			holder := inputCaller{agent: "claude", session: "s1"}
+			req := httptest.NewRequest(http.MethodPost, "/api/input?target=dev1", nil)
+			serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{}`, nil)
+			serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"kind":"interrupt"}`, nil)
+			tc.setup(s)
+
+			var e ErrorResponse
+			json.Unmarshal(deleteFlags(t, s, q, http.StatusConflict), &e)
+			if e.Code != "unreadInterrupt" || e.ID != "2" {
+				t.Errorf("%s %s: refusal = %+v, want code unreadInterrupt naming flag 2", tc.name, q, e)
+			}
+			if !strings.Contains(e.Error, "GET /api/flags?id=2") {
+				t.Errorf("%s %s: error %q does not say to read flag 2 first", tc.name, q, e.Error)
+			}
+			if ids := flagIDs(t, s); len(ids) != 2 || ids[0] != 1 || ids[1] != 2 {
+				t.Errorf("%s %s: flags left = %v, want [1 2]: a refused delete removes nothing", tc.name, q, ids)
+			}
+			if r := s.mayAct(req, "dev1", "tap", holder); r == nil || r.Code != ErrCodeInterrupted {
+				t.Errorf("%s %s: tap after the refused delete = %+v, want still interrupted", tc.name, q, r)
+			}
+		}
+	}
+}
+
+func TestDeletingAReadInterruptSucceeds(t *testing.T) {
+	for _, tc := range []struct {
+		q    string
+		want int
+	}{{"?id=2", 1}, {"?target=dev1", 2}} {
+		s, _ := newFlagServer(t)
+		req := httptest.NewRequest(http.MethodPost, "/api/input?target=dev1", nil)
+		caller := inputCaller{agent: "claude", session: "s1"}
+		serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{}`, nil)
+		serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"kind":"interrupt"}`, nil)
+		serveOn(s, http.MethodPost, "/api/flags/end?id=2", "", nil)
+		serveOn(s, http.MethodGet, "/api/flags?id=2", "", map[string]string{HeaderAgent: "claude", HeaderSession: "s1"})
+		if r := s.mayAct(req, "dev1", "tap", caller); r != nil {
+			t.Fatalf("%s: tap after reading the interrupt = %+v, want allowed", tc.q, r)
+		}
+
+		var got DeleteFlagsResponse
+		json.Unmarshal(deleteFlags(t, s, tc.q, http.StatusOK), &got)
+		if got.Deleted != tc.want {
+			t.Errorf("%s: deleted = %d, want %d", tc.q, got.Deleted, tc.want)
+		}
+		if r := s.mayAct(req, "dev1", "tap", caller); r != nil {
+			t.Errorf("%s: tap after the delete = %+v, want allowed", tc.q, r)
+		}
+	}
+}
+
+func TestDeletingAFlagLeavesAnotherTargetsInterrupt(t *testing.T) {
+	s, _ := newFlagServer(t)
+	other := &flagTarget{screenshotTarget: screenshotTarget{id: "dev2", png: whitePNG(t, 100, 200)}, ui: &target.UI{Width: 100, Height: 200, Root: &target.Node{}}}
+	s.mgr.Register(other)
+	serveOn(s, http.MethodPost, "/api/flags?target=dev2", `{"kind":"interrupt"}`, nil)
+	deleteFlags(t, s, "?target=dev1", http.StatusOK)
+	if _, held := s.flags.interrupted("dev2", ""); !held {
+		t.Error("deleting dev1's flags lifted dev2's interrupt")
+	}
+}
+
+func TestDeleteFlagDoesNotWakeOrFeedAWaiter(t *testing.T) {
+	s, _ := newFlagServer(t)
+	serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"note":"old"}`, nil)
+	var list FlagsResponse
+	json.Unmarshal(serveOn(s, http.MethodGet, "/api/flags", "", nil).Body.Bytes(), &list)
+
+	done := make(chan FlagsResponse, 1)
+	go func() {
+		var got FlagsResponse
+		w := serveOn(s, http.MethodGet, fmt.Sprintf("/api/flags?after=%d&waitMs=5000", list.Rev), "", nil)
+		json.Unmarshal(w.Body.Bytes(), &got)
+		done <- got
+	}()
+	time.Sleep(50 * time.Millisecond)
+	deleteFlags(t, s, "?id=1", http.StatusOK)
+	select {
+	case got := <-done:
+		t.Fatalf("a delete answered the waiter with %+v", got)
+	case <-time.After(150 * time.Millisecond):
+	}
+	// The waiter is still live, and hears only the next new flag.
+	serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"note":"new"}`, nil)
+	select {
+	case got := <-done:
+		if len(got.Flags) != 1 || got.Flags[0].Note != "new" {
+			t.Errorf("waiter got %+v, want only the new flag", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the waiter did not wake on a new flag after a delete")
+	}
+}
+
+func TestDeletingAWatchingFlagStopsItsTimerAndEnd(t *testing.T) {
+	s, _ := newFlagServer(t)
+	serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"watch":true}`, nil)
+	deleteFlags(t, s, "?id=1", http.StatusOK)
+	if w := serveOn(s, http.MethodPost, "/api/flags/end?id=1", "", nil); w.Code != http.StatusNotFound {
+		t.Errorf("end of a deleted flag = %d, want 404", w.Code)
+	}
+	if ids := flagIDs(t, s); len(ids) != 0 {
+		t.Errorf("flags = %v, want none", ids)
+	}
+}
+
+// pausingTarget parks its next Inspect once armed, so a test can act while
+// endFlag captures the end screen without the store's lock.
+type pausingTarget struct {
+	*flagTarget
+	armed   atomic.Bool
+	reached chan struct{}
+	resume  chan struct{}
+}
+
+func (p *pausingTarget) Inspect(ctx context.Context) (*target.UI, error) {
+	if p.armed.CompareAndSwap(true, false) {
+		close(p.reached)
+		<-p.resume
+	}
+	return p.flagTarget.Inspect(ctx)
+}
+
+func TestDeletingAFlagWhileItEndsAnswers404(t *testing.T) {
+	_, ft := newFlagServer(t)
+	p := &pausingTarget{flagTarget: ft, reached: make(chan struct{}), resume: make(chan struct{})}
+	m := NewManager(target.Options{})
+	m.Register(p)
+	s := &Server{mgr: m, token: "secret", flags: newFlagStore()}
+
+	serveOn(s, http.MethodPost, "/api/flags?target=dev1", `{"watch":true}`, nil)
+	p.armed.Store(true)
+	code := make(chan int, 1)
+	go func() {
+		code <- serveOn(s, http.MethodPost, "/api/flags/end?id=1", "", nil).Code
+	}()
+	<-p.reached
+	deleteFlags(t, s, "?id=1", http.StatusOK)
+	close(p.resume)
+	if c := <-code; c != http.StatusNotFound {
+		t.Errorf("end of a flag deleted mid-capture = %d, want 404", c)
 	}
 }
 

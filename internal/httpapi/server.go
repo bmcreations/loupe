@@ -327,7 +327,7 @@ var routes = []route{
 	{"/api/presets/apply", []string{http.MethodPost}, (*Server).handlePresetApply, ""},
 	{"/api/clipboard", []string{http.MethodGet, http.MethodPost}, (*Server).handleClipboard, ""},
 	{"/api/clipboard/shared", []string{http.MethodGet, http.MethodPost}, (*Server).handleSharedClipboard, ""},
-	{"/api/flags", []string{http.MethodGet, http.MethodPost}, (*Server).handleFlags, ""},
+	{"/api/flags", []string{http.MethodGet, http.MethodPost, http.MethodDelete}, (*Server).handleFlags, ""},
 	{"/api/flags/end", []string{http.MethodPost}, (*Server).handleFlagEnd, ""},
 	{"/api/flags/listeners", []string{http.MethodGet}, (*Server).handleFlagListeners, ""},
 	{"/api/flags/destinations", []string{http.MethodGet}, (*Server).handleFlagDestinations, ""},
