@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 )
 
 // loupecamSource is the camera shim, compiled for the simulator on first use.
@@ -178,7 +177,7 @@ func (s *Simulator) noteShimmed(bundle string, pid int) {
 // alive reports whether pid is running. A simulator's apps are processes on
 // this Mac, so signal 0 answers for them.
 func alive(pid int) bool {
-	return pid > 0 && syscall.Kill(pid, 0) == nil
+	return pid > 0 && signalPid(pid, 0) == nil
 }
 
 // simctlLaunchPid reads the pid out of `simctl launch`'s "bundle: pid".

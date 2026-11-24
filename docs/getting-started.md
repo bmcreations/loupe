@@ -6,8 +6,8 @@ starts, so stop at the first that fails.
 
 ## What you need
 
-- **A Mac.** loupe builds anywhere Go does (`make dist` cross-compiles
-  Linux and Windows binaries), but iOS simulators, the launchd service and
+- **A Mac.** The Windows binary from `make dist` compiles, but running
+  loupe on Windows is not supported. iOS simulators, the launchd service and
   keeping the Mac awake are macOS only.
 - **Go 1.26**, per `go.mod`. Nothing else is needed to build: the
   scrcpy-server jar and the Compose inspector agent are embedded, and the

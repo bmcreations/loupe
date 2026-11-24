@@ -22,7 +22,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -131,8 +130,8 @@ func Load(path string) (File, error) {
 	if fi.Mode().Perm()&0o022 != 0 {
 		return f, fmt.Errorf("%s: group or others may write it; chmod 600 it", path)
 	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
-		return f, fmt.Errorf("%s: owned by uid %d, not this user", path, st.Uid)
+	if uid, other := ownedByOther(fi); other {
+		return f, fmt.Errorf("%s: owned by uid %d, not this user", path, uid)
 	}
 	dec := json.NewDecoder(io.LimitReader(fh, 1<<20))
 	dec.DisallowUnknownFields()

@@ -220,7 +220,7 @@ func (x *xcRunner) close() {
 
 func killGroup(cmd *exec.Cmd) {
 	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		_ = signalGroup(cmd.Process.Pid, syscall.SIGTERM)
 	}
 }
 
@@ -256,7 +256,7 @@ func startXCRunner(udid, dir string) (*exec.Cmd, chan error, error) {
 		"-xctestrun", runs[0], "-destination", "id="+udid)
 	cmd.Env = append(os.Environ(), "TEST_RUNNER_LOUPE_PORT="+strconv.Itoa(xcRunnerPort))
 	cmd.Stdout, cmd.Stderr = log, log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = procGroupAttr()
 	if err := cmd.Start(); err != nil {
 		log.Close()
 		return nil, nil, fmt.Errorf("start xcodebuild: %w", err)

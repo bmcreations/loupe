@@ -1,0 +1,30 @@
+//go:build windows
+
+package target
+
+import (
+	"os"
+	"syscall"
+)
+
+// loupe does not run on Windows yet; these keep the package compiling.
+// There are no process groups or sessions here, so the attrs are nil.
+func procGroupAttr() *syscall.SysProcAttr { return nil }
+
+func sessionAttr() *syscall.SysProcAttr { return nil }
+
+// signalPid terminates pid for any real signal and probes for existence on 0.
+func signalPid(pid int, sig syscall.Signal) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return syscall.ESRCH
+	}
+	defer p.Release()
+	if sig == 0 {
+		return nil
+	}
+	return p.Kill()
+}
+
+// signalGroup has no process group to reach on Windows, so it signals pid alone.
+func signalGroup(pid int, sig syscall.Signal) error { return signalPid(pid, sig) }
