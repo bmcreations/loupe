@@ -220,7 +220,7 @@ func checkFeedback(req *FeedbackRequest) string {
 		return "tool is one line"
 	}
 	if req.Target != "" && !feedbackTarget.MatchString(req.Target) {
-		return "target is a target id, as /api/targets lists them"
+		return "target is a target id such as avd:<name>, sim:<udid> or an Android serial, as /api/targets lists them, not a description"
 	}
 	return ""
 }

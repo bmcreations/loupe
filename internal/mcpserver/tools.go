@@ -493,7 +493,7 @@ type feedbackIn struct {
 	Repro       string `json:"repro,omitempty" jsonschema:"the tool calls or commands that show it, in order"`
 	ProposedFix string `json:"proposed_fix" jsonschema:"the change to loupe you think would fix it"`
 	Tool        string `json:"tool,omitempty" jsonschema:"the tool, CLI command or route it concerns"`
-	Target      string `json:"target,omitempty" jsonschema:"the target it happened on, if any"`
+	Target      string `json:"target,omitempty" jsonschema:"the id of the target it happened on, such as avd:<name>, sim:<udid> or an Android serial, if any; not a description"`
 }
 
 // addInput registers one POST /api/input tool, its action fixed by build.

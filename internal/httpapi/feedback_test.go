@@ -91,6 +91,24 @@ func TestFeedbackIsRefusedWithoutItsRequiredFields(t *testing.T) {
 	}
 }
 
+func TestFeedbackTargetRefusalNamesTheExpectedForm(t *testing.T) {
+	s, _ := feedbackServer(t, nil)
+	body := `{"title":"x","problem":"y","proposedFix":"z","target":"android (USB physical device)"}`
+	w := serveOn(s, http.MethodPost, "/api/feedback", body, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	var got struct{ Error string }
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"target id", "avd:<name>", "sim:<udid>", "serial"} {
+		if !strings.Contains(got.Error, want) {
+			t.Errorf("error %q does not name %q", got.Error, want)
+		}
+	}
+}
+
 func TestFeedbackToACommandRunsItWithTheReportOnStdin(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "gh")
