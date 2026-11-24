@@ -61,6 +61,8 @@ var toolRoutes = []toolRoute{
 	{"flags", http.MethodGet, "/api/flags"},
 	{"flag", http.MethodGet, "/api/flags"},
 	{"submit_feedback", http.MethodPost, "/api/feedback"},
+	{"list_extensions", http.MethodGet, "/api/extensions"},
+	{"call_extension", http.MethodPost, "/api/ext/"},
 }
 
 // Targeted is the one field every device tool takes.
@@ -522,6 +524,8 @@ func addTools(s *mcp.Server, c *Client) {
 			Title: in.Title, Problem: in.Problem, Repro: in.Repro, ProposedFix: in.ProposedFix, Tool: in.Tool, Target: in.Target,
 		}))
 	})
+
+	addExtensionTools(s, c)
 }
 
 type feedbackIn struct {

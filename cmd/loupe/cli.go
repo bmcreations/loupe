@@ -59,6 +59,8 @@ var cliCommands = []cliCommand{
 	{"flags", "flags", nil},
 	{"flag", "flag", []string{"id"}},
 	{"feedback", "submit_feedback", []string{"title"}},
+	{"ext list", "list_extensions", nil},
+	{"ext call", "call_extension", []string{"name", "path?"}},
 }
 
 func findCLICommand(name string) (cliCommand, bool) {
@@ -68,6 +70,23 @@ func findCLICommand(name string) (cliCommand, bool) {
 		}
 	}
 	return cliCommand{}, false
+}
+
+// resolveCLICommand finds the command args name and returns the arguments
+// left after it. A command is one word, or two when its first word is the
+// group of others (`ext list`, `ext call`): the two-word name is tried first.
+func resolveCLICommand(args []string) (cliCommand, []string, bool) {
+	if len(args) > 1 {
+		if c, ok := findCLICommand(args[0] + " " + args[1]); ok {
+			return c, args[2:], true
+		}
+	}
+	if len(args) > 0 {
+		if c, ok := findCLICommand(args[0]); ok {
+			return c, args[1:], true
+		}
+	}
+	return cliCommand{}, nil, false
 }
 
 // cliGlobals are the flags every command takes besides its tool's fields.

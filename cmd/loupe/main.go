@@ -210,12 +210,16 @@ func main() {
 			printCLIHelp(os.Stdout)
 			os.Exit(0)
 		default:
-			cmd, ok := findCLICommand(name)
+			cmd, rest, ok := resolveCLICommand(os.Args[1:])
 			if !ok {
-				fmt.Fprintf(os.Stderr, "loupe: unknown command %q; `loupe help` lists them\n", name)
+				if name == "ext" {
+					fmt.Fprintf(os.Stderr, "loupe: `loupe ext` takes list or call; `loupe help` lists them\n")
+				} else {
+					fmt.Fprintf(os.Stderr, "loupe: unknown command %q; `loupe help` lists them\n", name)
+				}
 				os.Exit(2)
 			}
-			os.Exit(runCLI(cmd, os.Args[2:]))
+			os.Exit(runCLI(cmd, rest))
 		}
 	}
 	tightenOutput(os.Stdout)

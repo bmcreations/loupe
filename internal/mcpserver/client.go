@@ -139,12 +139,28 @@ func (e *APIError) Error() string {
 // Never X-Loupe-Viewer: that header makes a request the person's, which would
 // walk past the human hold this process is meant to respect.
 func (c *Client) do(ctx context.Context, method, path string, q url.Values, contentType string, body io.Reader) ([]byte, http.Header, error) {
+	status, h, b, err := c.send(ctx, method, path, q, contentType, body)
+	if err != nil {
+		return nil, nil, err
+	}
+	if status/100 != 2 {
+		e := &APIError{Status: status, Raw: string(b)}
+		_ = json.Unmarshal(b, &e.Body)
+		return nil, h, e
+	}
+	return b, h, nil
+}
+
+// send is do without the status check: it returns whatever the server
+// answered, so a caller that wants a 4xx's body and content type can have
+// them (call_extension).
+func (c *Client) send(ctx context.Context, method, path string, q url.Values, contentType string, body io.Reader) (int, http.Header, []byte, error) {
 	u := *c.base
 	u.Path = c.base.Path + path
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
-		return nil, nil, err
+		return 0, nil, nil, err
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -163,27 +179,22 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, cont
 			// Every later request goes to http:// too.
 			c.base.Scheme = "http"
 			if body == nil {
-				return c.do(ctx, method, path, q, contentType, nil)
+				return c.send(ctx, method, path, q, contentType, nil)
 			}
 			if sk, ok := body.(io.Seeker); ok {
 				if _, serr := sk.Seek(0, io.SeekStart); serr == nil {
-					return c.do(ctx, method, path, q, contentType, body)
+					return c.send(ctx, method, path, q, contentType, body)
 				}
 			}
 		}
-		return nil, nil, err
+		return 0, nil, nil, err
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, nil, err
+		return 0, nil, nil, err
 	}
-	if resp.StatusCode/100 != 2 {
-		e := &APIError{Status: resp.StatusCode, Raw: string(b)}
-		_ = json.Unmarshal(b, &e.Body)
-		return nil, resp.Header, e
-	}
-	return b, resp.Header, nil
+	return resp.StatusCode, resp.Header, b, nil
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, q url.Values) (json.RawMessage, error) {

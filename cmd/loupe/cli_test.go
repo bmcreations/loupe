@@ -103,6 +103,9 @@ func TestParseCLIArgs(t *testing.T) {
 		{"boot", []string{"avd:P", "--wait", "10m"}, `map[target:avd:P wait:10m]`},
 		{"boot", []string{"avd:P", "-wait", "0"}, `map[target:avd:P wait:0]`},
 		{"boot-status", []string{"avd:P"}, `map[target:avd:P]`},
+		{"ext list", nil, `map[]`},
+		{"ext call", []string{"slipway"}, `map[name:slipway]`},
+		{"ext call", []string{"slipway", "builds", "-method", "POST", "-body", `{"a":1}`}, `map[body:{"a":1} method:POST name:slipway path:builds]`},
 	}
 	for _, tc := range cases {
 		cmd, _ := findCLICommand(tc.cmd)
@@ -209,5 +212,27 @@ func TestCLIKeepsItsClaim(t *testing.T) {
 	}
 	if claims != 2 {
 		t.Errorf("claims posted = %d, want one per command:\n%s", claims, strings.Join(log, "\n"))
+	}
+}
+
+func TestResolveCLICommand(t *testing.T) {
+	cases := []struct {
+		args     []string
+		wantName string
+		wantRest string
+		wantOK   bool
+	}{
+		{[]string{"ext", "list"}, "ext list", "", true},
+		{[]string{"ext", "call", "slipway", "builds"}, "ext call", "slipway builds", true},
+		{[]string{"tap", "avd:P", "1", "2"}, "tap", "avd:P 1 2", true},
+		{[]string{"ext"}, "", "", false},
+		{[]string{"ext", "nope"}, "", "", false},
+		{[]string{"list"}, "", "", false},
+	}
+	for _, tc := range cases {
+		cmd, rest, ok := resolveCLICommand(tc.args)
+		if ok != tc.wantOK || cmd.name != tc.wantName || strings.Join(rest, " ") != tc.wantRest {
+			t.Errorf("%v: got %q %q %v, want %q %q %v", tc.args, cmd.name, strings.Join(rest, " "), ok, tc.wantName, tc.wantRest, tc.wantOK)
+		}
 	}
 }

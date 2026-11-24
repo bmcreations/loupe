@@ -93,6 +93,12 @@ Entries are sorted by name. An entry has `page` only when the extension
 registered one. A client should show an extension's features only while it
 is listed. Handset shows its Map tab only while `appmap` is listed.
 
+Agents reach extensions the same way: the `list_extensions` and
+`call_extension` MCP tools, or `loupe ext list` and `loupe ext call`. They
+list this route and call `/api/ext/{name}/...` with the agent's loupe token,
+so an agent needs neither the extension's port nor its own token. See
+[mcp.md](mcp.md#tools).
+
 ## Pages
 
 The web client lists every extension that has a `page` in its device
