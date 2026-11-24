@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 var logT0 = time.Date(2026, 11, 24, 12, 49, 44, 382140000, time.UTC)
@@ -326,5 +327,16 @@ func TestMergeCrashReportsDropsAJSErrorItsCrashReportCovers(t *testing.T) {
 	}
 	if got := rowIDs(MergeCrashReports(crashes[:1], newest, CrashQuery{Limit: 1})); got != "crash-100,js-200" {
 		t.Errorf("limit 1 = %s", got)
+	}
+}
+
+func TestClipSummaryKeepsWholeCharacters(t *testing.T) {
+	s := strings.Repeat("a", maxSummary-1) + "é and more"
+	got := clipSummary(s)
+	if !utf8.ValidString(got) || got != strings.Repeat("a", maxSummary-1)+"…" {
+		t.Errorf("clipSummary = %q", got[len(got)-8:])
+	}
+	if got := clipSummary("short"); got != "short" {
+		t.Errorf("short = %q", got)
 	}
 }

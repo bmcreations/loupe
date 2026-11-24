@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // A JavaScript error in a React Native dev build and an uncaught Dart error
@@ -241,11 +242,16 @@ func dartBlockSummary(header string, texts []string) string {
 	return header
 }
 
+// clipSummary cuts s to maxSummary bytes at a character boundary.
 func clipSummary(s string) string {
 	if len(s) <= maxSummary {
 		return s
 	}
-	return s[:maxSummary] + "…"
+	cut := maxSummary
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 // fatalJSWindow is how long after a fatal JS error the crash report for
