@@ -69,6 +69,7 @@ type Targeted struct {
 type uiIn struct {
 	Targeted
 	Interactive bool `json:"interactive,omitempty" jsonschema:"drop layout containers and nodes covered by something else"`
+	JSON        bool `json:"json,omitempty" jsonschema:"answer with /api/ui's full JSON (bounds, every container) instead of one line per node"`
 }
 
 type pointIn struct {
@@ -250,13 +251,17 @@ func addTools(s *mcp.Server, c *Client) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "ui",
-		Description: "Read the target's view hierarchy. Each node carries center, in device pixels, which goes straight into tap, and its text, desc and id, which go into a match. Pass interactive: true. Prefer this to a screenshot for finding or checking anything on screen. sequence and scroll already end their answers with this tree, so do not call ui after them.",
+		Description: "Read the target's view hierarchy, one line per node: its class, text, desc and id, which go into a match verbatim, and its @x,y center in device pixels, which goes straight into tap. Pass interactive: true. Prefer this to a screenshot for finding or checking anything on screen. sequence and scroll already end their answers with this tree, so do not call ui after them.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in uiIn) (*mcp.CallToolResult, any, error) {
 		q := url.Values{"target": {in.Target}}
 		if in.Interactive {
 			q.Set("interactive", "1")
 		}
-		return jsonResult(c.getJSON(ctx, "/api/ui", q))
+		b, err := c.getJSON(ctx, "/api/ui", q)
+		if err != nil || in.JSON {
+			return jsonResult(b, err)
+		}
+		return textResult(compactScreen(b)), nil, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -607,7 +612,7 @@ func (c *Client) appendScreen(ctx context.Context, target string, res *mcp.CallT
 	if err != nil {
 		return
 	}
-	res.Content = append(res.Content, &mcp.TextContent{Text: "screen now: " + string(b)})
+	res.Content = append(res.Content, &mcp.TextContent{Text: "screen now: " + compactScreen(b)})
 }
 
 // jsonResult hands the server's JSON back as the tool's text. An HTTP error
