@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"bytes"
@@ -18,13 +18,9 @@ import (
 	"time"
 
 	"github.com/pion/webrtc/v4"
-)
 
-// KindRevyl is a cloud Android emulator or iOS simulator on Revyl
-// (revyl.com), reached through the user's own revyl CLI and account. Its
-// video comes over WHEP and its input as CLI gestures; nothing about it is
-// local, so it has no adb serial and no simctl UDID.
-const KindRevyl Kind = "revyl"
+	"github.com/bmcreations/loupe/internal/target"
+)
 
 // The shapes and flags below are read from revyl-cli v0.2.27
 // (github.com/RevylAI/revyl-cli, tag v0.2.27, commit 35b06ed8). Paths in the
@@ -412,15 +408,15 @@ type RevylTarget struct {
 }
 
 var (
-	_ Actuator    = (*RevylTarget)(nil)
-	_ ScreenSizer = (*RevylTarget)(nil)
+	_ target.Actuator    = (*RevylTarget)(nil)
+	_ target.ScreenSizer = (*RevylTarget)(nil)
 )
 
 // errRevylNoStream is an agent's input with no stream to send it through.
-var errRevylNoStream = NoSessionError("revyl: open this device in a viewer first; loupe sends a Revyl device's input through the viewer's stream")
+var errRevylNoStream = target.NoSessionError("revyl: open this device in a viewer first; loupe sends a Revyl device's input through the viewer's stream")
 
-func (t *RevylTarget) ID() string { return "revyl:" + t.Session.SessionID }
-func (t *RevylTarget) Kind() Kind { return KindRevyl }
+func (t *RevylTarget) ID() string        { return "revyl:" + t.Session.SessionID }
+func (t *RevylTarget) Kind() target.Kind { return target.KindRevyl }
 
 func (t *RevylTarget) Label() string {
 	if t.Model != "" {
@@ -436,8 +432,8 @@ func (t *RevylTarget) Label() string {
 }
 
 // Describe needs no round trip: everything it says was known at start.
-func (t *RevylTarget) Describe(context.Context) (Description, error) {
-	d := Description{OS: t.Session.Platform, OSVersion: t.OSVersion, Form: "phone", Transport: "cloud"}
+func (t *RevylTarget) Describe(context.Context) (target.Description, error) {
+	d := target.Description{OS: t.Session.Platform, OSVersion: t.OSVersion, Form: "phone", Transport: "cloud"}
 	if strings.Contains(strings.ToLower(t.Model), "tablet") || strings.Contains(t.Model, "iPad") {
 		d.Form = "tablet"
 	}
@@ -445,7 +441,7 @@ func (t *RevylTarget) Describe(context.Context) (Description, error) {
 }
 
 // Open waits for the session to stream, then connects to its WHEP URL.
-func (t *RevylTarget) Open(ctx context.Context, _ Options) (Stream, error) {
+func (t *RevylTarget) Open(ctx context.Context, _ target.Options) (target.Stream, error) {
 	s, err := t.readySession(ctx)
 	if err != nil {
 		return nil, err
@@ -600,10 +596,10 @@ type revylStream struct {
 	owner *RevylTarget // forgets the stream on Close
 }
 
-func (s *revylStream) Touch(t Touch) error    { return s.in.touch(t, s.Meta()) }
-func (s *revylStream) Scroll(Scroll) error    { return ErrNoControl }
-func (s *revylStream) Key(k Key) error        { return s.in.key(k) }
-func (s *revylStream) Text(text string) error { return s.in.text(text) }
+func (s *revylStream) Touch(t target.Touch) error { return s.in.touch(t, s.Meta()) }
+func (s *revylStream) Scroll(target.Scroll) error { return target.ErrNoControl }
+func (s *revylStream) Key(k target.Key) error     { return s.in.key(k) }
+func (s *revylStream) Text(text string) error     { return s.in.text(text) }
 func (s *revylStream) Close() error {
 	// Forgotten first, so no agent input is queued on an input closing.
 	if s.owner != nil {
@@ -949,8 +945,8 @@ func revylHideText(err error, text string) error {
 // Once the stream closes there is nothing to send an agent's gesture
 // through, which /api/input answers as having no session.
 var (
-	errRevylClosed         = NoSessionError("revyl: the viewer's stream closed before the gesture was sent; open the device in a viewer again")
-	errRevylClosedInFlight = NoSessionError("revyl: the viewer's stream closed while the gesture was in flight, so it may have landed; open the device in a viewer again")
+	errRevylClosed         = target.NoSessionError("revyl: the viewer's stream closed before the gesture was sent; open the device in a viewer again")
+	errRevylClosedInFlight = target.NoSessionError("revyl: the viewer's stream closed while the gesture was in flight, so it may have landed; open the device in a viewer again")
 )
 
 func (in *revylInput) close() {
@@ -1016,7 +1012,7 @@ var errRevylNoSize = errors.New("revyl: stream size not known yet")
 
 // toDevice maps a stream pixel to Revyl's device units: pixels on Android,
 // points on iOS (the flags' help text, cmd/revyl/device.go:4014).
-func (in *revylInput) toDevice(x, y int32, m Meta) (int, int, error) {
+func (in *revylInput) toDevice(x, y int32, m target.Meta) (int, int, error) {
 	if m.Width <= 0 || m.Height <= 0 {
 		return 0, 0, errRevylNoSize
 	}
@@ -1035,7 +1031,7 @@ func (in *revylInput) toDevice(x, y int32, m Meta) (int, int, error) {
 
 // scaleTo maps a pixel of a stream of a known size onto a sw x sh screen,
 // turned with the stream.
-func scaleTo(x, y int32, m Meta, sw, sh int) (int, int) {
+func scaleTo(x, y int32, m target.Meta, sw, sh int) (int, int) {
 	sw, sh = turnedTo(m, sw, sh)
 	dx := int(math.Round(float64(x) * float64(sw) / float64(m.Width)))
 	dy := int(math.Round(float64(y) * float64(sh) / float64(m.Height)))
@@ -1045,25 +1041,25 @@ func scaleTo(x, y int32, m Meta, sw, sh int) (int, int) {
 // turnedTo turns a sw x sh screen to the stream's orientation. The device
 // rotated since the session started when the two differ: the stream is the
 // screen turned, and so are its units.
-func turnedTo(m Meta, sw, sh int) (int, int) {
+func turnedTo(m target.Meta, sw, sh int) (int, int) {
 	if (m.Width > m.Height) != (sw > sh) {
 		return sh, sw
 	}
 	return sw, sh
 }
 
-func (in *revylInput) touch(t Touch, m Meta) error {
+func (in *revylInput) touch(t target.Touch, m target.Meta) error {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	switch t.Action {
-	case TouchDown:
+	case target.TouchDown:
 		if in.press != nil {
 			return nil // a second finger: multi-touch is not supported
 		}
 		in.press = &revylPress{id: t.PointerID, x0: t.X, y0: t.Y, x: t.X, y: t.Y, at: in.now()}
 		in.goLive(in.press, m)
 		return nil
-	case TouchMove:
+	case target.TouchMove:
 		if p := in.press; p != nil && p.id == t.PointerID {
 			p.x, p.y = t.X, t.Y
 			if lp := p.live; lp != nil {
@@ -1073,7 +1069,7 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 			}
 		}
 		return nil
-	case TouchCancel:
+	case target.TouchCancel:
 		if p := in.press; p != nil && p.id == t.PointerID {
 			in.press = nil
 			if p.live != nil {
@@ -1081,7 +1077,7 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 			}
 		}
 		return nil
-	case TouchUp:
+	case target.TouchUp:
 	default:
 		return nil
 	}
@@ -1119,7 +1115,7 @@ func (in *revylInput) touch(t Touch, m Meta) error {
 
 // lifted is a press that ended as one gesture: a drag when it moved past
 // the slop, else a long-press or a tap, which is where typing goes next.
-func (in *revylInput) lifted(p *revylPress, m Meta, held time.Duration) (*revylJob, error) {
+func (in *revylInput) lifted(p *revylPress, m target.Meta, held time.Duration) (*revylJob, error) {
 	x0, y0, err := in.toDevice(p.x0, p.y0, m)
 	if err != nil {
 		return nil, err
@@ -1143,7 +1139,7 @@ func (in *revylInput) lifted(p *revylPress, m Meta, held time.Duration) (*revylJ
 // goLive queues a press to be sent as it happens, when the worker socket
 // is open and the stream is the shape of the screen the worker reports.
 // Otherwise the press goes as one gesture at the lift.
-func (in *revylInput) goLive(p *revylPress, m Meta) {
+func (in *revylInput) goLive(p *revylPress, m target.Meta) {
 	lc := in.liveFor()
 	if lc == nil {
 		return
@@ -1172,8 +1168,8 @@ func (in *revylInput) goLive(p *revylPress, m Meta) {
 // a whole press. Phones take the keys ENTER and BACKSPACE only
 // (internal/mcp/device_web_actions.go:15 ParseDeviceKey, the same names
 // on Android and iOS), and back is Android's.
-func (in *revylInput) key(k Key) error {
-	if k.Action != KeyDown {
+func (in *revylInput) key(k target.Key) error {
+	if k.Action != target.KeyDown {
 		return nil
 	}
 	j, err := in.keyJob(int(k.Keycode))
@@ -1187,9 +1183,9 @@ func (in *revylInput) key(k Key) error {
 // ErrNoControl for one Revyl has no gesture for.
 func (in *revylInput) keyJob(keycode int) (*revylJob, error) {
 	switch keycode {
-	case KeycodeHome:
+	case target.KeycodeHome:
 		return &revylJob{action: "go_home"}, nil
-	case KeycodeBack:
+	case target.KeycodeBack:
 		if in.platform == "android" {
 			return &revylJob{action: "back"}, nil
 		}
@@ -1209,8 +1205,8 @@ func (in *revylInput) keyJob(keycode int) (*revylJob, error) {
 // errors.Is matches it to ErrNoControl.
 type revylNoKey string
 
-func (e revylNoKey) Error() string        { return string(e) }
-func (e revylNoKey) Is(target error) bool { return target == ErrNoControl }
+func (e revylNoKey) Error() string     { return string(e) }
+func (e revylNoKey) Is(err error) bool { return err == target.ErrNoControl }
 
 // ErrRevylNeedsTap is typing on a Revyl device before anything was
 // tapped: Revyl types at a point, and the last tap is the field.
@@ -1240,7 +1236,7 @@ func (in *revylInput) typingPoint() (int, int, error) {
 
 // agentTap taps a stream pixel and waits for Revyl's answer. Like a
 // viewer's tap, it is where typing goes next.
-func (in *revylInput) agentTap(ctx context.Context, x, y int32, m Meta) error {
+func (in *revylInput) agentTap(ctx context.Context, x, y int32, m target.Meta) error {
 	dx, dy, err := in.toDevice(x, y, m)
 	if err != nil {
 		return err
@@ -1255,7 +1251,7 @@ func (in *revylInput) agentTap(ctx context.Context, x, y int32, m Meta) error {
 	return in.wait(ctx, j)
 }
 
-func (in *revylInput) agentSwipe(ctx context.Context, x0, y0, x1, y1 int32, m Meta) error {
+func (in *revylInput) agentSwipe(ctx context.Context, x0, y0, x1, y1 int32, m target.Meta) error {
 	dx0, dy0, err := in.toDevice(x0, y0, m)
 	if err != nil {
 		return err

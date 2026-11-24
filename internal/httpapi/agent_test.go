@@ -19,6 +19,7 @@ import (
 
 	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
+	"github.com/bmcreations/loupe/internal/target/revyl"
 )
 
 // fakeAgentTarget is an Actuator and a ScreenSizer both, so /api/input can be
@@ -2357,7 +2358,7 @@ func TestAgentTextKeepsFixedNoSessionAndNeedsTapWords(t *testing.T) {
 	}{
 		{"no session", noSession, string(noSession)},
 		{"wrapped no session", fmt.Errorf("typing %s: %w", secret, noSession), string(noSession)},
-		{"needs a tap", fmt.Errorf("typing %s: %w", secret, target.ErrRevylNeedsTap), target.ErrRevylNeedsTap.Error()},
+		{"needs a tap", fmt.Errorf("typing %s: %w", secret, revyl.ErrRevylNeedsTap), revyl.ErrRevylNeedsTap.Error()},
 	} {
 		for _, withSession := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/session=%v", tc.name, withSession), func(t *testing.T) {

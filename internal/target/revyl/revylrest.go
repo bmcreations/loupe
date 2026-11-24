@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"bytes"

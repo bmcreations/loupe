@@ -23,6 +23,12 @@ const (
 	KindSimulator Kind = "simulator"
 	// KindIOSDevice is a physical iPhone or iPad, reached through devicectl.
 	KindIOSDevice Kind = "iosDevice"
+	// KindRevyl is a cloud Android emulator or iOS simulator on Revyl
+	// (revyl.com), reached through the user's own revyl CLI and account. Its
+	// video comes over WHEP and its input as CLI gestures; nothing about it is
+	// local, so it has no adb serial and no simctl UDID. Package revyl holds
+	// the target.
+	KindRevyl Kind = "revyl"
 )
 
 // AcceptsInput reports whether a stream of this kind can take touch and key

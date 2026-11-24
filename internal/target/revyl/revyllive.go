@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/bmcreations/loupe/internal/target"
 )
 
 // A viewer's press on a Revyl device goes to the device as it happens, over
@@ -738,7 +740,7 @@ func (in *revylInput) liveFallback(lp *revylLivePress, wrote bool, x, y int, cau
 // and by toDevice for
 // the device proxy. It fails where toDevice does, so a press that could
 // not go as one gesture does not go live either.
-func (in *revylInput) livePoint(w, h int, x, y int32, m Meta) (revylLivePoint, error) {
+func (in *revylInput) livePoint(w, h int, x, y int32, m target.Meta) (revylLivePoint, error) {
 	px, py, err := in.toDevice(x, y, m)
 	if err != nil {
 		return revylLivePoint{}, err
@@ -752,7 +754,7 @@ func (in *revylInput) livePoint(w, h int, x, y int32, m Meta) (revylLivePoint, e
 
 // revylSameShape reports whether a stream of a known size is the w x h
 // screen's shape, turned with the stream, within revylShapeSlack.
-func revylSameShape(m Meta, w, h int) bool {
+func revylSameShape(m target.Meta, w, h int) bool {
 	w, h = turnedTo(m, w, h)
 	want := float64(w) / float64(h)
 	got := float64(m.Width) / float64(m.Height)

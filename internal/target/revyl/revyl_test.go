@@ -1,4 +1,4 @@
-package target
+package revyl
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bmcreations/loupe/internal/target"
 )
 
 // fakeRevyl is a revyl stand-in: a shell script that logs its argv and
@@ -195,7 +197,7 @@ func gestures(t *testing.T, f *fakeRevyl, platform string, screenW, screenH int)
 	return in, clk
 }
 
-func press(t *testing.T, in *revylInput, m Meta, clk *fixedClock, held time.Duration, pts ...[2]int32) {
+func press(t *testing.T, in *revylInput, m target.Meta, clk *fixedClock, held time.Duration, pts ...[2]int32) {
 	t.Helper()
 	must := func(err error) {
 		t.Helper()
@@ -203,13 +205,13 @@ func press(t *testing.T, in *revylInput, m Meta, clk *fixedClock, held time.Dura
 			t.Fatal(err)
 		}
 	}
-	must(in.touch(Touch{Action: TouchDown, PointerID: 1, X: pts[0][0], Y: pts[0][1], Pressure: 1}, m))
+	must(in.touch(target.Touch{Action: target.TouchDown, PointerID: 1, X: pts[0][0], Y: pts[0][1], Pressure: 1}, m))
 	for _, p := range pts[1:] {
-		must(in.touch(Touch{Action: TouchMove, PointerID: 1, X: p[0], Y: p[1], Pressure: 1}, m))
+		must(in.touch(target.Touch{Action: target.TouchMove, PointerID: 1, X: p[0], Y: p[1], Pressure: 1}, m))
 	}
 	clk.t = clk.t.Add(held)
 	last := pts[len(pts)-1]
-	must(in.touch(Touch{Action: TouchUp, PointerID: 1, X: last[0], Y: last[1]}, m))
+	must(in.touch(target.Touch{Action: target.TouchUp, PointerID: 1, X: last[0], Y: last[1]}, m))
 }
 
 func argv(args ...string) []string { return append(args, "--session-id", testSession) }
@@ -218,26 +220,26 @@ func TestRevylGesturesInAndroidPixels(t *testing.T) {
 	f := newFakeRevyl(t)
 	in, clk := gestures(t, f, "android", 1080, 2400)
 	// The stream is half the screen's size, as when MaxSize scaled it.
-	m := Meta{Width: 540, Height: 1200}
+	m := target.Meta{Width: 540, Height: 1200}
 
 	press(t, in, m, clk, 80*time.Millisecond, [2]int32{270, 600}, [2]int32{272, 601})
 	press(t, in, m, clk, 300*time.Millisecond, [2]int32{100, 1000}, [2]int32{100, 700}, [2]int32{100, 200})
 	press(t, in, m, clk, 900*time.Millisecond, [2]int32{50, 60})
 	// A second finger while the first is down is ignored.
-	_ = in.touch(Touch{Action: TouchDown, PointerID: 1, X: 10, Y: 10}, m)
-	_ = in.touch(Touch{Action: TouchDown, PointerID: 2, X: 500, Y: 500}, m)
-	_ = in.touch(Touch{Action: TouchUp, PointerID: 2, X: 500, Y: 500}, m)
-	_ = in.touch(Touch{Action: TouchCancel, PointerID: 1}, m)
+	_ = in.touch(target.Touch{Action: target.TouchDown, PointerID: 1, X: 10, Y: 10}, m)
+	_ = in.touch(target.Touch{Action: target.TouchDown, PointerID: 2, X: 500, Y: 500}, m)
+	_ = in.touch(target.Touch{Action: target.TouchUp, PointerID: 2, X: 500, Y: 500}, m)
+	_ = in.touch(target.Touch{Action: target.TouchCancel, PointerID: 1}, m)
 
-	for _, k := range []int32{KeycodeHome, KeycodeBack, keycodeEnter, keycodeDel} {
-		if err := in.key(Key{Action: KeyDown, Keycode: k}); err != nil {
+	for _, k := range []int32{target.KeycodeHome, target.KeycodeBack, keycodeEnter, keycodeDel} {
+		if err := in.key(target.Key{Action: target.KeyDown, Keycode: k}); err != nil {
 			t.Fatalf("key %d: %v", k, err)
 		}
-		if err := in.key(Key{Action: KeyUp, Keycode: k}); err != nil {
+		if err := in.key(target.Key{Action: target.KeyUp, Keycode: k}); err != nil {
 			t.Fatalf("key up %d: %v", k, err)
 		}
 	}
-	if err := in.key(Key{Action: KeyDown, Keycode: KeycodePower}); !errors.Is(err, ErrNoControl) {
+	if err := in.key(target.Key{Action: target.KeyDown, Keycode: target.KeycodePower}); !errors.Is(err, target.ErrNoControl) {
 		t.Fatalf("power key = %v, want ErrNoControl", err)
 	}
 	if err := in.text("hello wörld"); err != nil {
@@ -277,14 +279,14 @@ func TestRevylGesturesInIOSPoints(t *testing.T) {
 	f := newFakeRevyl(t)
 	// iPhone 16 Pro: 393x852 points, streamed at its 1179x2556 pixels (3x).
 	in, clk := gestures(t, f, "ios", 393, 852)
-	m := Meta{Width: 1179, Height: 2556}
+	m := target.Meta{Width: 1179, Height: 2556}
 
 	press(t, in, m, clk, 50*time.Millisecond, [2]int32{589, 1278})
 	press(t, in, m, clk, 200*time.Millisecond, [2]int32{589, 2400}, [2]int32{589, 1200})
-	if err := in.key(Key{Action: KeyDown, Keycode: KeycodeBack}); !errors.Is(err, ErrNoControl) {
+	if err := in.key(target.Key{Action: target.KeyDown, Keycode: target.KeycodeBack}); !errors.Is(err, target.ErrNoControl) {
 		t.Fatalf("iOS back = %v, want ErrNoControl (back is Android's)", err)
 	}
-	if err := in.key(Key{Action: KeyDown, Keycode: KeycodeHome}); err != nil {
+	if err := in.key(target.Key{Action: target.KeyDown, Keycode: target.KeycodeHome}); err != nil {
 		t.Fatal(err)
 	}
 	got := f.waitCalls(3)
@@ -298,7 +300,7 @@ func TestRevylGesturesInIOSPoints(t *testing.T) {
 	}
 
 	// The stream turned to landscape: the point space turns with it.
-	land := Meta{Width: 2556, Height: 1179}
+	land := target.Meta{Width: 2556, Height: 1179}
 	press(t, in, land, clk, 50*time.Millisecond, [2]int32{2556 - 1, 1179 - 1})
 	if got := f.waitCalls(4)[3]; !reflect.DeepEqual(got, argv("device", "tap", "--x", "851", "--y", "392")) {
 		t.Fatalf("landscape tap = %q", got)
@@ -307,9 +309,9 @@ func TestRevylGesturesInIOSPoints(t *testing.T) {
 	// Without a size from Revyl, iOS input refuses rather than guessing a
 	// scale factor.
 	blind, clk2 := gestures(t, f, "ios", 0, 0)
-	_ = blind.touch(Touch{Action: TouchDown, PointerID: 1, X: 10, Y: 10}, m)
+	_ = blind.touch(target.Touch{Action: target.TouchDown, PointerID: 1, X: 10, Y: 10}, m)
 	clk2.t = clk2.t.Add(10 * time.Millisecond)
-	if err := blind.touch(Touch{Action: TouchUp, PointerID: 1, X: 10, Y: 10}, m); !errors.Is(err, errRevylNoPoints) {
+	if err := blind.touch(target.Touch{Action: target.TouchUp, PointerID: 1, X: 10, Y: 10}, m); !errors.Is(err, errRevylNoPoints) {
 		t.Fatalf("iOS tap without a screen size = %v, want errRevylNoPoints", err)
 	}
 	// Typing before any tap has nowhere to go.
@@ -324,7 +326,7 @@ func TestRevylInputReturnsBeforeTheCLIDoes(t *testing.T) {
 		t.Fatal(err)
 	}
 	in, clk := gestures(t, f, "android", 1080, 2400)
-	m := Meta{Width: 1080, Height: 2400}
+	m := target.Meta{Width: 1080, Height: 2400}
 	start := time.Now()
 	press(t, in, m, clk, 10*time.Millisecond, [2]int32{10, 10})
 	press(t, in, m, clk, 10*time.Millisecond, [2]int32{20, 20})
@@ -350,12 +352,12 @@ func TestRevylTargetOpensWHEPAndMapsTouches(t *testing.T) {
 		Session:  RevylSession{SessionID: testSession, Platform: "android"},
 		settings: loopbackSettings(), poll: 20 * time.Millisecond,
 	}
-	if tgt.ID() != "revyl:"+testSession || tgt.Kind() != KindRevyl || tgt.Label() != "Revyl Pixel 7" {
+	if tgt.ID() != "revyl:"+testSession || tgt.Kind() != target.KindRevyl || tgt.Label() != "Revyl Pixel 7" {
 		t.Fatalf("ID %q Kind %q Label %q", tgt.ID(), tgt.Kind(), tgt.Label())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	st, err := tgt.Open(ctx, DefaultOptions())
+	st, err := tgt.Open(ctx, target.DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,22 +365,22 @@ func TestRevylTargetOpensWHEPAndMapsTouches(t *testing.T) {
 	if m := st.Meta(); m.Width != 360 || m.Height != 202 {
 		t.Fatalf("Meta = %+v, want the SPS's 360x202", m)
 	}
-	if _, ok := st.(TextTyper); !ok {
+	if _, ok := st.(target.TextTyper); !ok {
 		t.Fatal("stream does not type text")
 	}
 
 	// The fixture's screen is 720x404 pixels, twice the stream.
-	if err := st.Touch(Touch{Action: TouchDown, PointerID: 7, X: 180, Y: 101, Pressure: 1}); err != nil {
+	if err := st.Touch(target.Touch{Action: target.TouchDown, PointerID: 7, X: 180, Y: 101, Pressure: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Touch(Touch{Action: TouchUp, PointerID: 7, X: 180, Y: 101}); err != nil {
+	if err := st.Touch(target.Touch{Action: target.TouchUp, PointerID: 7, X: 180, Y: 101}); err != nil {
 		t.Fatal(err)
 	}
 	calls := f.waitCalls(3)
 	if got := calls[2]; !reflect.DeepEqual(got, argv("device", "tap", "--x", "360", "--y", "202")) {
 		t.Fatalf("tap argv = %q (all %q)", got, calls)
 	}
-	if err := st.Scroll(Scroll{X: 1, Y: 1, VScroll: 1}); !errors.Is(err, ErrNoControl) {
+	if err := st.Scroll(target.Scroll{X: 1, Y: 1, VScroll: 1}); !errors.Is(err, target.ErrNoControl) {
 		t.Fatalf("Scroll = %v, want ErrNoControl", err)
 	}
 }
