@@ -114,11 +114,12 @@ host instead.
   call tries again. If another loupe server on the Mac keeps the claims lock
   for 5 seconds, it fails with 503 `claimLockBusy` and drives nothing; the
   next call tries again too.
-- On exit each claim is released: when the client hangs up, and on SIGINT,
+- On exit each claim is released, with 3 seconds for each release: when the client hangs up, and on SIGINT,
   SIGTERM or SIGHUP (a closed terminal, or a tmux pane killed or respawned).
   A tool call still in flight, such as a `flags` wait, does not hold that
-  up. Only SIGKILL leaves a claim behind, until its lease lapses 10 minutes
-  after the last call. A claim you did not make is never forced.
+  up. SIGKILL leaves a claim behind until its lease lapses 10 minutes after
+  the last call, and so does a release that times out while another server
+  holds the claim lock. A claim you did not make is never forced.
 - It never sends `X-Loupe-Viewer`, so its input is never a person's and does
   not bypass the human hold.
 - A refusal comes back as a tool error with the status, `code`,
