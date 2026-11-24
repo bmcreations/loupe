@@ -983,7 +983,8 @@ viewer sends `X-Loupe-Viewer` with its viewer id from init; a live id makes the
 request the person's, and anything else is an agent's.
 
 Viewers show a banner: "claude is driving" while an agent's input landed in the
-last 10 seconds, and "claude is waiting for you" while one was refused and no
+last 10 seconds and its claim, if it had one, is not released, and "claude is
+waiting for you" while one was refused and no
 action of its has settled since.
 
 A viewer done with the target can hand it back without waiting out the hold:
@@ -1052,7 +1053,8 @@ agent's claim, then the human hold. None of them refuses a person: a live
 ### In the picker
 
 `/api/targets` carries `claim`, `handsOff` and `drivenBy` (the agent whose
-input went through in the last 10 seconds, with or without an open session).
+input went through in the last 10 seconds, with or without an open session;
+releasing that agent's claim clears it at once).
 Two more fields come from refusals, also with or without an open session:
 
 - `waiting {agent, session, since}`: an agent a person's hold is refusing.

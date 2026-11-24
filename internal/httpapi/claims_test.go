@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmcreations/loupe/internal/session"
 	"github.com/bmcreations/loupe/internal/target"
 )
 
@@ -434,5 +435,63 @@ func TestAClaimOnATargetThatIsGoneCanBeReleased(t *testing.T) {
 	}
 	if rec := claimReq(s, http.MethodDelete, "target=avd:gone", "", a); rec.Code != http.StatusNotFound {
 		t.Fatalf("release with no target and no claim = %d, want 404", rec.Code)
+	}
+}
+
+// Releasing a claim ends its holder's "driving" at once, on the row and on the
+// session's banner. Both used to run out their 10 seconds, so a viewer was
+// offered Take Over against an agent that had already let go.
+func TestAReleaseEndsItsHoldersDriving(t *testing.T) {
+	s, _ := claimServer(t)
+	sess, err := s.mgr.Acquire(t.Context(), "dev1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	sess.AddViewer()
+	a := map[string]string{HeaderAgent: "claude", HeaderSession: "local_a"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+	postInputAs(s, "dev1", tap, a)
+	if st := sess.ControlState(); st.Agent != session.AgentDriving {
+		t.Fatalf("after the tap: %+v; want driving", st)
+	}
+
+	if rec := claimReq(s, http.MethodDelete, "target=dev1", "", a); rec.Code != http.StatusNoContent {
+		t.Fatalf("release = %d: %s", rec.Code, rec.Body.String())
+	}
+	rows := []TargetInfo{{ID: "dev1"}}
+	s.claims.decorate(rows)
+	if rows[0].DrivenBy != "" {
+		t.Errorf("row after release: drivenBy %q; want none", rows[0].DrivenBy)
+	}
+	if st := sess.ControlState(); st.Agent != session.AgentIdle {
+		t.Errorf("control after release: %+v; want idle", st)
+	}
+}
+
+// A release leaves another agent's driving alone: only the claim's holder let go.
+func TestAReleaseLeavesAnotherAgentDriving(t *testing.T) {
+	s, _ := claimServer(t)
+	sess, err := s.mgr.Acquire(t.Context(), "dev1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	sess.AddViewer()
+	b := map[string]string{HeaderAgent: "codex", HeaderSession: "local_b"}
+	postInputAs(s, "dev1", tap, b)
+	a := map[string]string{HeaderAgent: "claude", HeaderSession: "local_a"}
+	claimReq(s, http.MethodPost, "target=dev1", "", a)
+	if rec := claimReq(s, http.MethodDelete, "target=dev1", "", a); rec.Code != http.StatusNoContent {
+		t.Fatalf("release = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rows := []TargetInfo{{ID: "dev1"}}
+	s.claims.decorate(rows)
+	if rows[0].DrivenBy != "codex" {
+		t.Errorf("row: drivenBy %q; want codex", rows[0].DrivenBy)
+	}
+	if st := sess.ControlState(); st.Agent != session.AgentDriving || st.AgentName != "codex" {
+		t.Errorf("control: %+v; want codex driving", st)
 	}
 }
