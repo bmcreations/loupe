@@ -183,6 +183,12 @@ type viewer struct {
 	// carried what it was given (see carriedOfferedFraction).
 	offered atomic.Uint64
 
+	// report is the newest MsgClientStats this viewer sent, guarded by the
+	// session's mu. It is per viewer because each viewer's health verdict and
+	// pacer read it: with one session-wide report, a loopback viewer and one
+	// over a 100ms relay were each judged on whichever had reported last.
+	report clientReport
+
 	// scrollMu guards scrollAccH, scrollAccV, scrollLastX, scrollLastY and
 	// scrollTimer. ViewerScroll runs on this viewer's own read loop, but the
 	// trailing flush that ends a burst runs on a time.AfterFunc goroutine, so
@@ -326,21 +332,10 @@ type Session struct {
 	// can only happen once the first parameter set arrives.
 	codecResolved bool
 
-	// clientStats is the newest metrics sample reported by a viewer, and
-	// clientStatsAt is when it was recorded. The timestamp exists for the
-	// same reason clientRTTAt does: this is session state handed to whichever
-	// viewer is current, and Health (trap 26) needs to tell a fresh report
-	// from one that has stopped arriving, for every field in the sample, not
-	// only rtt.
-	clientStats   map[string]any
-	clientStatsAt time.Time
-	// clientRTT is the phone-measured round trip, in milliseconds, and
-	// clientRTTAt is when it was recorded. The timestamp is load-bearing: this
-	// is session state, so a viewer that joins is handed whatever the previous
-	// viewer last reported, and the 07:36:31 reconnect was handed 1400ms from a
-	// connection that had already failed.
-	clientRTT   float64
-	clientRTTAt time.Time
+	// clientStats is the newest metrics sample reported by any viewer, for
+	// the session summary (/api/stats) only. Health and the pacer read each
+	// viewer's own report (viewer.report), never this one.
+	clientStats map[string]any
 
 	// framesIn counts access units the encoder produced, before any fan-out
 	// decision. It is the denominator the bitrate controller needs: framesOut
@@ -683,61 +678,79 @@ func (s *Session) adapterShedBreakdown() ShedCounts {
 	}
 }
 
-// RecordClientStats stores the most recent metrics reported by a viewer.
-// Only the newest sample is kept: this feeds a once-per-second trace record,
-// not a history.
-func (s *Session) RecordClientStats(raw map[string]any) {
+// clientReport is one viewer's newest MsgClientStats, and its rtt with the
+// time that was last measured. The timestamps are load-bearing (trap 26): the
+// report queues behind the video the pacer is throttling, so it goes stale
+// exactly when it is needed, and a caller has to tell a fresh reading from
+// one that has stopped arriving.
+type clientReport struct {
+	stats   map[string]any
+	statsAt time.Time
+	rtt     float64
+	rttAt   time.Time
+}
+
+// RecordClientStats stores the newest metrics viewer id reported. Only the
+// newest sample is kept: this feeds a once-per-second trace record, not a
+// history. A report for a viewer that has gone is dropped.
+func (s *Session) RecordClientStats(id uint64, raw map[string]any) {
+	now := time.Now()
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.viewers[id]
+	if !ok {
+		return
+	}
 	s.clientStats = raw
-	s.clientStatsAt = time.Now()
+	v.report.stats = raw
+	v.report.statsAt = now
 	// The client's own round-trip measurement is the only latency signal that
 	// survives the path. A local socket check cannot see a reverse proxy, a
 	// relay, or any other buffer between here and the phone, and will report a
-	// healthy connection while seconds of video sit queued downstream.
-	if v, ok := raw["rttMs"].(float64); ok && v > 0 {
-		s.clientRTT = v
-		s.clientRTTAt = time.Now()
+	// healthy connection while seconds of video sit queued downstream. A
+	// report without one leaves the timestamp alone, or a client that has
+	// stopped measuring looks like one that is still reporting.
+	if rtt, ok := raw["rttMs"].(float64); ok && rtt > 0 {
+		v.report.rtt = rtt
+		v.report.rttAt = now
 	}
-	s.mu.Unlock()
 }
 
-// ClientRTT returns the phone's most recent round-trip measurement in
-// milliseconds, or 0 if it has not reported one yet.
-func (s *Session) ClientRTT() float64 {
+// ViewerClientRTTAt returns viewer id's newest round-trip measurement in
+// milliseconds and when it was recorded, or zeroes if it has not reported one.
+// In the 07:36 trace the server emitted a byte-identical client block for
+// three consecutive seconds -- rtt 111.3ms, 2fps -- while shed climbed 270 to
+// 315 and the pacer, re-reading that same stale number, held wide open at
+// 1.00; the timestamp is what lets the caller discard it.
+func (s *Session) ViewerClientRTTAt(id uint64) (float64, time.Time) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.clientRTT
+	v, ok := s.viewers[id]
+	if !ok {
+		return 0, time.Time{}
+	}
+	return v.report.rtt, v.report.rttAt
 }
 
-// ClientRTTAt returns the same measurement together with when it was recorded,
-// so a caller can tell a fresh reading from one that has stopped arriving.
-//
-// It has to be able to. The report travels over /api/log, which queues behind
-// the very video the pacer is throttling, so the signal goes stale exactly when
-// it is needed. In the 07:36 trace the server emitted a byte-identical client
-// block for three consecutive seconds -- rtt 111.3ms, 2fps -- while shed
-// climbed 270 to 315 and the pacer, re-reading that same stale number, held
-// wide open at 1.00.
-func (s *Session) ClientRTTAt() (float64, time.Time) {
+// ViewerClientStatsAt returns viewer id's newest report and when it was
+// recorded, or nil if it has sent none. It never falls back to another
+// viewer's report: that viewer's link is not this one's.
+func (s *Session) ViewerClientStatsAt(id uint64) (map[string]any, time.Time) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.clientRTT, s.clientRTTAt
+	v, ok := s.viewers[id]
+	if !ok {
+		return nil, time.Time{}
+	}
+	return v.report.stats, v.report.statsAt
 }
 
-// ClientStats returns the last metrics a viewer reported, or nil.
+// ClientStats returns the newest metrics any viewer reported, or nil, for a
+// session summary. A viewer's own judgement reads ViewerClientStatsAt.
 func (s *Session) ClientStats() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.clientStats
-}
-
-// ClientStatsAt returns the same sample together with when it was recorded,
-// so a caller can tell a fresh report from one that has stopped arriving
-// (trap 26) for fields, like decoded fps, that clientRTTAt does not cover.
-func (s *Session) ClientStatsAt() (map[string]any, time.Time) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.clientStats, s.clientStatsAt
 }
 
 // DropCount reports frames dropped at fan-out because a viewer's queue was

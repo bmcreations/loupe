@@ -661,7 +661,7 @@ func (s *Server) dispatch(conn Conn, sess *session.Session, viewerID uint64, pay
 		if err := json.Unmarshal(body, &raw); err != nil {
 			return err
 		}
-		sess.RecordClientStats(raw)
+		sess.RecordClientStats(viewerID, raw)
 		return nil
 	case session.MsgFrameAck:
 		// The client presented the frame with this pts. A viewer that is gone,

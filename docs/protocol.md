@@ -254,9 +254,11 @@ Fixture: `testdata/protocol/ping.hex`. Decoded by `session.DecodePing`.
 ### Client stats
 
 `MsgClientStats`'s body is JSON the server treats as an opaque
-`map[string]any` (`session.RecordClientStats`) and stores verbatim as
-`Session.ClientStats()`. The server reads exactly two keys back out of it,
-by `healthInputFromClientReport` (`internal/httpapi/health_track.go`):
+`map[string]any` (`session.RecordClientStats`) and stores verbatim per
+viewer, as `Session.ViewerClientStatsAt(id)`. A viewer's health verdict and
+pacer read only the report sent on that viewer's own connection, never
+another viewer's. The server reads exactly two keys back out of it,
+by `healthInputFromClientReport` (`internal/httpapi/viewer.go`):
 `rttMs` (float64, the client's own measured round trip) and `decFps`
 (float64, decoded frames per second, truncated to an int as `Delivered`).
 Any other keys the client sends ride along unread.
