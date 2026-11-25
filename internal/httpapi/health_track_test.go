@@ -19,7 +19,7 @@ type fakeCounters struct {
 }
 
 func (f fakeCounters) MediaCount() uint64                         { return f.media }
-func (f fakeCounters) ShedCount() uint64                          { return f.shed }
+func (f fakeCounters) OwnShedCount() uint64                       { return f.shed }
 func (f fakeCounters) ClientStatsAt() (map[string]any, time.Time) { return f.cs, f.csAt }
 
 // producedRate is diffed against the tracker's own last-seen value, not read

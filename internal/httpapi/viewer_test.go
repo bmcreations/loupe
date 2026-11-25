@@ -305,15 +305,16 @@ func TestHealthInputFromClientReportToleratesMissingFields(t *testing.T) {
 // wiring (M20/M21/M22 from the round-3 review) independent of a live
 // session pump or transport.
 type fakeStatsSource struct {
-	media, shed uint64
-	cs          map[string]any
-	csAt        time.Time
-	frameCount  uint64
-	viewers     int
+	media, shed, ownShed uint64
+	cs                   map[string]any
+	csAt                 time.Time
+	frameCount           uint64
+	viewers              int
 }
 
 func (f fakeStatsSource) MediaCount() uint64                         { return f.media }
 func (f fakeStatsSource) ShedCount() uint64                          { return f.shed }
+func (f fakeStatsSource) OwnShedCount() uint64                       { return f.ownShed }
 func (f fakeStatsSource) ClientStatsAt() (map[string]any, time.Time) { return f.cs, f.csAt }
 func (f fakeStatsSource) FrameCount() uint64                         { return f.frameCount }
 func (f fakeStatsSource) ShedBreakdown() session.ShedCounts          { return session.ShedCounts{} }

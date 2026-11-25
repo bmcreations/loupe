@@ -33,9 +33,12 @@ type HealthInput struct {
 	// internal/httpapi's healthTracker derives it from how the client's
 	// report clock straddles the server's ticks.
 	Allowance int
-	// ShedRate is frames shed this second, all reasons combined (pacer,
-	// stale, await-key, abandon -- see ShedCounts). It is the session's own
-	// signal that the link cannot carry what was offered to it.
+	// ShedRate is frames shed for this viewer this second, all reasons
+	// combined (pacer, stale, await-key, abandon -- see ShedCounts), from
+	// Session.ViewerShedCount. It is the server's own signal that this
+	// viewer's link cannot carry what was offered to it. Another viewer's
+	// sheds are not: the session's total read a loopback viewer that missed
+	// no frames as "bad" for a relayed viewer's spikes.
 	ShedRate uint64
 	// BaseMs is the pacer's learned path baseline in milliseconds
 	// (Pacer.Base()). Rtt is judged against this, not against an absolute
@@ -178,8 +181,8 @@ func Health(in HealthInput) (verdict string, reason string) {
 		}
 	}
 
-	// Shed rate: how much the session itself is discarding, all reasons
-	// combined.
+	// Shed rate: how much the server is discarding for this viewer, all
+	// reasons combined.
 	{
 		f := finding{reason: fmt.Sprintf("shed %d/s", in.ShedRate)}
 		switch {

@@ -317,7 +317,7 @@ arrived, or the last one is too old).
 | `health` | yes | `"good"`, `"degraded"`, `"bad"` or `"stale"` -- `session.Health`'s verdict |
 | `healthReason` | yes | names the counter that drove the verdict, e.g. `"delivered 158 of 175 frames"`, `"shed N/s"`, `"rtt Xms over a Yms base"`, `"no report"`; empty string when `health` is `"good"` |
 | `shed` | yes | `Session.ShedCount()` -- the whole session's cumulative shed count, summed across every viewer of it, not just this one |
-| `shedRate` | yes | that same session-wide counter, diffed since the last tick: frames shed this second across all viewers, all reasons combined (pacer, stale, await-key, abandon) |
+| `shedRate` | yes | this viewer's own sheds (`Session.ViewerShedCount`), diffed since the last tick: frames shed for this viewer this second, all reasons combined (pacer, stale, await-key, abandon). Another viewer's sheds are not in it, so it is not `shed` diffed once a session has more than one viewer. It is the number the verdict's shed check reads |
 | `baseMs` | yes | the pacer's learned path baseline, milliseconds (`Pacer.Base()`) |
 | `keep` | yes | the pacer's current send fraction, `[0.1, 1]` (`Pacer.Keep()`) -- the fraction of sheddable frames being sent |
 | `transport` | yes | `"websocket"` or `"webtransport"` (`Conn.Name()`) |
@@ -352,7 +352,9 @@ since only one reason string can be returned:
    as little as one frame every few seconds (trap 20), and below 5 a single
    missed frame swings the ratio wildly. `< 0.6` is bad, `< 0.9` is
    degraded.
-3. **Shed rate**, `>= 20`/s bad, `>= 5`/s degraded.
+3. **Shed rate**, this viewer's own (`shedRate`), `>= 20`/s bad, `>= 5`/s
+   degraded. Sheds for another viewer of the session do not count: they
+   describe that viewer's link.
 4. **Rtt**, judged as excess over `baseMs`, not as an absolute number (trap
    5): `>= 120ms` over base is bad, `>= 60ms` degraded. Skipped entirely
    while `baseMs` is 0 -- that is not a zero-latency path, it is the pacer

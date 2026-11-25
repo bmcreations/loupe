@@ -11,10 +11,15 @@ import (
 // each tick, narrowed to an interface so the sliding window and the
 // per-viewer attach-time gating below can be pinned by table tests against a
 // fake instead of a live session pump. viewerCounters satisfies it, so the
-// client report a viewer is judged on is its own.
+// client report and the sheds a viewer is judged on are its own.
+//
+// OwnShedCount is not named ShedCount on purpose: *session.Session already has
+// a ShedCount, the session-wide total, and viewerCounters embeds it. A method
+// of that name here would let the session total satisfy the interface, which
+// is how a loopback viewer read "bad: shed N/s" off a relayed viewer's sheds.
 type healthCounters interface {
 	MediaCount() uint64
-	ShedCount() uint64
+	OwnShedCount() uint64
 	ClientStatsAt() (map[string]any, time.Time)
 }
 
@@ -61,6 +66,8 @@ type healthSample struct {
 // per-tick rates the stats tick and trace record still report on their own,
 // independent of the window.
 type healthTick struct {
+	// ShedRate is the frames shed for this viewer since the last tick, never
+	// the session's.
 	ShedRate     uint64
 	ProducedRate uint64
 	// RttMs and Delivered are the most recently CONSUMED client report --
@@ -154,7 +161,7 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 	// media count by one. Moving the exclusion into the pump removes the
 	// race outright rather than bounding it with a clamp.
 	media := counters.MediaCount()
-	shed := counters.ShedCount()
+	shed := counters.OwnShedCount()
 
 	if !t.have {
 		t.lastMedia = media
@@ -331,10 +338,11 @@ func (t *healthTracker) phaseAllowance() float64 {
 }
 
 // diffUint64 is cur-prev, floored at 0. Nothing in this codebase decrements
-// MediaCount or ShedCount -- an encoder relaunch continues counting rather
-// than resetting -- so in production this floor never fires; it exists so a
-// test fixture that does not model monotonic growth fails safe instead of
-// wrapping to a huge int64.
+// MediaCount or a viewer's shed count -- an encoder relaunch continues
+// counting rather than resetting -- so in production this floor fires only if
+// a tick reads a viewer that has already been removed, whose count reads 0. It
+// exists so that, and a test fixture that does not model monotonic growth,
+// fail safe instead of wrapping to a huge int64.
 func diffUint64(cur, prev uint64) int64 {
 	if cur < prev {
 		return 0

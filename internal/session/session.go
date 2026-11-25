@@ -182,6 +182,11 @@ type viewer struct {
 	// transport, delivered or not. Against sent it says whether the link
 	// carried what it was given (see carriedOfferedFraction).
 	offered atomic.Uint64
+	// shed is how many frames the writer shed for this viewer, all reasons
+	// combined. Its health verdict reads this, not the session total: in the
+	// relayed-link rig a loopback viewer that missed none of 7,138 frames read
+	// "bad: shed N/s" for 39 seconds, every shed the relayed viewer's.
+	shed atomic.Uint64
 
 	// report is the newest MsgClientStats this viewer sent, guarded by the
 	// session's mu. It is per viewer because each viewer's health verdict and
@@ -578,13 +583,17 @@ func (s *Session) NoteShed(reason ShedReason) {
 }
 
 // NoteShedFor is NoteShed for a frame the writer shed for viewer id. The
-// session totals count it. The counters the bitrate controller reads count it
-// only for a local viewer: a remote viewer's link says nothing about what the
-// main encoder should be set to.
+// session totals count it, and so does the viewer's own count, which is what
+// its health verdict reads (ViewerShedCount). The counters the bitrate
+// controller reads count it only for a local viewer: a remote viewer's link
+// says nothing about what the main encoder should be set to.
 func (s *Session) NoteShedFor(id uint64, reason ShedReason) {
 	s.mu.RLock()
 	v := s.viewers[id]
 	s.mu.RUnlock()
+	if v != nil {
+		v.shed.Add(1)
+	}
 	s.noteShed(reason, v != nil && v.local)
 }
 
@@ -757,8 +766,22 @@ func (s *Session) ClientStats() map[string]any {
 // full, which is distinct from frames shed at the socket.
 func (s *Session) DropCount() uint64 { return s.framesDrop.Load() }
 
-// ShedCount reports how many frames have been shed for this session.
+// ShedCount reports how many frames have been shed for this session, across
+// every viewer it has had. A viewer's own verdict reads ViewerShedCount.
 func (s *Session) ShedCount() uint64 { return s.framesShed.Load() }
+
+// ViewerShedCount reports how many frames have been shed for viewer id since
+// it attached, or 0 for a viewer that has gone. It never falls back to the
+// session total: another viewer's sheds describe another viewer's link.
+func (s *Session) ViewerShedCount(id uint64) uint64 {
+	s.mu.RLock()
+	v := s.viewers[id]
+	s.mu.RUnlock()
+	if v == nil {
+		return 0
+	}
+	return v.shed.Load()
+}
 
 // WaitCount reports how many frames were suppressed because a viewer was
 // waiting for a keyframe. A climbing value means frames are still arriving
