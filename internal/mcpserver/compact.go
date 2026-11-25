@@ -10,7 +10,7 @@ import (
 
 // compactHeader explains the line format once per answer, so each node can
 // leave its keys out.
-const compactHeader = "One line per node, indented under its parent: Class \"text\" desc=\"…\" value=\"…\" id=… @x,y and flags. Tap a match on text, desc or id copied verbatim from here, or tap x,y at the @ point (device pixels)."
+const compactHeader = "One line per node, indented under its parent: Class \"text\" desc=\"…\" value=\"…\" id=… compose=Composable(File.kt:line) @x,y and flags. Tap a match on text, desc or id copied verbatim from here, or tap x,y at the @ point (device pixels)."
 
 // compactScreen turns /api/ui's JSON into one line per node an agent could
 // tap, match or read. Layout containers that carry nothing but an id are
@@ -27,6 +27,8 @@ func compactScreen(b []byte) string {
 		Height   int            `json:"height"`
 		Rotation int            `json:"rotation"`
 		Nodes    []*target.Node `json:"nodes"`
+		// ComposeError is why compose=1 named nothing.
+		ComposeError string `json:"composeError"`
 	}
 	if err := json.Unmarshal(b, &s); err != nil || s.Nodes == nil {
 		return string(b)
@@ -38,6 +40,9 @@ func compactScreen(b []byte) string {
 		fmt.Fprintf(&w, " Ids without a package are %s; a match takes either form.", strings.TrimSuffix(pkg, ":id/"))
 	}
 	w.WriteByte('\n')
+	if s.ComposeError != "" {
+		fmt.Fprintf(&w, "compose: no composables named: %s\n", s.ComposeError)
+	}
 	for _, n := range s.Nodes {
 		writeCompact(&w, n, 0, pkg)
 	}
@@ -108,6 +113,13 @@ func compactLine(n *target.Node, pkg string) string {
 			id = strings.TrimPrefix(id, pkg)
 		}
 		parts = append(parts, "id="+id)
+	}
+	if n.Composable != "" {
+		c := "compose=" + n.Composable
+		if n.Source != "" {
+			c += "(" + n.Source + ")"
+		}
+		parts = append(parts, c)
 	}
 	parts = append(parts, fmt.Sprintf("@%d,%d", n.Center[0], n.Center[1]))
 	flag := func(on bool, name string) {

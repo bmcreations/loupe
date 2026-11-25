@@ -33,6 +33,26 @@ func TestCompactScreenDropsBareContainers(t *testing.T) {
 	}
 }
 
+func TestCompactScreenNamesComposablesAndComposeErrors(t *testing.T) {
+	in := `{"width":1080,"height":2400,"rotation":0,"nodes":[
+	 {"class":"TextView","text":"Pair","bounds":[0,0,100,50],"center":[50,25],"composable":"Text","source":"PairScreen.kt:88"},
+	 {"class":"View","clickable":true,"bounds":[0,50,100,100],"center":[50,75],"composable":"Button"}]}`
+	got := compactScreen([]byte(in))
+	for _, w := range []string{
+		"\nTextView \"Pair\" compose=Text(PairScreen.kt:88) @50,25\n",
+		"\nView compose=Button @50,75 click\n",
+	} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
+		}
+	}
+
+	in = `{"width":1080,"height":2400,"rotation":0,"composeError":"not debuggable","nodes":[]}`
+	if got := compactScreen([]byte(in)); !strings.Contains(got, "\ncompose: no composables named: not debuggable\n") {
+		t.Errorf("composeError not shown:\n%s", got)
+	}
+}
+
 func TestCompactScreenPassesThroughWhatItCannotParse(t *testing.T) {
 	for _, in := range []string{`not json`, `{"error":"noTree"}`} {
 		if got := compactScreen([]byte(in)); got != in {

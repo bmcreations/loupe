@@ -74,6 +74,7 @@ type uiIn struct {
 	Targeted
 	Interactive bool `json:"interactive,omitempty" jsonschema:"drop layout containers and nodes covered by something else"`
 	JSON        bool `json:"json,omitempty" jsonschema:"answer with /api/ui's full JSON (bounds, every container) instead of one line per node"`
+	Compose     bool `json:"compose,omitempty" jsonschema:"Android, debuggable Jetpack Compose apps only: name the composable that drew each node and its source file:line. The first call for an app's Compose version downloads its inspector, so it can take a few seconds"`
 }
 
 type pointIn struct {
@@ -266,6 +267,9 @@ func addTools(s *mcp.Server, c *Client) {
 		q := url.Values{"target": {in.Target}}
 		if in.Interactive {
 			q.Set("interactive", "1")
+		}
+		if in.Compose {
+			q.Set("compose", "1")
 		}
 		b, err := c.getJSON(ctx, "/api/ui", q)
 		if err != nil || in.JSON {
