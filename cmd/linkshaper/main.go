@@ -17,6 +17,14 @@
 // Then point a client at the shaper's port instead of the server's. Dial the
 // tailnet address for the server if the path matters: loopback has a 16KB MTU
 // and hides anything the real path cannot carry (trap 11).
+//
+// -shape-tcp shapes TCP instead, for a WebSocket viewer. A stream cannot drop,
+// so the plan delays, caps and spikes it, and window= bounds the bytes held so
+// the server's writes block. -src dials the server from a LAN address so a
+// loopback server judges the viewer remote:
+//
+//	go run ./cmd/linkshaper -shape-tcp -listen 127.0.0.1:18467 -to 127.0.0.1:18466 -src 192.168.1.10 \
+//	    -plan "0s rate=5M delay=45ms spike=250ms-950ms spikelen=200ms-2s spikeevery=5s-20s window=256k"
 package main
 
 import (
@@ -47,24 +55,67 @@ func main() {
 	seed := flag.Int64("seed", 1, "random seed, so a run can be repeated exactly")
 	every := flag.Duration("report", 5*time.Second, "how often to print counters")
 	tcp := flag.Bool("tcp", false, "also relay TCP on the same port, unshaped, so a browser can load the page from the shaper and dial WebTransport through it")
+	shapeTCP := flag.Bool("shape-tcp", false, "shape TCP with the plan instead of UDP: the WebSocket viewer's link. Relays no UDP")
+	src := flag.String("src", "", "local IP to dial the server from. A loopback server dialled from a LAN address sees that address and treats the viewer as remote")
 	flag.Parse()
 
+	plan, err := ParsePlan(*planSrc)
+	if err == nil && *shapeTCP {
+		err = plan.CheckTCP()
+	} else if err == nil {
+		err = plan.CheckUDP()
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bad plan:", err)
+		os.Exit(2)
+	}
+	dial, err := dialUpstream(*to, *src)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "linkshaper:", err)
+		os.Exit(2)
+	}
+
+	if *shapeTCP {
+		if err := runTCP(*listen, *to, plan, *seed, *every, dial); err != nil {
+			log.Fatalln("linkshaper:", err)
+		}
+		return
+	}
 	if *tcp {
 		ln, err := net.Listen("tcp", *listen)
 		if err != nil {
 			log.Fatalln("linkshaper: tcp:", err)
 		}
-		go passTCP(ln, *to)
-	}
-
-	plan, err := ParsePlan(*planSrc)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "bad plan:", err)
-		os.Exit(2)
+		go passTCP(ln, dial)
 	}
 	if err := run(*listen, *to, plan, *seed, *every); err != nil {
 		log.Fatalln("linkshaper:", err)
 	}
+}
+
+// runTCP is -shape-tcp: every TCP connection on listen goes to the server
+// through the plan, and the spike windows are printed as they are drawn so a
+// run's log says what the link did and when.
+func runTCP(listen, to string, plan Plan, seed int64, every time.Duration, dial func() (net.Conn, error)) error {
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", listen, err)
+	}
+	defer ln.Close()
+	s := newTCPShaper(plan, seed, time.Now())
+	s.spikes.onSpike = func(w spikeWindow) {
+		fmt.Printf("%6.1fs spike at %.2fs for %v: one-way delay %v\n",
+			time.Since(s.start).Seconds(), w.Start.Seconds(), w.Len, w.Delay)
+	}
+	fmt.Printf("linkshaper tcp %s -> %s\n", ln.Addr(), to)
+	for _, ph := range plan {
+		fmt.Printf("  at %-6v rate=%-9s delay=%-7v jitter=%-7v queue=%v window=%d spike=%v-%v spikelen=%v-%v spikeevery=%v-%v\n",
+			ph.Offset, rateString(ph.Rate), ph.Delay, ph.Jitter, ph.MaxQueue, ph.Window,
+			ph.Spike.Min, ph.Spike.Max, ph.SpikeLen.Min, ph.SpikeLen.Max, ph.SpikeEvery.Min, ph.SpikeEvery.Max)
+	}
+	go s.reportLoop(every)
+	s.serve(ln, dial)
+	return nil
 }
 
 func run(listen, to string, plan Plan, seed int64, every time.Duration) error {
