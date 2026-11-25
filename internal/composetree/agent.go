@@ -19,7 +19,7 @@ const DexName = "loupe-compose.dex"
 var SHA256 = map[string]string{
 	"libloupecompose-arm64-v8a.so": "03f322fad15ad394e3daa2f972bead68fa6a81d52c858f512c16ef40cee7ac0b",
 	"libloupecompose-x86_64.so":    "e115087ba8788e2a0c8cec109905f18185c9a1c43e631b629f7e121e2b248a9d",
-	DexName:                        "ec793151b05014fa40c6e5f46033aa0f80b2b38de65293091044798158df4f38",
+	DexName:                        "219389d118804f4e9d0eaff1b95385d1774463b8098634b89df0d72504fcfb15",
 }
 
 //go:embed agent/*

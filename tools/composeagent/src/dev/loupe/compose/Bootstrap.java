@@ -1,5 +1,6 @@
 package dev.loupe.compose;
 
+import android.content.Context;
 import android.util.Log;
 import dalvik.system.DexClassLoader;
 
@@ -26,7 +27,11 @@ public class Bootstrap {
           app = at.getMethod("currentApplication").invoke(null);
           if (app == null) Thread.sleep(5);
         }
-        DexClassLoader inner = new DexClassLoader(dex, null, null, app.getClass().getClassLoader());
+        // The APK's own loader. app.getClass().getClassLoader() is only that
+        // when the app declares an Application subclass; with the plain
+        // android.app.Application it is the boot loader, and the inspector
+        // then can't find kotlin.* or androidx.compose.*.
+        DexClassLoader inner = new DexClassLoader(dex, null, null, ((Context) app).getClassLoader());
         inner.loadClass("dev.loupe.compose.Host")
             .getMethod("serve", String.class, Object.class)
             .invoke(null, dex, app);
