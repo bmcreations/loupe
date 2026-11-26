@@ -10,7 +10,8 @@ import (
 // healthCounters is the subset of *session.Session state healthTracker reads
 // each tick, narrowed to an interface so the sliding window and the
 // per-viewer attach-time gating below can be pinned by table tests against a
-// fake instead of a live session pump. *session.Session satisfies it as-is.
+// fake instead of a live session pump. viewerCounters satisfies it, so the
+// client report a viewer is judged on is its own.
 type healthCounters interface {
 	MediaCount() uint64
 	ShedCount() uint64
@@ -177,8 +178,7 @@ func (t *healthTracker) sampleAt(now time.Time, counters healthCounters, baseMs 
 
 	cs, csAt := counters.ClientStatsAt()
 	// A sample is pushed only for a FRESH report: one recorded at or after
-	// this viewer's own attach (clientStats is session scoped -- see
-	// healthInputFromClientReport) AND strictly after the last report this
+	// this viewer's own attach (see healthInputFromClientReport) AND strictly after the last report this
 	// tracker has already consumed. Without the second condition, every tick
 	// with nothing new to report -- which is most of them, since the client
 	// reports on its own once-a-second timer while the stats ticker can run

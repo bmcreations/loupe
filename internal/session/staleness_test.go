@@ -58,20 +58,20 @@ func TestShedBreakdownSumsToTheTotal(t *testing.T) {
 	}
 }
 
-// ClientStats is session state, so a viewer that joins is handed whatever the
-// previous viewer last reported. The 07:36:31 reconnect was handed 1400ms from
-// a connection that had already failed. The timestamp is what lets the caller
-// tell that reading from a current one.
+// A client rtt stops arriving exactly when the link backs up (trap 26), so it
+// carries the time it was measured and the caller can tell a stale reading
+// from a current one.
 func TestClientRTTCarriesItsAge(t *testing.T) {
-	var s Session
+	s := newTestSession(t)
+	id, _ := s.AddViewer()
 
-	if _, at := s.ClientRTTAt(); !at.IsZero() {
+	if _, at := s.ViewerClientRTTAt(id); !at.IsZero() {
 		t.Error("an unreported rtt has a timestamp; a caller cannot tell it was never measured")
 	}
 
 	before := time.Now()
-	s.RecordClientStats(map[string]any{"rttMs": float64(42)})
-	ms, at := s.ClientRTTAt()
+	s.RecordClientStats(id, map[string]any{"rttMs": float64(42)})
+	ms, at := s.ViewerClientRTTAt(id)
 	if ms != 42 {
 		t.Errorf("rtt = %v, want 42", ms)
 	}
@@ -81,8 +81,8 @@ func TestClientRTTCarriesItsAge(t *testing.T) {
 
 	// A report without a usable rtt must not refresh the timestamp, or a client
 	// that has stopped measuring looks like one that is still reporting.
-	s.RecordClientStats(map[string]any{"fps": float64(2)})
-	if _, again := s.ClientRTTAt(); !again.Equal(at) {
+	s.RecordClientStats(id, map[string]any{"fps": float64(2)})
+	if _, again := s.ViewerClientRTTAt(id); !again.Equal(at) {
 		t.Error("a report carrying no rtt refreshed the timestamp, hiding a stale measurement")
 	}
 }

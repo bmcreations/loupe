@@ -181,20 +181,12 @@ func pickRTT(quicRTT time.Duration, clientMs float64, clientAge time.Duration) (
 // arrived -- reportAge is pinned above clientRTTMaxAge so Health reads
 // "stale" rather than judging rttMs 0 and delivered 0 as a healthy silence.
 //
-// at.Before(attachedAt) is judged the same way: clientStats is session
-// scoped, not viewer scoped, so a viewer that joins a session another viewer
-// was already watching would otherwise be handed that other connection's
-// leftover report -- against its own pacer's Base() of 0, which read as "rtt
-// Xms over a 0ms base" for a link nobody had measured yet on this viewer's
-// behalf. A report timestamped before this viewer attached is treated as
-// though none had arrived, so Health reads "stale" until this viewer's own
-// report lands.
-//
-// Known gap, not fixed here: clientStats is session scoped, not viewer
-// scoped, even after this change. Once more than one viewer has reported,
-// every viewer in the session is judged on whichever report landed last,
-// not its own -- this attach-time gate only makes the single-viewer case
-// correct.
+// at.Before(attachedAt) is judged the same way. The report is this viewer's
+// own (viewerCounters), so it cannot predate the attach today; the gate
+// stays because it was added when the report was session scoped and a
+// joining viewer was handed another connection's leftover report -- against
+// its own pacer's Base() of 0, which read as "rtt Xms over a 0ms base" for a
+// link nobody had measured on this viewer's behalf.
 //
 // now is a parameter rather than time.Now() so reportAge can be pinned
 // exactly by a table test instead of racing the wall clock.
@@ -325,11 +317,33 @@ type statsSource interface {
 	ClientStats() map[string]any
 }
 
-// passthroughStats is a session as a passthrough viewer's stats tick sees it:
-// "produced" counts the passthrough track's frames, not the H.264 encoder's.
-type passthroughStats struct{ *session.Session }
+// viewerCounters is a session as one viewer's stats tick sees it. The client
+// report it reads is that viewer's own: two viewers on one device can sit on
+// links 100ms apart, and judging each on whichever reported last called a
+// loopback viewer "bad" and fed a relayed viewer's pacer a 0.3ms base. For a
+// passthrough viewer, "produced" counts the passthrough track's frames, not
+// the H.264 encoder's.
+type viewerCounters struct {
+	*session.Session
+	id          uint64
+	passthrough bool
+}
 
-func (p passthroughStats) MediaCount() uint64 { return p.PassthroughMediaCount() }
+func (v viewerCounters) MediaCount() uint64 {
+	if v.passthrough {
+		return v.PassthroughMediaCount()
+	}
+	return v.Session.MediaCount()
+}
+
+func (v viewerCounters) ClientStatsAt() (map[string]any, time.Time) {
+	return v.ViewerClientStatsAt(v.id)
+}
+
+func (v viewerCounters) ClientStats() map[string]any {
+	cs, _ := v.ViewerClientStatsAt(v.id)
+	return cs
+}
 
 // runStatsTick does the work of one stats tick: sample health, build the
 // MsgStats body and the trace record. Pulled out of serveViewer's stats case
@@ -497,10 +511,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		healthTrack := newHealthTracker(time.Now(), time.Now)
 		// A passthrough viewer is judged against the passthrough track's
 		// frames, which are the ones it is sent.
-		var counters statsSource = sess
-		if sess.ViewerPassthrough(viewerID) {
-			counters = passthroughStats{sess}
-		}
+		counters := viewerCounters{Session: sess, id: viewerID, passthrough: sess.ViewerPassthrough(viewerID)}
 		// A remote-track viewer is paced by the server's remote gate, which
 		// holds the encoder until the viewer's acks say there is room. It never
 		// sheds a delta for age or pacing here: a frame it is sent is a frame
@@ -555,7 +566,7 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 			if pr, ok := conn.(interface{ PathRTT() time.Duration }); ok {
 				quicRTT = pr.PathRTT()
 			}
-			ms, at := sess.ClientRTTAt()
+			ms, at := sess.ViewerClientRTTAt(viewerID)
 			var age time.Duration
 			if at.IsZero() {
 				age = clientRTTMaxAge + time.Second
