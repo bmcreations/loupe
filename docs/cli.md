@@ -55,7 +55,7 @@ claim before input, and requests. Routes, parameters and errors are in
 | `ext list` | `list_extensions` | |
 | `ext call` | `call_extension` | name [path] |
 
-Any other field is a flag: `-ms 300` on `swipe`, `-until edge` on `scroll`, `--interactive` on `ui`,
+Any other field is a flag: `-ms 300` on `swipe`, `-until edge` on `scroll`, `--interactive` and `--compose` on `ui`,
 `-launch` and `-downgrade` on `install`, `-tag ReactNativeJS` and `-text "sent"` on `logcat`. Values are converted by the type in the tool's
 schema. A negative number is an argument, not a flag, and `--` ends flags,
 for text that starts with a dash.

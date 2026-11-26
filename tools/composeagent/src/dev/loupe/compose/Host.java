@@ -25,7 +25,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -80,12 +79,10 @@ public class Host {
         byte[] body;
         try {
           body = inspectorThread.submit(() -> handle(op, payload)).get();
-        } catch (ExecutionException e) {
-          status = 1;
-          body = String.valueOf(e.getCause()).getBytes(StandardCharsets.UTF_8);
         } catch (Throwable e) {
           status = 1;
-          body = String.valueOf(e).getBytes(StandardCharsets.UTF_8);
+          Log.w(TAG, "op " + (char) op + " failed", e);
+          body = describe(e).getBytes(StandardCharsets.UTF_8);
         }
         out.write(status);
         out.writeInt(body.length);
@@ -95,6 +92,18 @@ public class Host {
     } catch (Throwable e) {
       Log.w(TAG, "connection ended", e);
     }
+  }
+
+  // The failure loupe shows as composeError. Reflection and the executor wrap
+  // the inspector's own exception, and "InvocationTargetException" alone says
+  // nothing, so this names the innermost cause and where it was thrown.
+  static String describe(Throwable e) {
+    Throwable root = e;
+    while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+    String s = String.valueOf(root);
+    StackTraceElement[] st = root.getStackTrace();
+    if (st.length > 0) s += " at " + st[0];
+    return s;
   }
 
   static byte[] handle(int op, byte[] payload) throws Exception {

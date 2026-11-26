@@ -101,6 +101,9 @@ other people's agents run, prefer a webhook to a thread.
 per node: class, text, `desc=`, `value=`, `id=`, the `@x,y` center and flags.
 Layout containers that carry only an id are left out, and ids in the app's own
 package are printed without it. `ui` with `json: true` returns `/api/ui`'s JSON.
+`ui` with `compose: true` asks `/api/ui` for `compose=1` and adds
+`compose=Name(File.kt:line)` to each node a composable drew; see
+[agent-api.md](agent-api.md) for what it needs.
 
 TLS is verified except for a loopback host, whose certificate names the ts.net
 host instead.
