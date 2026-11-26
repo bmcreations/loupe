@@ -26,7 +26,7 @@ connection.
 | Path | What it is |
 | --- | --- |
 | `cmd/loupe/` | Flags, target registration, HTTP/3 + TLS startup; `mcp.go` is `loupe mcp` |
-| `cmd/` (others) | Probes (`wtprobe`, `simprobe`, `overlaptest`, ...) and `linkshaper`; see the `loupe-probes` skill |
+| `cmd/` (others) | Probes (`wtprobe`, `wsprobe`, `simprobe`, `overlaptest`, ...) and `linkshaper`; see the `loupe-probes` skill |
 | `internal/scrcpy/` | scrcpy wire protocol: control messages, stream header, framing. `server/` embeds the pinned scrcpy-server jar |
 | `internal/h264/` | Annex B parsing, SPS/PPS, access unit boundaries |
 | `internal/session/` | Session lifecycle, protocol constants, the pacer (congestion control), adaptive bitrate policy (`bitrate.go`) and encoder swap (`relaunch.go`), input arbitration (`arbiter.go`), `Tap` for recorders |

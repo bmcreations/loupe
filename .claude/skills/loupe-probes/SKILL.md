@@ -155,3 +155,30 @@ after the kill:
 pkill -f '/tmp/loupe-spare/loupe -addr 127.0.0.1:18998'
 lsof -nP -iTCP:18998 -sTCP:LISTEN || echo free
 ```
+
+## Relayed-link rig
+
+`scripts/relayed-rig.sh` reproduces a viewer on a relayed, spiky WebSocket
+link (Tailscale DERP over hotel wifi) next to one on loopback. It starts a
+spare server on the synthetic target, `cmd/linkshaper -shape-tcp` in front of
+it, and two `cmd/wsprobe` viewers, then stops each by the PID it started:
+
+```sh
+scripts/relayed-rig.sh -o /path/run1 -for 120            # A direct, B shaped
+scripts/relayed-rig.sh -o /path/run2 -for 120 -unshaped  # control
+scripts/relayed-rig.sh -o /path/run1b -for 120 -no-a     # B alone
+scripts/relayed-rig.sh -report /path/run1                # tables from saved files
+```
+
+- `linkshaper -shape-tcp` applies a plan to TCP: `delay`, `jitter`, `rate`,
+  plus `spike=`, `spikelen=`, `spikeevery=` (seeded, each spike logged) and
+  `window=` (bytes in flight). TCP cannot drop, so `loss` is refused and a
+  spike stalls the stream in order. `-src IP` dials the server from a LAN
+  address so the server judges the viewer remote.
+- `wsprobe` sends what `web/` sends: acks, a ping every 500 ms, an EWMA
+  `rttMs`, and `decFps` as frames it received (it does not decode). It writes
+  one JSON line a second with frames, keyframes, `now - sentAt` delay and
+  the longest gap. Same Mac as the server, so the delay is real one-way.
+- Synthetic ignores keyframe requests, so each wait for a key runs to the
+  next one-second keyframe and `awaitKey` sheds read high. Compare against an
+  emulator before quoting keyframe counts.
