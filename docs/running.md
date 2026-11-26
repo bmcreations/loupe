@@ -104,7 +104,7 @@ its own file.
 | `drop` | 0 | Client-side drops / decoder errors |
 | `buf` | well under `-max-buffer` | Current jitter-buffer depth. At the ceiling is pure added latency |
 | `via` | `wt` | Which transport is live |
-| `shed` | 0 | Frames the server abandoned rather than send late |
+| `shed` | 0 | Frames a second the server abandoned for this viewer rather than send late |
 | `kbps` | ~bitrate | Actual received rate |
 
 `jitter` and `buf` are the pair to watch. A stream can report 60fps and still

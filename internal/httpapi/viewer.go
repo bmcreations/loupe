@@ -308,6 +308,10 @@ const keyframeRequestInterval = 500 * time.Millisecond
 type statsSource interface {
 	healthCounters
 	FrameCount() uint64
+	// ShedCount and ShedBreakdown are the session's totals across every
+	// viewer, for the cumulative "shed" and its four causes, which sum to it
+	// in every row (trap 27). This viewer's own is OwnShedCount.
+	ShedCount() uint64
 	ShedBreakdown() session.ShedCounts
 	DropCount() uint64
 	WaitCount() uint64
@@ -320,9 +324,11 @@ type statsSource interface {
 // viewerCounters is a session as one viewer's stats tick sees it. The client
 // report it reads is that viewer's own: two viewers on one device can sit on
 // links 100ms apart, and judging each on whichever reported last called a
-// loopback viewer "bad" and fed a relayed viewer's pacer a 0.3ms base. For a
-// passthrough viewer, "produced" counts the passthrough track's frames, not
-// the H.264 encoder's.
+// loopback viewer "bad" and fed a relayed viewer's pacer a 0.3ms base. So are
+// the sheds its verdict reads (OwnShedCount): with the session's total, a
+// loopback viewer that missed no frames read "bad: shed N/s" for 39 seconds
+// of a relayed viewer's spikes. For a passthrough viewer, "produced" counts
+// the passthrough track's frames, not the H.264 encoder's.
 type viewerCounters struct {
 	*session.Session
 	id          uint64
@@ -334,6 +340,10 @@ func (v viewerCounters) MediaCount() uint64 {
 		return v.PassthroughMediaCount()
 	}
 	return v.Session.MediaCount()
+}
+
+func (v viewerCounters) OwnShedCount() uint64 {
+	return v.ViewerShedCount(v.id)
 }
 
 func (v viewerCounters) ClientStatsAt() (map[string]any, time.Time) {
@@ -359,10 +369,11 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 	tick := healthTrack.Sample(sess, baseMs)
 	verdict, healthReason := session.Health(tick.Input)
 
-	// shed and produced are read again here as the session's running
-	// totals: healthTrack.Sample already diffed them against its own
-	// last-seen values for tick.ShedRate and tick.ProducedRate, but the
-	// trace record additionally wants each counter's cumulative total.
+	// shed and produced are the session's running totals. tick.ProducedRate
+	// is produced diffed, but tick.ShedRate is this viewer's own sheds
+	// diffed, not this total's: the cumulative shed stays session wide so it
+	// still equals the sum of the four causes recorded beside it. The trace
+	// row's viewerShed is the viewer's own total that shedRate diffs.
 	shed := sess.ShedCount()
 	produced := sess.FrameCount()
 
@@ -393,6 +404,7 @@ func runStatsTick(targetID string, sess statsSource, healthTrack *healthTracker,
 		"shedAwaitKey": shedBy.AwaitKey,
 		"shedAbandon":  shedBy.Abandon,
 		"shed":         shed,
+		"viewerShed":   sess.OwnShedCount(),
 		"shedRate":     tick.ShedRate,
 		"serverDrop":   sess.DropCount(),
 		"awaitKey":     sess.WaitCount(),
@@ -498,15 +510,16 @@ func (s *Server) serveViewerWith(targetID string, sess *session.Session, conn Co
 		stats := time.NewTicker(time.Second)
 		defer stats.Stop()
 
-		// health seeds its shed/produced/config diff base from the session's
-		// current counters, not from zero, for the same reason the old
-		// lastShed here did: those counters are session scoped and survive a
-		// viewer, so a fresh viewer diffs against the session's running
-		// total rather than assuming the stream started at zero when it
-		// joined. The 07:36 trace has two rows, 200 and 207, where a naive
-		// zero seed reported the session's whole accumulated shed as one
-		// second's rate. attachedAt additionally gates which clientStats
-		// report this viewer is allowed to read -- see
+		// health seeds its produced and shed diff base from the counters'
+		// current values on its first tick, not from zero. Produced is session
+		// scoped and survives a viewer, so a fresh viewer diffs against the
+		// session's running total rather than assuming the stream started at
+		// zero when it joined. Shed used to be session scoped too, and the
+		// 07:36 trace has two rows, 200 and 207, where a zero seed reported
+		// the session's whole accumulated shed as one second's rate. It is
+		// this viewer's own count now (viewerCounters.OwnShedCount), which
+		// starts at zero with the viewer. attachedAt additionally gates which
+		// clientStats report this viewer is allowed to read -- see
 		// healthInputFromClientReport's doc comment.
 		healthTrack := newHealthTracker(time.Now(), time.Now)
 		// A passthrough viewer is judged against the passthrough track's
