@@ -21,7 +21,12 @@ type fakeLaunchDevice struct {
 	debuggable   bool
 	loads        bool
 	attachOutput string
-	log          []string
+	// mapped is the pids whose maps show the agent: set by an attach that
+	// loads, or by a test standing in for an earlier loupe's attach.
+	mapped map[int]bool
+	// refusal is what run-as prints for an app that is not debuggable.
+	refusal string
+	log     []string
 }
 
 func (f *fakeLaunchDevice) injector(attached *attachLog) *launchInjector {
@@ -36,13 +41,22 @@ func (f *fakeLaunchDevice) injector(attached *attachLog) *launchInjector {
 				}
 				return fmt.Sprintf("%d\n", f.pid), nil
 			case strings.HasPrefix(cmd, "run-as ") && !f.debuggable:
+				if f.refusal != "" {
+					return f.refusal, errors.New("exit status 1")
+				}
 				return "run-as: package not debuggable: com.example.app\n", errors.New("exit status 1")
 			case strings.Contains(cmd, "grep -c -F"):
-				if f.loads {
+				if f.mapped[f.pid] {
 					return "1\n", nil
 				}
 				return "0\n", errors.New("exit status 1")
 			case strings.HasPrefix(cmd, "am attach-agent "):
+				if f.loads && f.attachOutput == "" {
+					if f.mapped == nil {
+						f.mapped = map[int]bool{}
+					}
+					f.mapped[f.pid] = true
+				}
 				return f.attachOutput, nil
 			}
 			return "", nil
@@ -99,6 +113,7 @@ func TestLaunchWithAttachesInOrder(t *testing.T) {
 		"sh pidof 'com.example.app'",
 		"sh run-as 'com.example.app' sh -c 'true'",
 		"reverse localabstract:ext-sock tcp:18492",
+		"sh run-as 'com.example.app' sh -c " + shellQuote("grep -c -F '/code_cache/loupe-ext/ext.so' /proc/1234/maps"),
 		"push libagent.so /data/local/tmp/loupe-ext/ext.so",
 		"push runtime.dex /data/local/tmp/loupe-ext/ext.dex",
 		"sh run-as 'com.example.app' sh -c " + shellQuote("mkdir -p 'code_cache/loupe-ext' && cd 'code_cache/loupe-ext'"+
@@ -151,6 +166,24 @@ func TestLaunchWithAttachesOncePerProcess(t *testing.T) {
 	}
 }
 
+// A loupe that restarted has no record of its attach, but the agent is
+// still in the process's maps: that is "already", not a second attach.
+func TestLaunchWithSeesAnAgentAnEarlierLoupeAttached(t *testing.T) {
+	f := &fakeLaunchDevice{pid: 1234, debuggable: true, loads: true, mapped: map[int]bool{1234: true}}
+	res, err := f.injector(&attachLog{}).launchWith(context.Background(), "com.example.app", "", []target.LaunchExtension{agentExt(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range f.log {
+		if strings.HasPrefix(c, "push ") || strings.Contains(c, "attach-agent") || strings.Contains(c, "rm -f") {
+			t.Errorf("ran %q", c)
+		}
+	}
+	if got := res.With[0].Attached; got != target.AttachedAlready {
+		t.Errorf("attached = %v, want %q", got, target.AttachedAlready)
+	}
+}
+
 // run-as refusing the app is ErrNotDebuggable, after the launch and before
 // anything is pushed, reversed or attached.
 func TestLaunchWithRefusesAnAppThatIsNotDebuggable(t *testing.T) {
@@ -163,6 +196,31 @@ func TestLaunchWithRefusesAnAppThatIsNotDebuggable(t *testing.T) {
 		if strings.HasPrefix(c, "push ") || strings.HasPrefix(c, "reverse ") || strings.Contains(c, "attach-agent") {
 			t.Errorf("ran %q", c)
 		}
+	}
+}
+
+// run-as refuses an app with a system uid, such as Settings, in other words.
+// That is ErrNotDebuggable too, not a bare exit status.
+func TestLaunchWithRefusesASystemApp(t *testing.T) {
+	f := &fakeLaunchDevice{pid: 1234, debuggable: false, loads: true, refusal: "run-as: package not an application: com.android.settings\n"}
+	_, err := f.injector(&attachLog{}).launchWith(context.Background(), "com.android.settings", "", []target.LaunchExtension{agentExt(t)})
+	if !errors.Is(err, ErrNotDebuggable) {
+		t.Fatalf("err = %v, want ErrNotDebuggable", err)
+	}
+}
+
+// Two extensions asking for one socket name is an error before anything
+// launches: the second reverse would repoint the first one's socket.
+func TestLaunchWithRefusesTwoExtensionsOnOneReverse(t *testing.T) {
+	f := &fakeLaunchDevice{pid: 1234, debuggable: true, loads: true}
+	a := target.LaunchExtension{Name: "one", Reverse: "shared-sock", ReversePort: 9001}
+	b := target.LaunchExtension{Name: "two", Reverse: "shared-sock", ReversePort: 9002}
+	_, err := f.injector(&attachLog{}).launchWith(context.Background(), "com.example.app", "", []target.LaunchExtension{a, b})
+	if !errors.Is(err, target.ErrBadLaunchSpec) {
+		t.Fatalf("err = %v, want ErrBadLaunchSpec", err)
+	}
+	if len(f.log) != 0 {
+		t.Errorf("ran %q before refusing", f.log)
 	}
 }
 

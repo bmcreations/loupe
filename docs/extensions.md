@@ -222,7 +222,9 @@ process. Then, for each extension:
 
 - **`reverse`** runs `adb reverse localabstract:<reverse> tcp:<port>`, where
   the port is the one in the extension's registered `url`. It runs on every
-  launch, because an adb restart or a reboot drops it.
+  launch, because an adb restart or a reboot drops it. A reverse belongs to
+  the device, not the extension: a later launch with another extension that
+  asks for the same name points the socket at that extension instead.
 - **`agent`** needs a debuggable app. If `run-as` refuses the app, the launch
   answers 400 `<package> is not debuggable`, and the app is left running
   without the agent. Loupe pushes the files to
@@ -235,7 +237,9 @@ process. Then, for each extension:
   waits up to 3 seconds for the `.so` to show in the process's memory maps,
   and fails the launch if it doesn't. Logcat says why.
 - An agent loupe already attached to the same process is not attached again.
-  The launch reports `"attached": "already"` for it.
+  The launch reports `"attached": "already"` for it. Loupe checks the
+  process's memory maps for the `.so` before it attaches, so this holds
+  after loupe restarts too.
 
 The launch answers with one entry per extension:
 
@@ -259,7 +263,7 @@ never falls back to a launch without that extension.
 | `agent.so`, `agent.dex` | Both required, each an absolute path to a regular file on this Mac. |
 | `agent.options` keys | `^[a-z][a-z0-9_]{0,31}$` |
 | `agent.options` values | `^[A-Za-z0-9._:/@-]{1,200}$`: no comma, `=`, quote, space or `;`. |
-| `reverse` | `^[a-z][a-z0-9-]{0,31}$` |
+| `reverse` | `^[a-z][a-z0-9-]{0,31}$`. Two extensions in one launch can't ask for the same name. |
 
 The device paths and the reverse's port come from loupe, never from the
 answer, and loupe builds the options string itself.

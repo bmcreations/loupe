@@ -135,12 +135,19 @@ func (d *launchInjector) launchWith(ctx context.Context, pkg, activity string, e
 	d.attached.launching.Lock()
 	defer d.attached.launching.Unlock()
 	agents := false
+	reverses := map[string]string{}
 	for _, e := range exts {
 		// Checked again here, not only by the caller, because these values
 		// reach the device's shell.
 		if err := e.Validate(target.LaunchAndroid); err != nil {
 			return nil, fmt.Errorf("extension %s: %w", e.Name, err)
 		}
+		// One socket name, one port: the second reverse would silently
+		// repoint the first extension's socket at the second.
+		if by, ok := reverses[e.Reverse]; ok && e.Reverse != "" {
+			return nil, fmt.Errorf("extension %s: %w: reverse %s is already asked for by extension %s", e.Name, target.ErrBadLaunchSpec, e.Reverse, by)
+		}
+		reverses[e.Reverse] = e.Name
 		agents = agents || e.Agent != nil
 	}
 	lr, err := d.launch(ctx, pkg, activity)
@@ -172,7 +179,11 @@ func (d *launchInjector) launchWith(ctx context.Context, pkg, activity string, e
 			}
 		}
 		if e.Agent != nil {
-			if d.attached.attachedTo(e.Name, pkg, pid) {
+			// The record, or else the process's maps: a loupe that has
+			// restarted since the attach has no record, and the agent is
+			// still loaded.
+			if d.attached.attachedTo(e.Name, pkg, pid) || d.mapped(ctx, pkg, pid, e.Name+".so") {
+				d.attached.note(e.Name, pkg, pid)
 				le.Attached = target.AttachedAlready
 			} else {
 				if err := d.attach(ctx, pkg, pid, e); err != nil {
@@ -246,16 +257,25 @@ func (d *launchInjector) attach(ctx context.Context, pkg string, pid int, e targ
 	return d.waitLoaded(ctx, pkg, pid, so)
 }
 
+// mapped reports whether so, under the app's code_cache/loupe-ext, is in
+// pid's maps. Only loupe writes that directory.
+func (d *launchInjector) mapped(ctx context.Context, pkg string, pid int, so string) bool {
+	script := "grep -c -F " + shellQuote("/"+launchExtDir+"/"+so) + " /proc/" + strconv.Itoa(pid) + "/maps"
+	out, _ := runAsPkg(ctx, d.sh, pkg, script)
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	return err == nil && n > 0
+}
+
 // waitLoaded waits for so to show in pid's maps. am attach-agent hands the
 // path to the app and returns, and an agent that fails to load says so only
 // in logcat, so without this a broken agent would be reported attached.
+// launchWith attaches only when so was not mapped already, so a mapping
+// here is this attach's.
 func (d *launchInjector) waitLoaded(ctx context.Context, pkg string, pid int, so string) error {
-	script := "grep -c -F " + shellQuote("/"+launchExtDir+"/"+so) + " /proc/" + strconv.Itoa(pid) + "/maps"
 	wait := cmp.Or(d.loadWait, launchLoadWait)
 	deadline := time.Now().Add(wait)
 	for {
-		out, _ := runAsPkg(ctx, d.sh, pkg, script)
-		if n, err := strconv.Atoi(strings.TrimSpace(out)); err == nil && n > 0 {
+		if d.mapped(ctx, pkg, pid, so) {
 			return nil
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {

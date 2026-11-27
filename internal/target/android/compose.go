@@ -206,10 +206,11 @@ func (d *composeDevice) runAs(ctx context.Context, pkg, script string) error {
 // runAsPkg runs script as pkg, in its data directory, and returns what it
 // printed. pkg must have passed ValidPackageName. run-as refuses an app
 // that is not debuggable, which is the line agents stop at; that refusal
-// is ErrNotDebuggable.
+// is ErrNotDebuggable. So is its refusal of an app with a system uid, such
+// as Settings: "package not an application".
 func runAsPkg(ctx context.Context, sh shellFunc, pkg, script string) (string, error) {
 	out, err := sh(ctx, "run-as "+shellQuote(pkg)+" sh -c "+shellQuote(script))
-	if strings.Contains(out, "not debuggable") {
+	if strings.Contains(out, "not debuggable") || strings.Contains(out, "not an application") {
 		return out, fmt.Errorf("%s: %w", pkg, ErrNotDebuggable)
 	}
 	return out, err
