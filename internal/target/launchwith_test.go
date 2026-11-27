@@ -112,6 +112,7 @@ func TestLaunchExtensionValidateRefuses(t *testing.T) {
 		"dex relative":  {LaunchAndroid, LaunchExtension{Name: "ext", Agent: agent(func(a *LaunchAgent) { a.Dex = "agent.dex" })}},
 		"dex missing":   {LaunchAndroid, LaunchExtension{Name: "ext", Agent: agent(func(a *LaunchAgent) { a.Dex = filepath.Join(dir, "none.dex") })}},
 		"dex directory": {LaunchAndroid, LaunchExtension{Name: "ext", Agent: agent(func(a *LaunchAgent) { a.Dex = dir })}},
+		"dex empty":     {LaunchAndroid, LaunchExtension{Name: "ext", Agent: agent(func(a *LaunchAgent) { a.Dex = "" })}},
 		// options: keys ^[a-z][a-z0-9_]{0,31}$
 		"option key upper":     {LaunchAndroid, LaunchExtension{Name: "ext", Agent: agent(func(a *LaunchAgent) { a.Options = map[string]string{"Runtime": "x"} })}},
 		"option key digit 1st": {LaunchAndroid, LaunchExtension{Name: "ext", Agent: agent(func(a *LaunchAgent) { a.Options = map[string]string{"1a": "x"} })}},
