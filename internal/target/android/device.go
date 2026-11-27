@@ -52,6 +52,10 @@ type Device struct {
 	composeOnce sync.Once
 	compose     *composeDevice
 
+	// launchAgents is each extension agent LaunchWith attached, by app
+	// process. See launchwith.go.
+	launchAgents attachLog
+
 	// inspectMu serializes Inspect: Android kills a second UiAutomation
 	// client. a11yPushed, under it, is whether this loupe has put the
 	// a11ydump dex on the device. See a11ydump.go.

@@ -264,6 +264,24 @@ func (e *Emulator) CheckLaunch(pkg, activity string) error {
 	return checkAndroidLaunch(pkg, activity)
 }
 
+func (e *Emulator) LaunchFacts(ctx context.Context) (target.LaunchFacts, error) {
+	in, done, err := e.running()
+	if err != nil {
+		return target.LaunchFacts{}, err
+	}
+	defer done()
+	return in.LaunchFacts(ctx)
+}
+
+func (e *Emulator) LaunchWith(ctx context.Context, pkg, activity string, exts []target.LaunchExtension) (*target.LaunchWithResult, error) {
+	in, done, err := e.running()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	return in.LaunchWith(ctx, pkg, activity, exts)
+}
+
 func (e *Emulator) OpenURL(ctx context.Context, u string) (*target.LaunchResult, error) {
 	in, done, err := e.running()
 	if err != nil {

@@ -255,6 +255,17 @@ func (a ADB) RemoveForward(ctx context.Context, serial string, port int) error {
 	return nil
 }
 
+// Reverse makes remote on the device (an adb reverse spec such as
+// "localabstract:name") connect to port on this Mac's loopback, replacing a
+// reverse already there for remote.
+func (a ADB) Reverse(ctx context.Context, serial, remote string, port int) error {
+	out, err := exec.CommandContext(ctx, a.bin(), "-s", serial, "reverse", remote, "tcp:"+strconv.Itoa(port)).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("adb reverse %s: %w: %s", remote, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // ExecOut runs a command on the device and returns its stdout alone, with no
 // pty translation and with stderr kept separate. Shell uses CombinedOutput,
 // which is right for probing a property and wrong for anything structured: a

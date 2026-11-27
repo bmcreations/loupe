@@ -128,7 +128,7 @@ Body: `{"action": "...", ...}`. Field shapes are in `docs/api.schema.json`.
 | `key` | `keycode` | |
 | `button` | `button` | `back`, `home`, `lock` or `recents`. |
 | `pinch`, `rotate`, `reclaim`, `hardwareKeyboard` | see schema | |
-| `launch` | `package`, `activity?` | See Launch. |
+| `launch` | `package`, `activity?`, `with?` | See Launch. |
 | `openURL` | `url` | See Open a URL. |
 | `move` | `x`, `y` | Touches nothing. |
 | `wait` | `ms` or `match` | Touches nothing. |
@@ -281,6 +281,35 @@ the launcher activity is used. On a simulator `package` is the bundle ID and
 The trace record has `package`, `tookMs`, `activity` when named, and `started`,
 the component the device reports. For a trampoline that is not the one asked
 for.
+
+`with` names extensions whose part the launch carries, each registered with
+`"launch": true`:
+
+```
+POST /api/input?target=avd:Pixel_8
+{"action":"launch","package":"com.example.app","with":["myext"]}
+
+{"ok":true,"with":[{"name":"myext","pid":4321,"attached":true}]}
+```
+
+Loupe asks each extension, at its `/launch-spec`, what to launch with, and
+launches nothing until every answer has passed its checks. On an iOS simulator
+that is environment for the app, and the app is always started again:
+`"relaunched": true` says it was running. On Android it is a JVMTI agent
+attached once the process is up, and an `adb reverse`. `attached` is
+`"already"` when loupe had attached that agent to the same process before.
+What an extension answers, and what loupe checks, is in Launch-time injection
+in [extensions.md](extensions.md).
+
+| Status | Meaning |
+|---|---|
+| 400 | `with` is empty, is on another action, names an extension twice, or names one that is not registered or did not register with `launch`. Also a physical iPhone: `launch injection is simulator-only`. Checked before arbitration. |
+| 400 | `<package> is not debuggable`: an extension has an agent and `run-as` refuses the app. The app was launched by then, without any agent. |
+| 501 | The target cannot launch with extensions, such as a peer's. |
+| 502 | `extension <name>: ...`: the extension did not answer with a 2xx, its answer failed a check, or its reverse, push or attach failed. |
+
+The other launch statuses above apply as well. The trace record adds `with`,
+and `relaunched` when it is true.
 
 #### Open a URL
 

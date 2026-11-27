@@ -1207,6 +1207,9 @@
         "label": {
           "type": "string"
         },
+        "launch": {
+          "type": "boolean"
+        },
         "name": {
           "type": "string"
         },
@@ -1228,6 +1231,9 @@
       "properties": {
         "label": {
           "type": "string"
+        },
+        "launch": {
+          "type": "boolean"
         },
         "name": {
           "type": "string"
@@ -1863,6 +1869,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -1971,6 +1983,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -2077,6 +2095,12 @@
             },
             "url": {
               "type": "string"
+            },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "x": {
               "type": "integer"
@@ -2188,6 +2212,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -2297,6 +2327,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -2403,6 +2439,12 @@
             },
             "url": {
               "type": "string"
+            },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "x": {
               "type": "integer"
@@ -2511,6 +2553,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -2618,6 +2666,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -2724,6 +2778,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -2829,6 +2889,12 @@
             },
             "url": {
               "type": "string"
+            },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "x": {
               "type": "integer"
@@ -2937,6 +3003,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -3044,6 +3116,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -3150,6 +3228,12 @@
             },
             "url": {
               "type": "string"
+            },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "x": {
               "type": "integer"
@@ -3259,6 +3343,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -3365,6 +3455,12 @@
             },
             "url": {
               "type": "string"
+            },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "x": {
               "type": "integer"
@@ -3473,6 +3569,12 @@
             "url": {
               "type": "string"
             },
+            "with": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "x": {
               "type": "integer"
             },
@@ -3527,8 +3629,17 @@
             }
           ]
         },
+        "relaunched": {
+          "type": "boolean"
+        },
         "swipes": {
           "type": "integer"
+        },
+        "with": {
+          "items": {
+            "$ref": "#/$defs/target.LaunchedExtension"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -5677,6 +5788,21 @@
       "required": [
         "name",
         "label"
+      ],
+      "type": "object"
+    },
+    "target.LaunchedExtension": {
+      "properties": {
+        "attached": {},
+        "name": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name"
       ],
       "type": "object"
     },

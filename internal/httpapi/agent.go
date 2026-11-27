@@ -351,6 +351,12 @@ type InputRequest struct {
 	// Activity is the launch action's Android activity, qualified or
 	// starting with "."; empty opens the launcher activity.
 	Activity string `json:"activity,omitempty"`
+	// With names the extensions a launch carries, each registered with
+	// "launch": true. Loupe asks each, at its /launch-spec, for the
+	// environment (iOS simulator) or the JVMTI agent and reverse (Android)
+	// to launch with, and launches nothing unless every answer passes. See
+	// docs/extensions.md, "Launch-time injection".
+	With []string `json:"with,omitempty"`
 	// URL is the openURL action's link, handed to whatever the device has
 	// registered for it. Only its scheme and host are traced.
 	URL string `json:"url,omitempty"`
@@ -381,6 +387,11 @@ type InputResponse struct {
 	Swipes int     `json:"swipes,omitempty"`
 	AtEdge bool    `json:"atEdge,omitempty"`
 	Region *[4]int `json:"region,omitempty"`
+	// Relaunched and With answer a launch with extensions: whether the app
+	// was running and was started again, and what each extension's part
+	// did.
+	Relaunched bool                       `json:"relaunched,omitempty"`
+	With       []target.LaunchedExtension `json:"with,omitempty"`
 }
 
 // validateInputRequest checks that body -- the raw request bytes, decoded
@@ -473,9 +484,15 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.With != nil && req.Action != "launch" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "with is only for the launch action"})
+		return
+	}
 	// A launch the target cannot do, or one naming something that is not
 	// a package, is answered before arbitration: under a hold it would
-	// otherwise be a 409 that no retry can turn into a launch.
+	// otherwise be a 409 that no retry can turn into a launch. So are the
+	// extensions it names, for the same reason.
+	var launchExts []*registeredExtension
 	if req.Action == "launch" {
 		ln, ok := t.(target.Launcher)
 		if !ok {
@@ -487,6 +504,18 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		if err := ln.CheckLaunch(req.Package, req.Activity); err != nil {
 			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 			return
+		}
+		if req.With != nil {
+			if len(req.With) == 0 {
+				writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "with names no extension"})
+				return
+			}
+			exts, lerr := s.launchExtensions(t, req.With)
+			if lerr != nil {
+				writeJSON(w, lerr.status, ErrorResponse{Error: lerr.Error()})
+				return
+			}
+			launchExts = exts
 		}
 	}
 	// openURL the same way, for the same reason.
@@ -591,6 +620,8 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	var redaction *textRedaction
 	// extra is added to this action's trace record.
 	var extra map[string]any
+	// launched is a launch with extensions' result.
+	var launched *target.LaunchWithResult
 	switch req.Action {
 	case "tap", "swipe", "text", "key", "button":
 		// All five need an Actuator: tap/swipe/text/key run one of its
@@ -741,6 +772,25 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		// humanHeld before anything reaches the device. Whether it can
 		// launch at all, and the names, were checked above.
 		ln := t.(target.Launcher)
+		if len(launchExts) > 0 {
+			var lerr *launchWithError
+			launched, lerr = s.launchWith(r.Context(), t.(target.LaunchInjector), t.ID(), req, launchExts, max(timeout, launchWithTimeout))
+			var res *target.LaunchResult
+			if launched != nil {
+				res = &launched.LaunchResult
+			}
+			extra = launchWithTrace(launchTrace(req.Package, req.Activity, res, began), req.With, launched)
+			if lerr != nil {
+				s.traceInputWith(r, t.ID(), req.Action, c, lerr, extra)
+				if code, status, ok := launchErrCode(lerr); ok {
+					writeJSON(w, status, ErrorResponse{Error: lerr.Error(), Code: code})
+					return
+				}
+				writeJSON(w, lerr.status, ErrorResponse{Error: lerr.Error()})
+				return
+			}
+			break
+		}
 		var res *target.LaunchResult
 		res, err = ln.Launch(ctx, req.Package, req.Activity)
 		extra = launchTrace(req.Package, req.Activity, res, began)
@@ -839,7 +889,11 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		s.inputs.touch(t.ID(), time.Now())
 	}
 	s.agentActed(t.ID(), req.Action, c)
-	writeJSON(w, http.StatusOK, InputResponse{OK: true, Matched: matched})
+	resp := InputResponse{OK: true, Matched: matched}
+	if launched != nil {
+		resp.Relaunched, resp.With = launched.Relaunched, launched.With
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // matchPollEvery is the pause between hierarchy dumps while a match waits

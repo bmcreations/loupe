@@ -48,6 +48,10 @@ type ExtensionRequest struct {
 	// Page, when set, is a path under URL that the web client opens as the
 	// extension's page, such as "/". See validPage for its rules.
 	Page string `json:"page,omitempty"`
+	// Launch lets a launch name the extension in its with list, which has
+	// loupe ask it, at URL + "/launch-spec", what the launch should carry.
+	// See docs/extensions.md, "Launch-time injection".
+	Launch bool `json:"launch,omitempty"`
 }
 
 // Extension is one registered extension.
@@ -59,6 +63,8 @@ type Extension struct {
 	// Page is the request's Page as a loupe path: "/api/ext/{name}/" for a
 	// page of "/". Empty, and left out, when the extension has no page.
 	Page string `json:"page,omitempty"`
+	// Launch is the request's Launch.
+	Launch bool `json:"launch,omitempty"`
 }
 
 // ExtensionsResponse is GET /api/extensions's body.
@@ -156,7 +162,7 @@ func (x *extensionRegistry) register(req ExtensionRequest) (Extension, error) {
 	if _, ok := x.all[req.Name]; !ok && len(x.all) >= maxExtensions {
 		return Extension{}, errors.New("too many extensions registered")
 	}
-	ext := Extension{Name: req.Name, Label: label, Path: "/api/ext/" + req.Name + "/"}
+	ext := Extension{Name: req.Name, Label: label, Path: "/api/ext/" + req.Name + "/", Launch: req.Launch}
 	if req.Page != "" {
 		ext.Page = "/api/ext/" + req.Name + req.Page
 	}
