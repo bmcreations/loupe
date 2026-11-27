@@ -53,6 +53,13 @@ the server.
   gives the page the reach the extension's process already has, and an XSS
   bug in an extension's page is an XSS bug in loupe. See Security model in
   [extensions.md](extensions.md).
+- **A launch extension chooses what an app loads.** A launch with `with`
+  loads the files an extension names into a simulator app, or into a
+  debuggable Android app as a JVMTI agent. Registering takes only the token,
+  so a token holder can load any file on the Mac that way, which the token
+  already allows by installing a build. loupe checks the extension's answer
+  and picks the device paths itself; it does not vet the code. See
+  Launch-time injection in [extensions.md](extensions.md).
 - **A paired browser cannot open `/wt` yet.** The web client still builds
   the WebTransport URL from the master token cookie. Pairing currently
   serves native clients, bearer tokens and peer servers.

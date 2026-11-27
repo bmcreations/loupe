@@ -40,18 +40,23 @@ func (s *Simulator) Launch(ctx context.Context, bundle, activity string) (*targe
 		return nil, err
 	}
 	if err != nil {
-		// simctl's error for a missing app is FBSOpenApplicationService code
-		// 4, "The request to open ... failed", which names no cause. Asking
-		// for the app's container does: on loupe-probe it exits 2 with
-		// ENOENT for a bundle that is not installed and 0 for Settings.
-		// Any other failure of that check says nothing about the app, so the
-		// launch's own error stands.
-		if appContainerMissing(exec.CommandContext(ctx, "xcrun", "simctl", "get_app_container", s.UDID(), bundle).Run()) && ctx.Err() == nil {
-			return nil, fmt.Errorf("%w: %s", target.ErrAppNotInstalled, bundle)
-		}
-		return nil, fmt.Errorf("simctl launch %s: %w: %s", bundle, err, strings.TrimSpace(string(out)))
+		return nil, s.launchFailed(ctx, bundle, out, err)
 	}
 	return &target.LaunchResult{}, nil
+}
+
+// launchFailed words a failed `simctl launch` of bundle.
+func (s *Simulator) launchFailed(ctx context.Context, bundle string, out []byte, err error) error {
+	// simctl's error for a missing app is FBSOpenApplicationService code
+	// 4, "The request to open ... failed", which names no cause. Asking
+	// for the app's container does: on loupe-probe it exits 2 with
+	// ENOENT for a bundle that is not installed and 0 for Settings.
+	// Any other failure of that check says nothing about the app, so the
+	// launch's own error stands.
+	if appContainerMissing(exec.CommandContext(ctx, "xcrun", "simctl", "get_app_container", s.UDID(), bundle).Run()) && ctx.Err() == nil {
+		return fmt.Errorf("%w: %s", target.ErrAppNotInstalled, bundle)
+	}
+	return fmt.Errorf("simctl launch %s: %w: %s", bundle, err, strings.TrimSpace(string(out)))
 }
 
 // CheckLaunch implements Launcher.

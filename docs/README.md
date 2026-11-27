@@ -28,7 +28,7 @@ The top-level `README.md` says what loupe does. Start with
 
 | Doc | What's in it |
 | --- | --- |
-| [extensions.md](extensions.md) | The v0 contract: registering, the `/api/ext` proxy, the security model |
+| [extensions.md](extensions.md) | The v0 contract: registering, the `/api/ext` proxy, launch-time injection, the security model |
 | [../action/README.md](../action/README.md) | The GitHub Action that installs a PR's APK and links the PR to the device |
 
 ## How it works
